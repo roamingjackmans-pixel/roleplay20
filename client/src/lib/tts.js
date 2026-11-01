@@ -125,9 +125,20 @@ function enqueue(text, profile, key, prefs, extra = {}) {
 
 const CREATURE = { gender: 'male', age: 'old', accent: 'any', pitch: 0.55, rate: 0.85 };
 
+/** Addressed to particular players rather than the whole table ("only you", private, secret). */
+export function isPrivateEntry(entry) {
+  return !!entry && (Array.isArray(entry.to) || entry.private === true);
+}
+
+/** prefs.alone === false means other people can hear this device: read only what the whole table knows. */
+export function othersCanHear(prefs = {}) {
+  return prefs.alone === false;
+}
+
 /** Read a narration log entry aloud: narrator parts in the narrator's voice, dialogue in each NPC's voice. */
 export function speakEntry(entry, npcVoices = {}, prefs = {}) {
   if (!synth || prefs.readAloud === false) return;
+  if (othersCanHear(prefs) && isPrivateEntry(entry)) return; // private moments stay on the screen
   for (const p of entry.parts || []) {
     if (/^\s*\*[^*]+\*\s*$/.test(p.text || '')) continue; // stage directions like *a wet growl* are shown, not read
     if (p.speaker === 'narrator') {

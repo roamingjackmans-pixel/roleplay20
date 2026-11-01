@@ -90,7 +90,7 @@ function MapsTab() {
       {view.handouts.slice().reverse().map((h) => (
         <button key={h.id} className="list-card" onClick={() => setOpen(open === h.id ? null : h.id)}>
           <b>📜 {h.title}</b><span className="tiny muted">{titleIndex(h.kind)} · {timeAgo(h.at)}</span>
-          {open === h.id && <div className="handout"><div className="row"><div className="spacer" /><ReadAloud inline text={`${h.title}. ${h.content}`} id={`handout-${h.id}`} /></div><Markdown text={h.content} className="prose handout-prose" /></div>}
+          {open === h.id && <div className="handout"><div className="row"><div className="spacer" /><ReadAloud inline text={`${h.title}. ${h.content}`} id={`handout-${h.id}`} isPrivate={Array.isArray(h.to)} /></div><Markdown text={h.content} className="prose handout-prose" /></div>}
         </button>
       ))}
     </div>

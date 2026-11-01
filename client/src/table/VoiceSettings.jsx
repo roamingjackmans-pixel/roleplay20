@@ -15,6 +15,10 @@ export default function VoiceSettings({ onClose, onSounds }) {
         {!ttsSupported() && <div className="error-text">This browser can't read aloud.</div>}
         <div className="small muted">The narrator and every NPC are read aloud with your browser's built-in voices. {natural ? `You have ${natural} natural-sounding voices.` : 'For the best voices, open Roleplay20 in Microsoft Edge (it has dozens of natural voices) or Chrome.'}</div>
         <label className="check"><input type="checkbox" checked={prefs.readAloud !== false} onChange={(e) => setPrefs({ readAloud: e.target.checked })} /> Read the story aloud</label>
+        <label className="field"><span>Who can hear this device?</span>
+          <div className="tabs"><button className={prefs.alone !== false ? 'on' : ''} onClick={() => setPrefs({ alone: true })}>🎧 Just me</button><button className={prefs.alone === false ? 'on' : ''} onClick={() => setPrefs({ alone: false })}>👥 Others are here</button></div>
+          <div className="tiny muted" style={{ textTransform: 'none', letterSpacing: 0, fontWeight: 400 }}>{prefs.alone !== false ? 'Everything is read aloud, including private moments and things only you can see.' : "Only what the whole table knows is read aloud. Anything private or marked 'only you' stays on your screen, silently."}</div>
+        </label>
         <label className="field"><span>What to read</span>
           <div className="tabs"><button className={prefs.readMode !== 'dialogue' ? 'on' : ''} onClick={() => setPrefs({ readMode: 'all' })}>Narration + dialogue</button><button className={prefs.readMode === 'dialogue' ? 'on' : ''} onClick={() => setPrefs({ readMode: 'dialogue' })}>NPC dialogue only</button></div>
         </label>

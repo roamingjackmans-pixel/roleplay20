@@ -1,6 +1,6 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useStore } from '../lib/store.js';
-import { speakEntry, stopSpeaking, onSpeaking } from '../lib/tts.js';
+import { speakEntry, stopSpeaking, onSpeaking, othersCanHear } from '../lib/tts.js';
 import { inline } from '../lib/format.jsx';
 
 export default function StoryFeed() {
@@ -65,7 +65,9 @@ function Entry({ e, view, speaking }) {
               </div>
             );
           })}
-          <button className="replay" title="Read aloud" onClick={() => { stopSpeaking(); speakEntry(e, view.voices || {}, { ...prefs, readAloud: true }); }}>🔊</button>
+          {priv && othersCanHear(prefs)
+            ? <button className="replay" disabled title="Private: not read aloud while others can hear (change it in ⚙ Voices & sound)">🔇</button>
+            : <button className="replay" title="Read aloud" onClick={() => { stopSpeaking(); speakEntry(e, view.voices || {}, { ...prefs, readAloud: true }); }}>🔊</button>}
         </div>
       );
     }

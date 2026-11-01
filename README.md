@@ -63,6 +63,8 @@ moment private only when it really is (a secret roll, a whisper, a character off
   its own text.
 - **Voices.** The story is read aloud with the browser's built-in voices. Every NPC keeps their own voice (gender, age,
   accent, pitch, speed) for the whole campaign - the old lady always sounds like the old lady. Best in Microsoft Edge.
+  In ⚙ Voices & sound, "Who can hear this device?" sets what gets read: "Just me" reads everything, "Others are here"
+  reads only what the whole table knows and keeps anything private or "only you" silent on your screen.
 - **Maps.** Town and region maps appear as you discover places; the full map must be found, bought or given in the story.
   Everyone sees the same drawing of a place; only the fog and which places are named depend on what you've found.
   Open any map full screen from the Maps & handouts panel and pick a place to light it up. "Hide map" folds the map
