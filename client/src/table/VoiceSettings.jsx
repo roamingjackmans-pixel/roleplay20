@@ -2,12 +2,14 @@ import React, { useEffect, useState } from 'react';
 import { useStore } from '../lib/store.js';
 import { Modal } from '../components/Toasts.jsx';
 import { availableVoices, previewVoice, ttsSupported } from '../lib/tts.js';
+import AccountSettings from '../screens/AccountSettings.jsx';
 
 export default function VoiceSettings({ onClose, onSounds }) {
   const prefs = useStore((s) => s.prefs);
   const setPrefs = useStore((s) => s.setPrefs);
   const [voices, setVoices] = useState(availableVoices());
   useEffect(() => { const t = setTimeout(() => setVoices(availableVoices()), 400); return () => clearTimeout(t); }, []);
+  const [account, setAccount] = useState(false);
   const natural = voices.filter((v) => /natural|neural|online/i.test(v.name)).length;
   return (
     <Modal title="Voices & sound" onClose={onClose}>
@@ -35,6 +37,11 @@ export default function VoiceSettings({ onClose, onSounds }) {
           <input type="range" min="0.7" max="1.4" step="0.05" value={prefs.rate || 1} onChange={(e) => setPrefs({ rate: Number(e.target.value) })} />
         </label>
         <label className="check"><input type="checkbox" checked={prefs.sounds !== false} onChange={(e) => onSounds(e.target.checked)} /> Sound effects (dice, turn chime)</label>
+        <div className="row" style={{ borderTop: '1px solid var(--line)', paddingTop: 12 }}>
+          <span className="small muted grow">Your email and password</span>
+          <button className="btn sm" onClick={() => setAccount(true)}>👤 Account settings</button>
+        </div>
+        {account && <AccountSettings onClose={() => setAccount(false)} />}
       </div>
     </Modal>
   );

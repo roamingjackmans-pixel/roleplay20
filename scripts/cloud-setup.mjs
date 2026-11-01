@@ -19,7 +19,7 @@ const MARKER = path.join(DATA, 'moved-to-cloud.json');
 const DEPLOY_ONLY = process.argv.includes('--deploy');
 const REGION = 'ord';
 const VOLUME = 'rp20_data';
-const SECRET_KEYS = ['ANTHROPIC_API_KEY', 'GATE_PASSWORD_HASH', 'SERVER_SECRET', 'DM_MODEL', 'DM_EFFORT'];
+const SECRET_KEYS = ['ANTHROPIC_API_KEY', 'GATE_PASSWORD_HASH', 'SERVER_SECRET', 'DM_MODEL', 'DM_EFFORT', 'RESEND_API_KEY', 'EMAIL_FROM'];
 
 const c = { gold: (s) => `\x1b[33m${s}\x1b[0m`, green: (s) => `\x1b[32m${s}\x1b[0m`, red: (s) => `\x1b[31m${s}\x1b[0m`, dim: (s) => `\x1b[2m${s}\x1b[0m`, bold: (s) => `\x1b[1m${s}\x1b[0m` };
 const ok = (s) => console.log(c.green(`  ✓ ${s}`));

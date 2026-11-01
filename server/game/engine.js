@@ -12,6 +12,7 @@ import { generateTacticalMap, placeCreatures } from './mapgen.js';
 import { rollDice, rollD20, manualD20 } from '../../shared/dice.js';
 import { SKILL_NAMES, levelForXp, xpForLevel } from '../../shared/rules.js';
 import * as combat from './combat.js';
+import { rememberTurn, rememberNote, rememberFact, rememberHandout, rememberSession } from './memory.js';
 import { buildView, logVisibleTo } from './views.js';
 
 let io = null;
@@ -228,6 +229,7 @@ export function upsertNpc(c, n) {
     voice, attitude: n.attitude || prev?.attitude || 'unknown', location: n.location || prev?.location || '',
     status: n.status || prev?.status || 'alive', notes: n.notes || prev?.notes || '',
     firstSeen: prev?.firstSeen || Date.now(), color: prev?.color || npcColor(key),
+    lastSeenSession: c.sessionNumber || 0, lastSeenRound: c.round?.n || 0,
   };
   return c.npcs[key];
 }
@@ -715,6 +717,7 @@ function postNarration(c, narration, { kind = 'narration' } = {}) {
     const to = audience(c, seg.to);
     const out = parts.map((p) => {
       const npc = p.speaker && p.speaker !== 'narrator' ? (c.npcs[p.speaker] || Object.values(c.npcs).find((n) => n.name.toLowerCase() === String(p.speaker).toLowerCase())) : null;
+      if (npc) { npc.lastSeenSession = c.sessionNumber || 0; npc.lastSeenRound = c.round?.n || 0; }
       return { speaker: npc ? npc.id : p.speaker === 'narrator' || !p.speaker ? 'narrator' : String(p.speaker), speakerName: npc?.name || (p.speaker !== 'narrator' ? p.speaker : undefined), text: String(p.text).trim() };
     });
     posted.push(addLog(c, { kind, parts: out, to }));
@@ -739,11 +742,17 @@ export function applyTurnResult(c, data, input = {}) {
   for (const h of data.handouts || []) {
     if (!h.title) continue;
     const to = audience(c, h.to?.length ? h.to : ['all']);
-    c.handouts.push({ id: h.id || randomId('h_', 4), title: h.title, kind: h.kind, content: h.content, to, at: Date.now() });
+    const handout = { id: h.id || randomId('h_', 4), title: h.title, kind: h.kind, content: h.content, to, at: Date.now() };
+    c.handouts.push(handout);
+    rememberHandout(c, handout);
     addLog(c, { kind: 'system', icon: 'scroll', text: `📜 New handout: ${h.title}`, to });
   }
   if (data.ruling) system(c, `⚖️ ${data.ruling}`, 'all', { tone: 'ruling' });
-  if (data.dmNotes) { c.world.dmNotes.push(data.dmNotes); if (c.world.dmNotes.length > 80) c.world.dmNotes.splice(0, c.world.dmNotes.length - 80); }
+  if (data.dmNotes) {
+    c.world.dmNotes.push(data.dmNotes);
+    if (c.world.dmNotes.length > 80) c.world.dmNotes.splice(0, c.world.dmNotes.length - 80); // the archive keeps every note
+    rememberNote(c, data.dmNotes);
+  }
 
   c.round.n += 1;
   c.chronicle.turns.push({
@@ -752,6 +761,7 @@ export function applyTurnResult(c, data, input = {}) {
     narration: posted.map((p) => ({ to: p.to, parts: p.parts })), summary: data.summary || '',
   });
   if (c.chronicle.turns.length > 120) c.chronicle.turns.splice(0, c.chronicle.turns.length - 120);
+  rememberTurn(c, { n: c.round.n, summary: data.summary, location: c.scene?.location });
   c.lastPlayedAt = Date.now();
 
   if (c.combat) {
@@ -1271,10 +1281,13 @@ export async function endSession(c) {
     if (d.storyArc) c.world.arc = d.storyArc;
     if (d.chronicle) c.chronicle.summary = d.chronicle;
     if (d.storySoFar) c.world.storySoFar = d.storySoFar;
+    rememberSession(c, sess, { headline: d.headline });
+    for (const f of d.memories || []) if (String(f || '').trim()) rememberFact(c, `Session ${c.sessionNumber}: ${f}`);
     system(c, `📖 The chronicle of session ${c.sessionNumber} has been written. Read it in the Journal panel.`, 'all', { tone: 'good' });
   } catch (e) {
     if (!(e instanceof NoAIError)) console.error('[session_end]', e);
     sess.logEntry = `## Session ${c.sessionNumber}\n\n${c.chronicle.turns.filter((t) => t.at >= sess.startedAt).map((t) => t.summary).filter(Boolean).join(' ')}`;
+    rememberSession(c, sess);
   } finally {
     c.thinking = null;
     pushViews(c);

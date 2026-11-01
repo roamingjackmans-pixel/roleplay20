@@ -3,6 +3,7 @@ import { api } from '../lib/api.js';
 import { useStore } from '../lib/store.js';
 import { Avatar, timeAgo } from '../lib/format.jsx';
 import { TopNav } from '../App.jsx';
+import AccountSettings from './AccountSettings.jsx';
 
 export default function Lobby() {
   const go = useStore((s) => s.go);
@@ -10,6 +11,7 @@ export default function Lobby() {
   const [list, setList] = useState(null);
   const [code, setCode] = useState('');
   const [err, setErr] = useState('');
+  const [account, setAccount] = useState(false);
 
   useEffect(() => {
     api('campaigns').then((r) => setList(r.campaigns)).catch((e) => setErr(e.message));
@@ -31,6 +33,13 @@ export default function Lobby() {
         <div className="page-inner">
           <h1 className="title fade-in">Well met, {user.displayName}.</h1>
           <p className="lede">Choose a campaign to play, start a new world, or join your friends with an invite code.</p>
+          {!user.email && (
+            <div className="email-nudge fade-in">
+              <span>📧 Add an email to your account: it's how you reset a forgotten password and confirm a new device.</span>
+              <button className="btn sm primary" onClick={() => setAccount(true)}>Add email</button>
+            </div>
+          )}
+          {account && <AccountSettings onClose={() => setAccount(false)} />}
 
           <div className="row wrap" style={{ gap: 12, marginBottom: 8 }}>
             <button className="btn primary lg" onClick={() => go('#/new')}>✦ Start a new campaign</button>

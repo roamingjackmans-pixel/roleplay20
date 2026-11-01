@@ -3,6 +3,8 @@ import { useStore } from './lib/store.js';
 import { api, cfg, getToken, setToken, setGate, loadAllSrd } from './lib/api.js';
 import { D20Icon } from './lib/format.jsx';
 import AuthScreen from './screens/AuthScreen.jsx';
+import ResetScreen from './screens/ResetScreen.jsx';
+import AccountSettings from './screens/AccountSettings.jsx';
 import GateScreen from './screens/GateScreen.jsx';
 import Lobby from './screens/Lobby.jsx';
 import NewCampaign from './screens/NewCampaign.jsx';
@@ -36,6 +38,7 @@ export default function App() {
   let screen;
   if (needGate) screen = <GateScreen onPass={() => setNeedGate(false)} />;
   else if (checking) screen = <Splash text="Lighting the torches…" />;
+  else if (route.name === 'reset') screen = <ResetScreen token={route.token} />;
   else if (!user) screen = <AuthScreen />;
   else if (route.name === 'new') screen = <NewCampaign />;
   else if (route.name === 'campaign') screen = <CampaignHome id={route.id} />;
@@ -66,6 +69,7 @@ export function TopNav({ children }) {
   const go = useStore((s) => s.go);
   const user = useStore((s) => s.user);
   const setUser = useStore((s) => s.setUser);
+  const [account, setAccount] = useState(false);
   return (
     <div className="topnav">
       <div className="brand" onClick={() => go('#/')}><D20Icon size={26} /> Roleplay<b>20</b></div>
@@ -73,7 +77,8 @@ export function TopNav({ children }) {
       {children}
       {user && (
         <div className="row">
-          <span className="muted small">Signed in as <b style={{ color: user.color }}>{user.displayName}</b></span>
+          <button className="btn ghost sm" title="Account settings: email and password" onClick={() => setAccount(true)}>👤 <b style={{ color: user.color }}>{user.displayName}</b>{!user.email && <i className="draft-dot" title="Add an email" />}</button>
+          {account && <AccountSettings onClose={() => setAccount(false)} />}
           <button className="btn ghost sm" onClick={async () => { try { await api('auth/logout', { method: 'POST' }); } catch { /* ignore */ } setToken(null); setUser(null); }}>Sign out</button>
         </div>
       )}

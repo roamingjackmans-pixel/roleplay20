@@ -7,6 +7,8 @@ import { Server } from 'socket.io';
 import { config } from './config.js';
 import { gateStatus, tryGate, requireGate, gateTokenValid } from './gate.js';
 import * as auth from './auth.js';
+import * as sec from './accountSecurity.js';
+import { emailStatus } from './email.js';
 import * as C from './game/campaign.js';
 import * as E from './game/engine.js';
 import * as K from './game/combat.js';
@@ -70,24 +72,30 @@ api.get('/app-manifest', (req, res) => {
   res.json({ js: prefix + entry.file, css: [...css].map((c) => prefix + c) });
 });
 
-api.post('/auth/signup', (req, res) => {
-  const r = auth.signup(req.body || {});
-  res.status(r.error ? 400 : 200).json(r);
-});
-api.post('/auth/login', (req, res) => {
-  const r = auth.login(req, req.body || {});
-  res.status(r.error ? r.status || 401 : 200).json(r);
-});
+// account security answers carry their own HTTP status
+const reply = (res, r) => { const { status, ...body } = r || {}; res.status(status || (body.error ? 400 : 200)).json(body); };
+const bearerUser = (req) => { const h = req.get('authorization') || ''; return h.startsWith('Bearer ') ? auth.userForToken(h.slice(7)) : null; };
+
+// signing up and in: a 6-digit email code when the device is new (or hasn't signed in for 30 days)
+api.get('/auth/options', (req, res) => res.json(sec.securityOptions()));
+api.post('/auth/signup', async (req, res) => reply(res, await sec.signUp(req, req.body || {})));
+api.post('/auth/login', async (req, res) => reply(res, await sec.signIn(req, req.body || {})));
+api.post('/auth/verify', (req, res) => reply(res, sec.verifySignIn(req, req.body || {})));
+api.post('/auth/resend', async (req, res) => reply(res, await sec.resendCode(req, req.body || {}, bearerUser(req))));
+api.post('/auth/signup-email', async (req, res) => reply(res, await sec.fixSignUpEmail(req, req.body || {})));
+api.post('/auth/forgot', async (req, res) => reply(res, await sec.forgotPassword(req, req.body || {})));
+api.post('/auth/reset', async (req, res) => reply(res, await sec.resetPassword(req, req.body || {})));
 
 api.use(auth.requireUser);
 
-api.get('/auth/me', (req, res) => res.json({ user: auth.publicUser(req.user), ai: aiStatus() }));
+api.get('/auth/me', (req, res) => res.json({ user: auth.publicUser(req.user), ai: aiStatus(), security: sec.securityOptions() }));
 api.post('/auth/logout', (req, res) => { auth.logout(req.token); res.json({ ok: true }); });
 api.post('/auth/prefs', (req, res) => res.json({ user: auth.updatePrefs(req.user.id, req.body || {}) }));
-api.post('/auth/password', (req, res) => {
-  const r = auth.changePassword(req.user.id, req.body?.oldPassword, req.body?.newPassword);
-  res.status(r.error ? 400 : 200).json(r);
-});
+// changing email or password while signed in: first a code to the current email
+api.post('/auth/security/code', async (req, res) => reply(res, await sec.requestChangeCode(req.user, req.body || {})));
+api.post('/auth/password', async (req, res) => reply(res, await sec.changePassword(req.user, req.token, req.body || {})));
+api.post('/auth/email', async (req, res) => reply(res, await sec.startEmailChange(req.user, req.body || {})));
+api.post('/auth/email/confirm', async (req, res) => reply(res, await sec.confirmEmailChange(req.user, req.body || {})));
 
 api.get('/srd/:name', (req, res) => {
   const f = srdFile(req.params.name);
@@ -419,6 +427,7 @@ server.listen(config.port, async () => {
   console.log(`\n  🎲 Roleplay20 is running at ${local}`);
   const ai = aiStatus();
   console.log(`  🧠 AI Dungeon Master: ${ai.configured ? `${ai.provider} (${config.defaultModel})` : 'NOT CONNECTED - add ANTHROPIC_API_KEY to .env'}`);
+  console.log(`  📧 Email: ${emailStatus().ready ? `on (${config.emailProvider})` : 'off (run npm run email-setup to switch on codes and password resets)'}`);
   if (!config.gateHash) console.log('  🔒 Site password: NOT SET - run `npm run setup`');
   if (!fs.existsSync(path.join(config.clientDist, '.vite', 'manifest.json'))) console.log('  ⚠️  The app is not built yet - run `npm run build`');
   srd();

@@ -1,4 +1,5 @@
-// Player accounts: username + password (scrypt), bearer session tokens.
+// Player accounts: username + password (scrypt), an email for codes and resets, bearer session tokens.
+// The email security flows (sign-in codes, resets, changing email or password) live in accountSecurity.js.
 import { load, save } from './store.js';
 import { hashPassword, verifyPassword, randomId, randomToken, sha256, clientIp } from './security.js';
 
@@ -8,12 +9,13 @@ const SESSION_DAYS = 60;
 const COLORS = ['#e0b354', '#7aa2f7', '#9ece6a', '#f7768e', '#bb9af7', '#7dcfff', '#ff9e64', '#73daca', '#e9a0d0', '#c0caf5'];
 
 const users = () => load(USERS, { users: {}, byName: {} });
+export const usersDb = users;
 const sessions = () => load(SESSIONS, {});
 const loginFails = new Map(); // ip -> { n, until }
 
 export function publicUser(u) {
   if (!u) return null;
-  return { id: u.id, username: u.username, displayName: u.displayName, color: u.color, createdAt: u.createdAt, prefs: u.prefs || {} };
+  return { id: u.id, username: u.username, displayName: u.displayName, color: u.color, createdAt: u.createdAt, prefs: u.prefs || {}, email: u.email || '', emailVerified: !!u.emailVerified };
 }
 
 export function getUser(id) {
@@ -28,7 +30,7 @@ function validUsername(name) {
   return typeof name === 'string' && /^[A-Za-z0-9_.\- ]{3,24}$/.test(name.trim());
 }
 
-function issueSession(userId) {
+export function issueSession(userId) {
   const token = randomToken();
   const s = sessions();
   s[sha256(token)] = { userId, exp: Date.now() + SESSION_DAYS * 86400000, created: Date.now() };
@@ -36,12 +38,34 @@ function issueSession(userId) {
   return token;
 }
 
-export function signup({ username, password, displayName }) {
+/** Sign out every session of a user, except (optionally) the one making the change. */
+export function revokeSessions(userId, exceptToken = null) {
+  const s = sessions();
+  const keep = exceptToken ? sha256(exceptToken) : null;
+  for (const [k, v] of Object.entries(s)) if (v.userId === userId && k !== keep) delete s[k];
+  save(SESSIONS);
+}
+
+/** The account with this email (emails are unique), or null. */
+export function userByEmail(email) {
+  const e = String(email || '').trim().toLowerCase();
+  if (!e) return null;
+  return Object.values(users().users).find((u) => u.email === e) || null;
+}
+
+export function userByName(username) {
+  const db = users();
+  return db.users[db.byName[String(username || '').trim().toLowerCase()]] || null;
+}
+
+/** Create the account (no session yet: the caller decides whether a code is needed first). */
+export function createUser({ username, password, displayName, email = '' }) {
   if (!validUsername(username)) return { error: 'Usernames are 3-24 letters, numbers, spaces, dots, dashes or underscores.' };
   if (typeof password !== 'string' || password.length < 6) return { error: 'Passwords need at least 6 characters.' };
   const db = users();
   const key = username.trim().toLowerCase();
   if (db.byName[key]) return { error: 'That username is taken.' };
+  if (email && userByEmail(email)) return { error: 'That email is already used by another account.' };
   const id = randomId('u_');
   const n = Object.keys(db.users).length;
   const user = {
@@ -52,14 +76,18 @@ export function signup({ username, password, displayName }) {
     color: COLORS[n % COLORS.length],
     createdAt: Date.now(),
     prefs: {},
+    email: email ? String(email).trim().toLowerCase() : '',
+    emailVerified: false,
+    devices: {},
   };
   db.users[id] = user;
   db.byName[key] = id;
   save(USERS);
-  return { user: publicUser(user), token: issueSession(id) };
+  return { user };
 }
 
-export function login(req, { username, password }) {
+/** Username + password check (with the per-network slowdown). Returns the account record, not a session. */
+export function checkLogin(req, { username, password }) {
   const ip = clientIp(req);
   const f = loginFails.get(ip);
   if (f && f.until > Date.now()) return { error: 'Too many wrong passwords. Try again in a few minutes.', status: 429 };
@@ -72,7 +100,11 @@ export function login(req, { username, password }) {
     return { error: 'Wrong username or password.', status: 401 };
   }
   loginFails.delete(ip);
-  return { user: publicUser(user), token: issueSession(id) };
+  return { user };
+}
+
+export function saveUsers() {
+  save(USERS);
 }
 
 export function logout(token) {
@@ -100,13 +132,15 @@ export function updatePrefs(userId, prefs) {
   return publicUser(u);
 }
 
-export function changePassword(userId, oldPassword, newPassword) {
-  const u = getUser(userId);
-  if (!u || !verifyPassword(oldPassword || '', u.pass)) return { error: 'Your current password is wrong.' };
+export function setPassword(u, newPassword) {
   if (typeof newPassword !== 'string' || newPassword.length < 6) return { error: 'Passwords need at least 6 characters.' };
   u.pass = hashPassword(newPassword);
   save(USERS);
   return { ok: true };
+}
+
+export function passwordMatches(u, password) {
+  return !!u && verifyPassword(password || '', u.pass);
 }
 
 /** Express middleware: requires `Authorization: Bearer <token>`. Sets req.user. */

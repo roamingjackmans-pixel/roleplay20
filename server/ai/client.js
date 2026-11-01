@@ -68,7 +68,7 @@ export function extractJson(text) {
 
 // Schemas too large for compiled structured outputs (the API answers "compiled grammar is too large"). For these the
 // schema goes into the cached system prompt instead, and the reply is parsed and checked here.
-const promptSchemaTasks = new Set(['turn']);
+const promptSchemaTasks = new Set(['turn', 'genesis']);
 
 function schemaInstructions(schema) {
   return `\n\n# OUTPUT FORMAT\nRespond with ONE JSON object and nothing else (no prose, no code fences). It must match this JSON Schema exactly - every listed property present, "" / 0 / [] when not used:\n${JSON.stringify(schema)}`;

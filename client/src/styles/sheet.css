@@ -165,12 +165,15 @@
 .former-words { font-style: italic; color: var(--text-2); margin-top: 2px; }
 
 /* sheet: your dice */
-.dice-picker { margin-top: 16px; }
+.dice-row { display: flex; align-items: center; gap: 10px; width: 100%; margin-top: 16px; padding: 8px 10px; border: 1px solid var(--line); background: var(--panel-2); border-radius: 10px; cursor: pointer; text-align: left; color: inherit; }
+.dice-row:hover { border-color: var(--gold-dim); }
+.dice-row .grow { display: flex; flex-direction: column; }
+.dice-row svg { flex: none; }
 .dp-top { display: flex; gap: 14px; align-items: center; margin: 4px 0 10px; }
 .dp-preview { border: 0; background: radial-gradient(circle, rgba(255, 255, 255, .06), transparent 70%); padding: 4px; border-radius: 50%; cursor: pointer; transition: transform .15s; flex: none; }
 .dp-preview:hover { transform: rotate(-12deg) scale(1.06); }
 .dp-h { letter-spacing: .1em; text-transform: uppercase; margin: 10px 0 5px; }
-.dp-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(48px, 1fr)); gap: 4px; }
+.dp-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(54px, 1fr)); gap: 5px; }
 .dp-swatch { border: 1px solid transparent; background: var(--panel-2); border-radius: 10px; padding: 3px; cursor: pointer; display: grid; place-items: center; transition: transform .12s; }
 .dp-swatch:hover { transform: translateY(-2px); border-color: var(--line-2, var(--line)); }
 .dp-swatch.on { border-color: var(--gold); box-shadow: 0 0 0 1px rgba(217, 164, 65, .35); }

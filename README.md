@@ -13,6 +13,12 @@ moment private only when it really is (a secret roll, a whisper, a character off
   downloaded from the game server after the password is accepted.
 - **Accounts.** Everyone signs in with their own username and password. Each person can be in many campaigns and join
   one with a 6-letter invite code.
+- **Email security** (once email is switched on, see below). New accounts give an email and confirm it with a 6-digit
+  code. Signing in on a device that hasn't signed in for 30 days emails a code first. "Forgot password?" emails a
+  one-time link (30 minutes). Changing your email or password in Account settings (👤 in the top bar, or ⚙ at the
+  table) first needs a code sent to your current email, so someone using your signed-in account can't take it over;
+  a new email is confirmed with its own code. Every code lasts 10 minutes and allows 3 tries, then a new one is
+  needed. Until email is set up, sign-in works with just a password and nobody can be locked out.
 - **Session zero by AI.** Describe the story you want; Claude writes a world bible (what players know), DM secrets and a
   story arc (hidden), NPCs with distinct voices, a starting town map and opening quests.
 - **Character creation.** A guided builder with all SRD races, classes, backgrounds, ability scores (standard array, point
@@ -20,7 +26,7 @@ moment private only when it really is (a secret roll, a whisper, a character off
   personality and backstory tied to the campaign world.
 - **Character sheet (two pages).** Page 1: abilities, saves, skills, attacks, HP, conditions, death saves - click
   anything to roll. Page 2: **Spells & Abilities** - spell slots and every limited-use class ability (Rage, Ki, Second
-  Wind, Channel Divinity…). Casting asks which slot level to use and spends that slot. At the bottom, **Your dice**:
+  Wind, Channel Divinity…). Casting asks which slot level to use and spends that slot. At the bottom, **Your dice** opens a picker:
   pick your d20's color (27 of them), finish (classic, marble, galaxy, glass, metal, gemstone, glitter, neon, wood) and
   number color. Everyone sees your die when you roll.
 - **Only the DM changes stats.** Players can't edit hit points, spell slots, uses, Inspiration, coins, items,
@@ -87,6 +93,12 @@ moment private only when it really is (a secret roll, a whisper, a character off
 - **Session logs.** Ending a session makes the DM write the campaign log, a "previously on…" recap, NPC and quest
   updates and a compressed memory for future sessions. The top of the journal always shows "The story so far":
   older sessions in a line each, the latest one or two in more detail. Every journal page and handout can be read aloud.
+- **Long memory.** Campaigns can run for a hundred sessions without the DM forgetting. Every turn summary, session
+  log, lasting fact, DM note and handout is archived for good (`data/memory/<campaign>.json`) and indexed for search.
+  Each turn the DM sees a one-line index of every session and everyone the party has met, open quests, the current
+  map, full details for whoever is in play, and the older memories that best match what the players just did. So a
+  puzzle answer from session 3 comes back in session 100 as soon as someone returns to that vault, while the prompt
+  stays about the same size (around 25,000 characters in a 100-session test).
 - **DM Screen** (campaign owner): model and effort, enemy tactics, AI cost so far, retry, skip turn, end combat, narrate
   by hand as the narrator or any NPC, and an optional spoiler "god view".
 
@@ -116,6 +128,9 @@ volume for accounts, campaigns and characters. Nothing has to run on your own PC
    moves saved games from `data/` once, and writes the cloud address to `server.json` on the `live` branch, where the
    gate page looks it up. Run it again after changing `.env` (a new API key or site password).
 3. `npm run deploy` - push code changes to the cloud server.
+4. `npm run email-setup` - switch on email (sign-in codes, password resets) with [Resend](https://resend.com). It asks
+   for your Resend API key (hidden as you type), the address emails come from (on a domain verified in Resend) and
+   sends a test email, then saves both to `.env` and as Fly secrets. Run `npm run deploy` afterwards to turn it on.
 
 Useful: `fly logs -a roleplay20` (server log), `fly status -a roleplay20`, `fly ssh console -a roleplay20` (the saved
 games are in `/data`). Fly.io billing: about $4 a month for this machine and volume, plus AI usage below.

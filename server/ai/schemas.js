@@ -156,6 +156,8 @@ export const SESSION_END_SCHEMA = obj({
   dmSecrets: S,            // full updated markdown, or "" if unchanged
   storyArc: S,             // full updated markdown, or "" if unchanged
   chronicle: S,            // compressed story-so-far for future prompts
+  headline: S,             // one line (under 20 words): this session's headline for the campaign's session index
+  memories: arr(S),        // lasting facts from this session worth keeping forever, each one self-contained
   storySoFar: S,           // player-facing quick recap of the whole campaign for the top of the journal (markdown)
 });
 

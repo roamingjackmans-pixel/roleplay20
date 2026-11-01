@@ -13,11 +13,11 @@ if (fs.existsSync(envFile)) {
 
 const env = process.env;
 const num = (v, d) => (v === undefined || v === '' ? d : Number(v));
-// command-line overrides: --no-tunnel, --ai=file|api|off, --port=3021
+// command-line overrides: --no-tunnel, --ai=file|api|off, --email=file|resend|off, --port=3021
 for (const arg of process.argv.slice(2)) {
   if (arg === '--no-tunnel') env.TUNNEL = 'off';
-  const m = /^--(ai|port|data)=(.+)$/.exec(arg);
-  if (m) env[{ ai: 'AI_PROVIDER', port: 'PORT', data: 'DATA_DIR' }[m[1]]] = m[2];
+  const m = /^--(ai|port|data|email)=(.+)$/.exec(arg);
+  if (m) env[{ ai: 'AI_PROVIDER', port: 'PORT', data: 'DATA_DIR', email: 'EMAIL_PROVIDER' }[m[1]]] = m[2];
 }
 
 export const config = {
@@ -49,6 +49,15 @@ export const config = {
   defaultEffort: env.DM_EFFORT || 'medium',
   // Fable is slower than Opus or Sonnet; world building at high effort can take several minutes.
   aiTimeoutMs: num(env.AI_TIMEOUT_SECONDS, 360) * 1000,
+
+  // Email (sign-in codes, password resets, account changes). Provider: "resend" (needs RESEND_API_KEY and EMAIL_FROM,
+  // an address on a domain verified in Resend), "file" (testing: emails are written to <data>/outbox) or "off" (no
+  // email: codes and resets stay switched off, so nobody is locked out).
+  emailProvider: env.EMAIL_PROVIDER || (env.RESEND_API_KEY ? 'resend' : 'off'),
+  resendKey: env.RESEND_API_KEY || '',
+  emailFrom: env.EMAIL_FROM || '',
+  // Where password-reset links point (the public password page, never an address taken from a request).
+  siteUrl: env.SITE_URL || 'https://josephjackman.com/roleplay20/',
 
   // Public URL discovery for the GitHub Pages shell. The game runs on Fly.io at a fixed address, so the PC tunnel is
   // off unless TUNNEL=auto is set (it would publish this PC's address and pull the website away from the cloud server).

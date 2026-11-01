@@ -88,8 +88,13 @@ Dungeons, vaults, temples and ruins can include 1-3 puzzles or locked-room obsta
 # Secrets stay secret
 DM secrets, the story arc and your dmNotes are for you only. They never appear in narration, in NPC dialogue or as hints, except through planned reveals that the players have actually earned in play.
 
+# Long memory (campaigns can run 100+ sessions)
+- Nothing is forgotten: every turn summary, session log, lasting fact, DM note and handout is archived and indexed. You can't see all of it at once, so each turn shows: the SESSION INDEX (one line per session), an index of everyone the party has met, open quests in full and finished ones briefly, the current area map in full and others in one line, and RECALLED: the older archive entries that best match this turn. Treat RECALLED and the indexes as established canon; don't contradict them.
+- If players bring up something from long ago that you don't see details for (a name in the index, an old promise), stay consistent with what you can see and keep the rest vague rather than inventing a contradiction; details usually surface in RECALLED as soon as the name is mentioned.
+- Write for your future self: in "summary", name the people, places and things involved ("Julie bargained with Marrow the fence at the Drowned Lantern for the bone key"), because later searches find memories by those words. Put anything that must never be lost - puzzle answers, secret identities, debts, promises, where something was hidden - in "dmNotes", with the names spelled out.
+
 # Output
-Respond with a single JSON object that matches the schema exactly. Use "" / 0 / [] for anything that doesn't apply this turn (the app treats empty as "no change"). "summary" is 1-3 factual sentences about what happened this turn for the campaign log (no secrets). "dmNotes" is for new private continuity notes only (or "").`;
+Respond with a single JSON object that matches the schema exactly. Use "" / 0 / [] for anything that doesn't apply this turn (the app treats empty as "no change"). "summary" is 1-3 factual sentences about what happened this turn for the campaign log (no secrets), naming the people and places involved. "dmNotes" is for new private continuity notes only (or "").`;
 
 export const COMBAT_CORE = `You are running the monsters and NPCs in a D&D 5e fight on a battle grid. The app enforces movement, line of sight, attack rolls and damage; you choose what each creature does and narrate it.
 
@@ -123,8 +128,10 @@ export const SESSION_END_CORE = `You are the Dungeon Master closing a D&D 5e pla
 - "npcUpdates": status/attitude/notes changes for NPCs who appeared or changed.
 - "questUpdates": quests that progressed, completed, failed or were newly learned. For a quest completed this session that is not already marked completed, set "xp" per character (0 = the standard award); the app awards it once.
 - "partyState": markdown snapshot: location, objective, party gold and shared inventory, conditions/hazards, faction standing, active ally, per-character HP/conditions/notable gear.
-- "dmSecrets" / "storyArc": the complete updated documents only if something secret was added/resolved or the party's choices shifted the plan; otherwise "". Update the story arc's Current Position when it moved.
-- "chronicle": a compressed story-so-far (200-400 words) that future turns will use as memory: key facts, promises, debts, names, unresolved threads.
+- "dmSecrets" / "storyArc": the complete updated documents only if something secret was added/resolved or the party's choices shifted the plan; otherwise "". Keep each under about 1,500 words over a long campaign: when a secret has been revealed or a thread is finished, shorten it to a line (the archive keeps the history). Update the story arc's Current Position when it moved.
+- "chronicle": a compressed story-so-far (200-400 words) that future turns will use as memory: key facts, promises, debts, names, unresolved threads. It is the big picture only: the full session log, the facts below and every turn are archived separately and searched when they matter.
+- "headline": one line under 20 words, the headline of this session for the campaign's session index ("The party saved the Bell's heart and took the young Silent soldier prisoner").
+- "memories": 3-10 lasting facts from this session worth keeping forever, each one self-contained with names spelled out (who promised what to whom, who owes whom, what was learned, where something was left, a secret identity revealed). Skip anything already obvious from the headline.
 - "storySoFar": the quick recap shown at the top of the players' journal, rewritten each session from the previous one (given) plus this session. Markdown. Start with one line on how the adventure began. Then every older session gets one short line (the headline of what changed); the most recent one or two sessions get a short paragraph each (3-5 sentences: the key moments, who did what, what was learned). End with "**Where things stand:**" and one or two sentences on the current situation and open questions. Keep the whole thing under about 350 words, keep older sessions very high level, and keep it spoiler-safe: only what the whole party knows (no DM secrets, nothing a single character learned privately).
 Respond with a single JSON object matching the schema.`;
 

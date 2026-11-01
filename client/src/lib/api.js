@@ -21,6 +21,17 @@ export const cfg = {
   device: shell.device || store.get('rp20.device') || null,
 };
 
+/** This browser's random device id (made by the password page): a new device means a sign-in code by email. */
+export function getDevice() {
+  if (!cfg.device) {
+    const bytes = new Uint8Array(16);
+    crypto.getRandomValues(bytes);
+    cfg.device = [...bytes].map((b) => b.toString(16).padStart(2, '0')).join('');
+    store.set('rp20.device', cfg.device);
+  }
+  return cfg.device;
+}
+
 export function setGate(token) { cfg.gate = token; store.set('rp20.gate', token); }
 export function getToken() { return store.get('rp20.token'); }
 export function setToken(t) { store.set('rp20.token', t); }

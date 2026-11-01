@@ -15,7 +15,8 @@
     "deploy": "node scripts/cloud-setup.mjs --deploy",
     "test": "node --test \"test/*.test.js\"",
     "unlock": "node scripts/unlock.mjs",
-    "stop-tunnel": "node scripts/stop-tunnel.mjs"
+    "stop-tunnel": "node scripts/stop-tunnel.mjs",
+    "email-setup": "node scripts/email-setup.mjs"
   },
   "engines": {
     "node": ">=22"

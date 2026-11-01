@@ -110,9 +110,10 @@ async function rediscover() {
 }
 
 function parseRoute() {
-  const h = location.hash.replace(/^#\/?/, '');
+  const [h, query = ''] = location.hash.replace(/^#\/?/, '').split('?');
   const parts = h.split('/').filter(Boolean);
   if (!parts.length) return { name: 'lobby' };
+  if (parts[0] === 'reset') return { name: 'reset', token: new URLSearchParams(query).get('token') || '' };
   if (parts[0] === 'new') return { name: 'new' };
   if (parts[0] === 'c' && parts[1]) {
     if (parts[2] === 'play') return { name: 'play', id: parts[1] };
