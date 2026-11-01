@@ -79,7 +79,7 @@ function MapsTab() {
       <div className="sub-h">Maps</div>
       {!view.areaMaps.length && <div className="tiny muted">No maps yet. Towns and regions appear here as you discover them; a proper map you have to find, buy or be given.</div>}
       {view.areaMaps.map((a) => (
-        <button key={a.map.id} className="list-card" onClick={() => ui.set({ mapTab: 'area', areaMapId: a.map.id })}>
+        <button key={a.map.id} className="list-card" onClick={() => ui.set({ viewMapId: a.map.id, mapTab: 'area', areaMapId: a.map.id })}>
           <b>🗺 {a.map.name}</b>
           <span className="tiny muted">{titleIndex(a.map.style)} · {a.knowledge.owned ? 'you have the map' : `${a.knowledge.discovered.length} place${a.knowledge.discovered.length === 1 ? '' : 's'} found`}</span>
         </button>

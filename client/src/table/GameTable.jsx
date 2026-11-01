@@ -11,6 +11,7 @@ import Composer from './Composer.jsx';
 import SidePanel from './SidePanel.jsx';
 import { InitiativeBar, TurnPanel } from './TurnPanel.jsx';
 import { DiceOverlay, RollPromptModal, DiceTray } from './Dice.jsx';
+import MapViewer from './MapViewer.jsx';
 import DMScreen from './DMScreen.jsx';
 import VoiceSettings from './VoiceSettings.jsx';
 
@@ -38,6 +39,7 @@ export default function GameTable({ id }) {
       {!connected && <div className="offline-banner">Reconnecting to the table…</div>}
       <DiceOverlay />
       <RollPromptModal />
+      <MapViewer />
       <DMScreen />
     </div>
   );

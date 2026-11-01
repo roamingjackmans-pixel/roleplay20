@@ -88,6 +88,11 @@ export default function MapStage() {
             <button className="btn icon" title="Fit map" onClick={() => mapRef.current?.fit?.()}>⤢</button>
           </div>
         )}
+        {tab === 'area' && area && (
+          <div className="map-tools">
+            <button className="btn icon" title="Open this map full screen" onClick={() => ui.set({ viewMapId: area.map.id })}>⛶</button>
+          </div>
+        )}
       </div>
       {t && (
         <div className="targeting-banner">

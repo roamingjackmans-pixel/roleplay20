@@ -6,6 +6,7 @@ export const useUI = create((set, get) => ({
   panelTab: 'sheet',
   mapTab: 'tactical',            // tactical | area
   areaMapId: null,
+  viewMapId: null,               // area map open in the full-screen viewer
   mode: 'select',                // select | measure | template | target | ping
   targeting: null,               // { kind: 'attack', attackId } | { kind: 'spell', spell, slotLevel } | null
   selectedTokenId: null,
