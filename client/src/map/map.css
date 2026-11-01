@@ -1,0 +1,124 @@
+/* Roleplay20 map renderers — every class is prefixed rp-map- */
+@import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700&family=IM+Fell+English:ital@0;1&family=Alegreya+Sans:wght@500;700&display=swap');
+
+.rp-map-tactical {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-height: 200px;
+  overflow: hidden;
+  background: #0c0a08;
+  border-radius: inherit;
+  contain: strict;
+}
+.rp-map-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  outline: none;
+}
+
+/* ---------- area map ---------- */
+.rp-map-area {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-height: 240px;
+  overflow: hidden;
+  background: radial-gradient(ellipse at center, #2a2219 0%, #15110c 100%);
+  border-radius: inherit;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.rp-map-area-svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+  cursor: grab;
+}
+.rp-map-area-svg.rp-map-dragging {
+  cursor: grabbing;
+}
+.rp-map-area-loc {
+  cursor: pointer;
+}
+.rp-map-area-loc:hover .rp-map-area-marker,
+.rp-map-area-loc:focus-visible .rp-map-area-marker {
+  filter: drop-shadow(0 0 3px rgba(255, 220, 140, 0.95));
+}
+.rp-map-area-loc:focus-visible {
+  outline: none;
+}
+.rp-map-area-loc:hover .rp-map-area-label {
+  fill: #5a1a0a;
+}
+.rp-map-area-label {
+  font-family: 'IM Fell English', 'Palatino Linotype', 'Book Antiqua', Georgia, serif;
+  paint-order: stroke;
+  stroke: rgba(240, 226, 192, 0.85);
+  stroke-linejoin: round;
+  pointer-events: none;
+}
+.rp-map-area-title {
+  font-family: 'Cinzel', 'Trajan Pro', 'Palatino Linotype', Georgia, serif;
+}
+.rp-map-area-italic {
+  font-family: 'IM Fell English', 'Palatino Linotype', Georgia, serif;
+  font-style: italic;
+}
+.rp-map-area-tip {
+  position: absolute;
+  pointer-events: none;
+  max-width: 260px;
+  padding: 7px 10px 8px;
+  background: rgba(30, 22, 14, 0.94);
+  color: #f2e6c9;
+  border: 1px solid #a8864e;
+  border-radius: 6px;
+  font: 13px/1.35 'Alegreya Sans', 'Segoe UI', system-ui, sans-serif;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
+  transform: translate(-50%, calc(-100% - 14px));
+  z-index: 2;
+}
+.rp-map-area-tip b {
+  display: block;
+  font-family: 'Cinzel', Georgia, serif;
+  font-size: 13px;
+  letter-spacing: 0.02em;
+  color: #ffd98a;
+  margin-bottom: 2px;
+}
+.rp-map-area-tip i {
+  color: #c9b48a;
+  font-size: 11px;
+  text-transform: capitalize;
+}
+.rp-map-area-controls {
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  z-index: 2;
+}
+.rp-map-area-controls button {
+  width: 30px;
+  height: 30px;
+  border-radius: 6px;
+  border: 1px solid rgba(168, 134, 78, 0.8);
+  background: rgba(30, 22, 14, 0.85);
+  color: #f2e6c9;
+  font: 700 16px/1 'Alegreya Sans', system-ui, sans-serif;
+  cursor: pointer;
+}
+.rp-map-area-controls button:hover {
+  background: rgba(60, 44, 26, 0.95);
+}

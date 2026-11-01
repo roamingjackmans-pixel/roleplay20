@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Roleplay20</title>
+  <meta name="description" content="A private table. Speak the password to enter." />
+  <meta name="robots" content="noindex, nofollow" />
+  <meta name="theme-color" content="#0d0b10" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cpath d='M32 3 58 18v28L32 61 6 46V18z' fill='%23d9a441'/%3E%3Cpath d='M32 13 47 41H17z' fill='%230d0b10'/%3E%3Ctext x='32' y='37' font-size='13' text-anchor='middle' fill='%23d9a441' font-family='Georgia' font-weight='700'%3E20%3C/text%3E%3C/svg%3E" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700;900&family=EB+Garamond:ital,wght@0,400;0,500;1,400&family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="./shell.css" />
+</head>
+<body>
+  <canvas id="embers" aria-hidden="true"></canvas>
+  <main id="gate" class="gate" aria-live="polite">
+    <div class="sigil" aria-hidden="true">
+      <svg viewBox="0 0 120 120" width="120" height="120">
+        <defs>
+          <linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f6d58a"/><stop offset="1" stop-color="#a8741f"/></linearGradient>
+        </defs>
+        <polygon points="60,6 107,33 107,87 60,114 13,87 13,33" fill="none" stroke="url(#g)" stroke-width="3"/>
+        <polygon points="60,22 92,78 28,78" fill="none" stroke="url(#g)" stroke-width="2.4"/>
+        <path d="M60 6 60 22 M107 33 92 78 M13 33 28 78 M60 114 28 78 M60 114 92 78 M13 87 28 78 M107 87 92 78 M13 33 60 22 M107 33 60 22" stroke="url(#g)" stroke-width="1.4" opacity=".7"/>
+        <text x="60" y="66" text-anchor="middle" font-family="Cinzel, Georgia, serif" font-weight="900" font-size="22" fill="url(#g)">20</text>
+      </svg>
+    </div>
+    <h1>Roleplay<span>20</span></h1>
+    <p class="sub">A private table. An AI Dungeon Master. Your story.</p>
+
+    <form id="gate-form" class="card" autocomplete="off">
+      <label for="pw">Speak the password, friend, and enter</label>
+      <div class="row">
+        <input id="pw" type="password" inputmode="text" autocomplete="current-password" spellcheck="false" placeholder="Password" required />
+        <button id="go" type="submit">Enter</button>
+      </div>
+      <p id="msg" class="msg" role="status"></p>
+    </form>
+
+    <section id="locked" class="card locked" hidden>
+      <div class="lock-icon" aria-hidden="true">🔒</div>
+      <h2>The doors are sealed</h2>
+      <p>Too many wrong answers. The gate opens again in</p>
+      <p id="countdown" class="countdown">--:--:--</p>
+    </section>
+
+    <section id="status" class="card status" hidden>
+      <div class="spinner" aria-hidden="true"></div>
+      <p id="status-text">Lighting the torches…</p>
+    </section>
+
+    <section id="offline" class="card offline" hidden>
+      <h2>The tavern is closed</h2>
+      <p>The Dungeon Master's server isn't running right now. Ask the host to start it, then try again.</p>
+      <button id="retry" type="button">Try again</button>
+      <details>
+        <summary>I have a server address</summary>
+        <div class="row"><input id="manual-server" type="url" placeholder="https://….trycloudflare.com/roleplay20/" /><button id="use-server" type="button">Use</button></div>
+      </details>
+    </section>
+  </main>
+  <div id="root"></div>
+  <script src="./shell.js"></script>
+</body>
+</html>

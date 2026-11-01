@@ -1,0 +1,66 @@
+:root {
+  --bg: #0d0b10;
+  --panel: rgba(23, 20, 28, 0.86);
+  --line: #3a3142;
+  --text: #ece4d6;
+  --muted: #a59a8a;
+  --gold: #d9a441;
+  --gold-2: #f2c76e;
+  --red: #e0675c;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body {
+  background: radial-gradient(ellipse at 50% 30%, #2a1e2e 0%, #140f18 45%, var(--bg) 100%) fixed;
+  color: var(--text);
+  font-family: Inter, system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+#embers { position: fixed; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.gate {
+  position: relative; min-height: 100vh; min-height: 100dvh; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  padding: 32px 16px; text-align: center; gap: 6px;
+}
+.gate.leaving { animation: fadeOut .6s ease forwards; }
+@keyframes fadeOut { to { opacity: 0; transform: scale(1.03); filter: blur(2px); } }
+.sigil svg { filter: drop-shadow(0 0 24px rgba(217, 164, 65, .45)); animation: float 6s ease-in-out infinite; }
+@keyframes float { 50% { transform: translateY(-6px) rotate(2deg); } }
+#gate h1 { font-family: Cinzel, Georgia, serif; font-weight: 900; font-size: clamp(38px, 8vw, 64px); letter-spacing: .06em; margin: 10px 0 0; text-shadow: 0 2px 30px rgba(217, 164, 65, .35); }
+#gate h1 span { color: var(--gold); }
+#gate .sub { font-family: 'EB Garamond', Georgia, serif; font-style: italic; color: var(--muted); font-size: 19px; margin: 0 0 22px; }
+#gate .card {
+  width: min(440px, 100%); background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 22px 22px 18px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, .55), inset 0 1px 0 rgba(255, 255, 255, .04); backdrop-filter: blur(6px);
+}
+#gate label { display: block; font-family: 'EB Garamond', Georgia, serif; font-size: 18px; color: var(--text); margin-bottom: 12px; }
+#gate .row { display: flex; gap: 8px; }
+#gate input {
+  flex: 1; min-width: 0; font: inherit; font-size: 16px; color: var(--text); background: #0f0c13; border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; outline: none;
+  transition: border-color .2s, box-shadow .2s;
+}
+#gate input:focus { border-color: var(--gold); box-shadow: 0 0 0 3px rgba(217, 164, 65, .18); }
+#gate button {
+  font: inherit; font-weight: 600; font-size: 15px; color: #1b130a; background: linear-gradient(180deg, var(--gold-2), var(--gold)); border: 0; border-radius: 10px; padding: 12px 18px; cursor: pointer;
+  box-shadow: 0 4px 16px rgba(217, 164, 65, .3); transition: transform .1s, filter .2s;
+}
+#gate button:hover { filter: brightness(1.08); }
+#gate button:active { transform: translateY(1px); }
+#gate button:disabled { opacity: .6; cursor: default; }
+#gate .msg { min-height: 20px; margin: 12px 0 0; font-size: 14px; color: var(--muted); }
+#gate .msg.bad { color: var(--red); }
+#gate .shake { animation: shake .45s; }
+@keyframes shake { 20%, 60% { transform: translateX(-8px); } 40%, 80% { transform: translateX(8px); } }
+#gate .locked h2, #gate .offline h2 { font-family: Cinzel, Georgia, serif; margin: 6px 0 8px; font-size: 22px; }
+#gate .locked p, #gate .offline p { color: var(--muted); margin: 6px 0; }
+#gate .lock-icon { font-size: 34px; }
+#gate .countdown { font-family: Cinzel, Georgia, serif; font-size: 34px; color: var(--gold) !important; letter-spacing: .08em; }
+#gate .status { display: flex; align-items: center; gap: 14px; justify-content: center; }
+#gate .status p { margin: 0; color: var(--muted); font-family: 'EB Garamond', Georgia, serif; font-size: 18px; }
+#gate .spinner { width: 22px; height: 22px; border-radius: 50%; border: 2px solid rgba(217, 164, 65, .25); border-top-color: var(--gold); animation: spin .9s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+#gate .offline details { margin-top: 14px; text-align: left; color: var(--muted); font-size: 14px; }
+#gate .offline details .row { margin-top: 8px; }
+#gate .offline > button { margin-top: 10px; }
+#gate [hidden] { display: none !important; }
+@media (prefers-reduced-motion: reduce) { .sigil svg, .spinner { animation: none; } }

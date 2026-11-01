@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Roleplay20 · Map renderer demo</title>
+    <style>
+      :root { color-scheme: dark; }
+      html, body, #root { height: 100%; margin: 0; }
+      body { background: #120e0a; color: #eadfc6; font: 14px/1.4 'Alegreya Sans', 'Segoe UI', system-ui, sans-serif; }
+      .demo { display: grid; grid-template-columns: 290px 1fr; height: 100%; }
+      .demo-side { overflow-y: auto; padding: 14px 14px 30px; background: linear-gradient(#1d1610, #140f0b); border-right: 1px solid #3a2c1c; }
+      .demo-side h1 { font: 700 19px 'Cinzel', Georgia, serif; margin: 0 0 4px; color: #f2c46a; letter-spacing: .04em; }
+      .demo-side h2 { font: 700 12px 'Cinzel', Georgia, serif; text-transform: uppercase; letter-spacing: .12em; color: #b9975c; margin: 16px 0 6px; }
+      .demo-side label { display: flex; align-items: center; gap: 6px; margin: 4px 0; cursor: pointer; }
+      .demo-side select, .demo-side input[type=number] { width: 100%; box-sizing: border-box; background: #0f0b08; color: #eadfc6; border: 1px solid #4a3822; border-radius: 6px; padding: 5px 7px; font: inherit; }
+      .demo-row { display: flex; gap: 6px; }
+      .demo-btns { display: flex; flex-wrap: wrap; gap: 5px; }
+      .demo-btns button, .demo-side button { background: #2a1f14; color: #eadfc6; border: 1px solid #5a4428; border-radius: 6px; padding: 5px 9px; cursor: pointer; font: inherit; }
+      .demo-btns button.on { background: #7a5520; border-color: #e0a64a; color: #fff3d8; }
+      .demo-main { position: relative; min-width: 0; }
+      .demo-tabs { position: absolute; z-index: 5; top: 10px; left: 50%; transform: translateX(-50%); display: flex; gap: 4px; background: rgba(20,14,9,.85); padding: 4px; border-radius: 9px; border: 1px solid #4a3822; }
+      .demo-tabs button { background: transparent; border: 0; color: #cdb98f; padding: 6px 14px; border-radius: 6px; cursor: pointer; font: 700 13px 'Cinzel', Georgia, serif; }
+      .demo-tabs button.on { background: #6a4a1c; color: #fff3d8; }
+      .demo-log { font-size: 12px; color: #bfae8a; background: #0e0a07; border: 1px solid #3a2c1c; border-radius: 6px; padding: 6px 8px; max-height: 160px; overflow-y: auto; white-space: pre-wrap; }
+      .demo-stat { font-size: 12px; color: #9c8a68; margin-top: 6px; }
+      .demo-hint { font-size: 12px; color: #9c8a68; }
+      @media (max-width: 760px) { .demo { grid-template-columns: 1fr; grid-template-rows: auto 1fr; } .demo-side { max-height: 38vh; border-right: 0; border-bottom: 1px solid #3a2c1c; } }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/map/demo.jsx"></script>
+  </body>
+</html>

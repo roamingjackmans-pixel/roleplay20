@@ -1,0 +1,35 @@
+# Publishes the public gate page (site/) to GitHub Pages on every push to main.
+# It shows up at josephjackman.com/roleplay20/ because this repo is named "roleplay20"
+# and the account's user site has the josephjackman.com custom domain.
+# Only the password gate is public: the rest of the app loads from the game server after the password is accepted.
+name: Deploy gate page to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+    paths: ['site/**', '.github/workflows/pages.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v4
+        with:
+          path: site
+      - id: deployment
+        uses: actions/deploy-pages@v4
