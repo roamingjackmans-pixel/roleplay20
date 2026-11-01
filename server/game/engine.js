@@ -624,7 +624,7 @@ function resolveActions(c) {
     const ch = getCharacter(m?.characterId);
     if (!ch) continue;
     acts.push({ name: ch.name, characterId: ch.id, text: a.text, private: a.private, userId: uid });
-    addLog(c, { kind: 'action', userId: uid, characterId: ch.id, name: ch.name, text: a.text, private: a.private, to: a.private ? [uid] : 'all' });
+    addLog(c, { kind: 'action', userId: uid, characterId: ch.id, name: ch.name, text: a.text, private: a.private, to: [uid] });
   }
   const text = acts.map((a) => `${a.name} (${a.characterId})${a.private ? ' [PRIVATE - only this player knows]' : ''}: ${a.text}`).join('\n') +
     '\n\nResolve these actions together in one narration. Give each character their own perception. Ask for rolls where outcomes are uncertain.';

@@ -9,6 +9,12 @@ import { onlineUsers, requiredUsers } from './engine.js';
 import { aiStatus, PRICES } from '../ai/client.js';
 
 export function logVisibleTo(c, entry, userId) {
+  // a player's declared action is theirs alone: the others hear about it at the table, or through the DM's narration
+  if (entry.kind === 'action') {
+    if (entry.userId === userId) return true;
+    const m = member(c, userId);
+    return m?.role === 'owner' && !!c.settings.dmView;
+  }
   if (entry.to === 'all' || !entry.to) return true;
   if (Array.isArray(entry.to)) {
     if (entry.to.includes(userId)) return true;

@@ -1131,7 +1131,7 @@ export function combatAsk(c, userId, text) {
   const { cb, ch, k } = r;
   const t = String(text || '').trim().slice(0, 1000);
   if (!t) return { error: 'Describe what you try.' };
-  E.addLog(c, { kind: 'action', userId, characterId: ch.id, name: ch.name, text: t, to: 'all' });
+  E.addLog(c, { kind: 'action', userId, characterId: ch.id, name: ch.name, text: t, to: [userId] });
   k.events.push(`${ch.name} tries: ${t}`);
   k.state = 'asking';
   const askId = randomId('ask_', 3);

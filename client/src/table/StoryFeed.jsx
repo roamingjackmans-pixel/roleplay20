@@ -86,7 +86,7 @@ function Entry({ e, view, speaking }) {
     }
     case 'action':
       return (
-        <div className={`entry action fade-in ${priv ? 'private' : ''}`} style={{ '--pc': view.party.find((p) => p.id === e.characterId)?.color || '#888' }}>
+        <div className={`entry action fade-in ${e.private ? 'private' : ''}`} style={{ '--pc': view.party.find((p) => p.id === e.characterId)?.color || '#888' }}>
           <div className="speaker">{e.name}{e.private ? <span className="private-tag inline">private to the DM</span> : null}</div>
           <div className="line">{e.text}</div>
         </div>

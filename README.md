@@ -67,7 +67,11 @@ You need Windows, Node.js 22+, the GitHub CLI (`gh`, signed in) and an Anthropic
    the `live` branch of this repo. The gate page at josephjackman.com/roleplay20 reads it from there, so friends just
    open the normal URL. Locally you can also use http://localhost:3020/roleplay20/.
 
-If the PC sleeps or the server stops, the gate page shows "The tavern is closed".
+If the PC sleeps or the server stops, the gate page shows "The tavern is closed". The tunnel runs as its own background
+process, so restarting the server keeps the same address and players' pages reconnect by themselves; if the address
+does change (after a reboot), open pages look up the new one and reload. `npm run stop-tunnel` ends the tunnel.
+
+Players only ever see their own declared actions; everyone else learns what you did from the table or the DM's narration.
 
 ### Why an API key and not the Claude subscription
 

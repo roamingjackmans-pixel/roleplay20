@@ -11,7 +11,8 @@
     "start": "node server/index.js",
     "setup": "node scripts/setup.mjs",
     "test": "node --test \"test/*.test.js\"",
-    "unlock": "node scripts/unlock.mjs"
+    "unlock": "node scripts/unlock.mjs",
+    "stop-tunnel": "node scripts/stop-tunnel.mjs"
   },
   "engines": {
     "node": ">=22"

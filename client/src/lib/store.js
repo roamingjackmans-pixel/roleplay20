@@ -43,11 +43,15 @@ export const useStore = create((set, get) => ({
         set({ view: r.view, log: r.log || [], joining: false });
       });
     });
+    let failures = 0;
+    socket.on('connect', () => { failures = 0; });
     socket.on('disconnect', () => set({ connected: false }));
     socket.on('connect_error', (e) => {
       set({ connected: false });
       if (e.message === 'gate') window.dispatchEvent(new Event('rp20:gate'));
       if (e.message === 'auth') window.dispatchEvent(new Event('rp20:auth'));
+      // the host's server may have come back on a new public address: look it up and reload onto it
+      if (++failures % 4 === 0) rediscover();
     });
     socket.on('view', (view) => {
       const prev = get().view;
@@ -90,6 +94,18 @@ export function emit(event, payload = {}, { quiet = false } = {}) {
       resolve(r || {});
     });
   });
+}
+
+async function rediscover() {
+  if (!window.RP20?.shell) return; // only the public site moves between addresses
+  try {
+    const r = await fetch('https://api.github.com/repos/roamingjackmans-pixel/roleplay20/contents/server.json?ref=live', { cache: 'no-store', headers: { Accept: 'application/vnd.github.raw+json' } });
+    const j = await r.json();
+    if (j?.url && j.url !== cfg.server) {
+      try { localStorage.setItem('rp20.server', j.url); } catch { /* ignore */ }
+      location.reload();
+    }
+  } catch { /* still offline; try again later */ }
 }
 
 function parseRoute() {
