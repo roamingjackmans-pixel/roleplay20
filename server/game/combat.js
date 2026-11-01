@@ -109,14 +109,23 @@ export function normalizeMonster(m, overrides = {}) {
   };
 }
 
+/** A one-off creature from the DM: "Bone Claw +5 2d6+3 slashing reach 5" or "Acid Spit +4 1d8 acid range 30". */
+export function parseCustomAttack(text) {
+  const t = String(text || '').trim();
+  const m = /^(.*?)\s*\+(\d+)\s+(\d+d\d+(?:\s*[+-]\s*\d+)?)\s*([a-z]+)?(?:.*?\b(reach|range)\s*(\d+))?/i.exec(t);
+  if (!m) return { name: t || 'Strike', attackBonus: 4, damage: [{ dice: '1d8+2', type: 'bludgeoning' }], reachFt: 5, rangeFt: null, kind: 'melee', desc: t };
+  const ranged = /range/i.test(m[5] || '');
+  const dist = Number(m[6]) || (ranged ? 30 : 5);
+  return { name: m[1] || 'Strike', attackBonus: Number(m[2]), damage: [{ dice: m[3].replace(/\s+/g, ''), type: (m[4] || 'bludgeoning').toLowerCase() }], reachFt: ranged ? null : dist, rangeFt: ranged ? { normal: dist, long: dist * 4 } : null, kind: ranged ? 'ranged' : 'melee', desc: t };
+}
+
 function customMonster(g) {
-  const k = g.custom || {};
+  const cr = g.customCr || 0.5;
   return normalizeMonster({
-    index: 'custom', ac: k.ac || 12, hp: k.hp || 11, speed: k.speed || 30, cr: k.cr || 0.5, xp: Math.round((k.cr || 0.5) * 200),
-    abilities: { str: k.str || 12, dex: k.dex || 12, con: k.con || 12, int: k.int || 10, wis: k.wis || 10, cha: k.cha || 10 },
-    skills: k.stealth ? { stealth: k.stealth } : {}, senses: { darkvision: k.darkvision || 0, passivePerception: 10 + abilityMod(k.wis || 10) },
-    traits: k.traits ? [{ name: 'Traits', desc: k.traits }] : [],
-    actions: (k.attacks || []).map((a) => ({ name: a.name, attackBonus: a.bonus, damage: [{ dice: a.damage, type: a.damageType }], reachFt: a.reachFt || 5, rangeFt: a.rangeFt ? { normal: a.rangeFt, long: a.rangeFt * 4 } : null, kind: a.rangeFt ? 'ranged' : 'melee', desc: '' })),
+    index: 'custom', ac: g.customAc || 12, hp: g.customHp || 11, speed: g.customSpeed || 30, cr, xp: Math.round(cr * 200),
+    abilities: { str: 12, dex: 12, con: 12, int: 10, wis: 10, cha: 10 },
+    skills: {}, senses: { darkvision: 60, passivePerception: 11 },
+    actions: [parseCustomAttack(g.customAttack)],
   });
 }
 
@@ -181,7 +190,7 @@ function revealToWatchers(c, tok) {
 export function startCombat(c, spec) {
   const party = partyCharacters(c);
   let map = c.maps.tactical[c.scene.tacticalMapId];
-  if (!spec.useCurrentMap || !map) {
+  if ((spec.map && !spec.useCurrentMap) || !map) {
     map = E.setSceneMap(c, spec.map || { theme: 'field', size: 'medium' });
     if (!map) { E.system(c, 'Could not build a battle map.', 'all', { tone: 'warn' }); E.openActions(c); return; }
   }

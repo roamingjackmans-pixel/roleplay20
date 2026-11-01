@@ -65,23 +65,35 @@ export function extractJson(text) {
   throw new Error('unterminated JSON in response');
 }
 
-async function callApi({ system, cachedContext, prompt, schema, model, effort, maxTokens }) {
-  if (!config.anthropicKey) throw new NoAIError('ANTHROPIC_API_KEY is not set.');
-  const systemBlocks = [{ type: 'text', text: system }];
-  if (cachedContext) systemBlocks.push({ type: 'text', text: cachedContext, cache_control: { type: 'ephemeral' } });
-  else systemBlocks[0].cache_control = { type: 'ephemeral' };
+// Schemas too large for compiled structured outputs (the API answers "compiled grammar is too large"). For these the
+// schema goes into the cached system prompt instead, and the reply is parsed and checked here.
+const promptSchemaTasks = new Set(['turn']);
 
-  const base = {
-    model,
-    max_tokens: maxTokens || 16000,
-    system: systemBlocks,
-    messages: [{ role: 'user', content: prompt }],
-    output_config: { effort, ...(schema ? { format: { type: 'json_schema', schema } } : {}) },
-  };
+function schemaInstructions(schema) {
+  return `\n\n# OUTPUT FORMAT\nRespond with ONE JSON object and nothing else (no prose, no code fences). It must match this JSON Schema exactly - every listed property present, "" / 0 / [] when not used:\n${JSON.stringify(schema)}`;
+}
+
+function missingKeys(data, schema) {
+  if (!schema?.required || !data || typeof data !== 'object') return [];
+  return schema.required.filter((k) => !(k in data));
+}
+
+async function callApi({ task, system, cachedContext, prompt, schema, model, effort, maxTokens }) {
+  if (!config.anthropicKey) throw new NoAIError('ANTHROPIC_API_KEY is not set.');
   let useFallback = FALLBACK_OK.has(model);
-  let useSchema = !!schema;
-  for (let attempt = 0; attempt < 3; attempt++) {
-    const req = { ...base, output_config: { effort, ...(useSchema ? { format: { type: 'json_schema', schema } } : {}) } };
+  let useSchema = !!schema && !promptSchemaTasks.has(task);
+  let retryNote = '';
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const systemBlocks = [{ type: 'text', text: system + (schema && !useSchema ? schemaInstructions(schema) : '') }];
+    if (cachedContext) systemBlocks.push({ type: 'text', text: cachedContext, cache_control: { type: 'ephemeral' } });
+    else systemBlocks[0].cache_control = { type: 'ephemeral' };
+    const req = {
+      model,
+      max_tokens: maxTokens || 16000,
+      system: systemBlocks,
+      messages: [{ role: 'user', content: prompt + retryNote }],
+      output_config: { effort, ...(useSchema ? { format: { type: 'json_schema', schema } } : {}) },
+    };
     try {
       const res = useFallback
         ? await api().beta.messages.create({ ...req, betas: ['server-side-fallback-2026-07-01'], fallbacks: 'default' })
@@ -91,13 +103,25 @@ async function callApi({ system, cachedContext, prompt, schema, model, effort, m
       }
       const text = res.content.filter((b) => b.type === 'text').map((b) => b.text).join('');
       if (res.stop_reason === 'max_tokens') console.warn('[ai] response hit max_tokens; trying to parse anyway');
-      return { data: extractJson(text), usage: res.usage, model: res.model || model, raw: text };
+      let data;
+      try { data = extractJson(text); } catch (pe) {
+        if (attempt < 3) { console.warn(`[ai] ${task}: reply was not valid JSON (${pe.message}); asking again`); retryNote = '\n\n(Your previous reply was not a valid JSON object. Reply with only the JSON object.)'; continue; }
+        throw pe;
+      }
+      const missing = useSchema ? [] : missingKeys(data, schema);
+      if (missing.length > 3 && attempt < 3) {
+        console.warn(`[ai] ${task}: reply is missing ${missing.join(', ')}; asking again`);
+        retryNote = `\n\n(Your previous reply was missing these properties: ${missing.join(', ')}. Include every property of the schema.)`;
+        continue;
+      }
+      return { data, usage: res.usage, model: res.model || model, raw: text };
     } catch (e) {
       const msg = String(e?.message || e);
       if (e instanceof Anthropic.BadRequestError) {
         if (useFallback && /fallback/i.test(msg)) { useFallback = false; continue; }
-        if (useSchema && /(schema|output_config|format)/i.test(msg)) {
-          console.warn('[ai] schema rejected by the API, retrying with prompt-only JSON:', msg.slice(0, 300));
+        if (useSchema && /(schema|output_config|format|grammar)/i.test(msg)) {
+          console.warn(`[ai] ${task}: schema not accepted for structured outputs; using the schema in the prompt from now on`);
+          promptSchemaTasks.add(task);
           useSchema = false;
           continue;
         }
@@ -139,7 +163,7 @@ export async function askClaude({ task, system, cachedContext = '', prompt, sche
   const m = MODELS.includes(model) ? model : config.defaultModel;
   const eff = effort || config.defaultEffort;
   let out;
-  if (config.aiProvider === 'api') out = await callApi({ system, cachedContext, prompt, schema, model: m, effort: eff, maxTokens });
+  if (config.aiProvider === 'api') out = await callApi({ task, system, cachedContext, prompt, schema, model: m, effort: eff, maxTokens });
   else if (config.aiProvider === 'file') out = await callFile({ task, system, cachedContext, prompt, schema });
   else throw new NoAIError();
   const ms = Date.now() - t0;

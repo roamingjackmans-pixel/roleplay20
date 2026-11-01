@@ -523,7 +523,7 @@ export function applyTurnResult(c, data, input = {}) {
   else if (s.areaLocationId && c.scene.areaMapId) moveParty(c, c.scene.areaMapId, s.areaLocationId);
 
   const startCombat = (data.combatStart || [])[0];
-  if (data.sceneMap?.[0] && !(startCombat && !startCombat.useCurrentMap)) setSceneMap(c, data.sceneMap[0]);
+  if (data.sceneMap?.[0] && !startCombat) setSceneMap(c, data.sceneMap[0]);
 
   const posted = postNarration(c, data.narration);
   applyEffects(c, data.effects);
@@ -551,7 +551,7 @@ export function applyTurnResult(c, data, input = {}) {
     return;
   }
   if (startCombat) {
-    combat.startCombat(c, startCombat);
+    combat.startCombat(c, { ...startCombat, map: data.sceneMap?.[0] || null });
     return;
   }
   const reqs = (data.rollRequests || []).map((r) => makeRollRequest(c, r, 'turn')).filter(Boolean);

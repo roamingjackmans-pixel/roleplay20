@@ -42,13 +42,13 @@ const rollRequest = obj({
   secret: B,        // true = only the roller (and DM) see the result
 });
 
-const effect = obj({ type: en(...EFFECT_TYPES), target: S, amount: I, text: S, mapId: S, locationId: S });
+// effect.type is one of EFFECT_TYPES (listed in the system prompt; validated by the engine, kept as a plain string so the
+// turn schema stays small enough to compile for structured outputs)
+const effect = obj({ type: S, target: S, amount: I, text: S, mapId: S, locationId: S });
 
 const areaLocation = obj({
   id: S, name: S,
-  kind: en('tavern', 'inn', 'temple', 'shrine', 'shop', 'market', 'smithy', 'guild', 'manor', 'castle', 'keep', 'gate', 'dock', 'well',
-    'square', 'tower', 'ruins', 'cave', 'camp', 'farm', 'mill', 'graveyard', 'stable', 'library', 'barracks', 'jail', 'house', 'landmark',
-    'dungeon', 'room', 'town', 'city', 'village', 'forest', 'mountain', 'lake', 'bridge', 'crossroads', 'mine', 'portal'),
+  kind: S, // tavern, inn, temple, shrine, shop, market, smithy, guild, manor, castle, keep, gate, dock, well, square, tower, ruins, cave, camp, farm, mill, graveyard, stable, library, barracks, jail, house, landmark, dungeon, room, town, city, village, forest, mountain, lake, bridge, crossroads, mine, portal
   x: N, y: N, description: S, secret: B,
 });
 
@@ -75,17 +75,14 @@ const enemyGroup = obj({
   count: I,
   hidden: B,           // starts hidden (ambush)
   placement: en('far', 'near', 'flank', 'surround', 'hidden', 'center'),
-  custom: obj({        // used only when monster == "custom"; otherwise fill with zeros/empties
-    ac: I, hp: I, speed: I, cr: N, str: I, dex: I, con: I, int: I, wis: I, cha: I, darkvision: I, stealth: I,
-    attacks: arr(obj({ name: S, bonus: I, damage: S, damageType: S, reachFt: I, rangeFt: I })),
-    traits: S,
-  }),
+  // only for monster == "custom" (otherwise 0 / ""): a compact stat block
+  customAc: I, customHp: I, customSpeed: I, customCr: N,
+  customAttack: S,     // e.g. "Bone Claw +5 2d6+3 slashing reach 5" or "Spit +4 1d8 acid range 30"
 });
 
 const combatStart = obj({
   reason: S,
-  useCurrentMap: B,    // true = fight on the scene's current battle map
-  map: sceneMap,       // used when useCurrentMap is false
+  useCurrentMap: B,    // true = fight on the scene's current battle map; false = the new "sceneMap" from this response
   enemies: arr(enemyGroup),
   allies: arr(S),      // npc ids fighting with the party
   surprise: B,         // party is surprised if they failed to notice the hidden enemies
