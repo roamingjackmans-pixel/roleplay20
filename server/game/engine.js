@@ -767,8 +767,30 @@ export function applyTurnResult(c, data, input = {}) {
     c.phase = 'rolls';
     c.round.rollRequests = reqs;
   } else {
-    openActions(c);
+    openActions(c, { waitFor: waitForUsers(c, data.waitFor) });
   }
+}
+
+/**
+ * The players a directed question or one-on-one conversation is waiting on (the DM's "waitFor" character ids), or []
+ * for the whole table.
+ */
+export function waitForUsers(c, refs) {
+  const acting = new Set(actingUsers(c));
+  const out = [];
+  for (const r of [].concat(refs || [])) {
+    const ch = findCharacter(c, r);
+    const uid = ch && characterOwner(c, ch.id);
+    if (uid && acting.has(uid) && !out.includes(uid)) out.push(uid);
+  }
+  return out;
+}
+
+/** Who this round waits for: just the player(s) the DM asked, or everyone who can act. */
+export function roundNeeds(c) {
+  const acting = actingUsers(c);
+  const asked = (c.round.waitFor || []).filter((u) => acting.includes(u));
+  return asked.length ? asked : acting;
 }
 
 /** The standard reward for finishing a quest: a quarter of the way from the party's level to the next, per character. */
@@ -808,8 +830,9 @@ export function upsertQuest(c, q) {
   if (q.update) cur.updates.push(q.update);
 }
 
-export function openActions(c) {
+export function openActions(c, { waitFor = [] } = {}) {
   c.phase = 'actions';
+  c.round.waitFor = waitFor;
   c.round.actions = {};
   c.round.rollRequests = [];
   c.round.revise = {};
@@ -844,7 +867,7 @@ export function withdrawAction(c, userId) {
 
 export function maybeResolve(c, force = false) {
   if (c.phase !== 'actions' || c.thinking) return;
-  const need = actingUsers(c);
+  const need = roundNeeds(c);
   const got = Object.keys(c.round.actions);
   if (!got.length) return;
   if (force || need.every((u) => got.includes(u))) resolveActions(c);
@@ -863,7 +886,9 @@ function resolveActions(c) {
     // an action kept from a round that paused for someone else's question is already in the log
     if (!a.logged) addLog(c, { kind: 'action', userId: uid, characterId: ch.id, name: ch.name, text: a.text, private: a.private, to: a.private ? [uid] : 'all' });
   }
+  const asked = (c.round.waitFor || []).map((u) => getCharacter(member(c, u)?.characterId)?.name).filter(Boolean);
   const text = acts.map((a) => `${a.name} (${a.characterId})${a.private ? ' [PRIVATE - only this player knows]' : ''}${a.revised ? ' [REVISED after you asked them to fit it into one turn - do not ask them again]' : ''}: ${a.text}`).join('\n') +
+    (asked.length ? `\n\n(This round waited only for ${asked.join(' and ')} to answer; anyone else listed chimed in on their own. Everyone else is watching and listening.)` : '') +
     '\n\nResolve these actions together as one shared narration for the whole table (private segments only where something truly cannot be shared; a PRIVATE action that could not logically go unnoticed happens in the open). Move tokens on the battle map to match where people go. Ask for rolls where outcomes are uncertain. If any character declared more than their turn allows (and has not already revised), use "clarify" for them instead of resolving anything.';
   c.round.actions = {};
   c.round.casts = {};
@@ -990,9 +1015,11 @@ export function makeRollRequest(c, r, purpose, extra = {}) {
     key = Object.keys(SKILL_NAMES).find((s) => s.toLowerCase() === k.toLowerCase()) || k;
   }
   if (['save', 'ability'].includes(kind)) key = key.slice(0, 3).toLowerCase();
+  const contest = String(r.contest || '').trim().slice(0, 40);
   const req = {
-    id: randomId('r_', 5), userId, characterId: ch.id, characterName: ch.name, kind, key, dc: Number(r.dc) || 0,
-    advantage: r.advantage || 'none', reason: r.reason || '', secret: !!r.secret, purpose, status: 'pending', createdAt: Date.now(), ...extra,
+    id: randomId('r_', 5), userId, characterId: ch.id, characterName: ch.name, kind, key, dc: contest ? 0 : Number(r.dc) || 0,
+    advantage: r.advantage || 'none', reason: r.reason || '', secret: !contest && !!r.secret, purpose, status: 'pending', createdAt: Date.now(),
+    ...(contest ? { contest } : {}), ...extra,
   };
   addLog(c, { kind: 'roll_request', requestId: req.id, characterName: ch.name, label: rollLabel(req), reason: req.reason, to: req.secret ? [userId] : 'all' });
   return req;
@@ -1091,9 +1118,30 @@ export function completeRoll(c, req, r, { auto = false } = {}) {
   }
 }
 
+/**
+ * Contested rolls: requests that share a "contest" id are compared, and the highest total (with modifiers) wins.
+ * A tie keeps things as they were (5e), so neither side gets their way.
+ */
+export function contestResults(reqs) {
+  const groups = new Map();
+  for (const r of reqs) if (r.contest && r.status === 'done' && r.result) (groups.get(r.contest) || groups.set(r.contest, []).get(r.contest)).push(r);
+  return [...groups.entries()].filter(([, g]) => g.length >= 2).map(([id, g]) => {
+    const sorted = [...g].sort((a, b) => b.result.total - a.result.total);
+    const tie = sorted[0].result.total === sorted[1].result.total;
+    return { id, sides: g, winner: tie ? null : sorted[0], tie };
+  });
+}
+
 function resolveRolls(c) {
   const reqs = c.round.rollRequests.filter((x) => x.purpose === 'turn');
   const lines = reqs.map((r) => `${r.characterName} (${r.characterId}) ${rollLabel(r)}${r.reason ? ` [${r.reason}]` : ''}: total ${r.result.total}${r.result.natural ? ` (natural ${r.result.natural})` : ''}${r.dc ? ` vs DC ${r.dc} -> ${r.success ? 'SUCCESS' : 'FAILURE'}` : ''}${r.result.manual ? ' (rolled at the table)' : ''}`);
+  for (const k of contestResults(reqs)) {
+    const vs = k.sides.map((r) => `${r.characterName} ${r.result.total} (${rollLabel(r)})`).join(' vs ');
+    system(c, k.tie ? `⚔ Contest: ${vs}. A tie, so neither gets their way.` : `⚔ Contest: ${vs}. ${k.winner.characterName} wins.`, 'all', { tone: 'roll' });
+    lines.push(k.tie
+      ? `CONTEST "${k.id}": ${vs} -> TIE. Neither action happens; things stay as they were.`
+      : `CONTEST "${k.id}": ${vs} -> ${k.winner.characterName.toUpperCase()} WINS. ${k.winner.characterName}'s action happens; ${k.sides.filter((r) => r !== k.winner).map((r) => r.characterName).join(' and ')}'s doesn't.`);
+  }
   c.round.rollRequests = [];
   runTurn(c, { kind: 'rolls', rollsText: lines, text: `Roll results for the checks you asked for:\n${lines.join('\n')}\n\nNarrate the outcomes for the whole table (privately only for secret rolls or things only that character could perceive), then move the scene on.` });
 }

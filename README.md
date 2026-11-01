@@ -45,6 +45,11 @@ moment private only when it really is (a secret roll, a whisper, a character off
   ready, the DM resolves all actions together, asks for rolls where the outcome is uncertain, and narrates. If someone
   declares more than one turn holds (three attacks and a sprint), the DM doesn't pick for them: it privately tells that
   player the most they can do, reopens their action to edit, and resolves the round once they've revised it.
+- **Talking with NPCs.** When an NPC asks one character a question, the DM waits only for that player's answer (the
+  others can still chime in), so a one-on-one conversation can go back and forth without the rest of the table typing.
+- **Contested rolls.** When two players try things that can't both happen (both grab the falling idol, one bars the
+  door the other is opening), the DM asks each for a roll with the stat that fits how they're trying it. The higher
+  total with modifiers wins and that action happens; on a tie neither gets their way.
 - **The whole table, or nobody.** A session begins only when every player is at the table and someone presses
   **Begin session**. If anyone drops off, the game pauses until they're back. Between sessions (or while paused)
   everyone can still read their sheet, maps, handouts and the journal, and chat.
@@ -55,6 +60,7 @@ moment private only when it really is (a secret roll, a whisper, a character off
 - **Voices.** The story is read aloud with the browser's built-in voices. Every NPC keeps their own voice (gender, age,
   accent, pitch, speed) for the whole campaign - the old lady always sounds like the old lady. Best in Microsoft Edge.
 - **Maps.** Town and region maps appear as you discover places; the full map must be found, bought or given in the story.
+  Everyone sees the same drawing of a place; only the fog and which places are named depend on what you've found.
   Open any map full screen from the Maps & handouts panel and pick a place to light it up. "Hide map" folds the map
   away so the story can use the whole screen.
   Battle maps are generated for scenes and fights with **dynamic lighting and fog of war**: each player sees only what

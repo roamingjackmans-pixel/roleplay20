@@ -65,7 +65,10 @@ function ActionBox() {
   useEffect(() => { if (rev) setDraft({ action: rev.text || '', priv: !!rev.private }); }, [rev?.question]); // eslint-disable-line
   const isOwner = me.role === 'owner';
   const name = view.myCharacter?.name?.split(' ')[0] || 'your character';
-  const waitingOn = view.members.filter((m) => m.required && !m.submitted && !view.party.find((p) => p.userId === m.userId)?.dead);
+  // a directed question or one-on-one conversation waits only for the player(s) the DM asked
+  const asked = view.round.waitFor || [];
+  const askedNames = asked.map((u) => view.party.find((p) => p.userId === u)?.name?.split(' ')[0]).filter(Boolean);
+  const waitingOn = (asked.length ? view.members.filter((m) => asked.includes(m.userId)) : view.members.filter((m) => m.required && !view.party.find((p) => p.userId === m.userId)?.dead)).filter((m) => !m.submitted);
 
   const st = tableStatus(view);
   if (!view.myCharacter) {
@@ -117,6 +120,13 @@ function ActionBox() {
   }
   return (
     <div className="composer-body col">
+      {asked.length > 0 && !rev && (
+        <div className={`asked-note ${asked.includes(me.userId) ? 'mine' : ''}`}>
+          {asked.includes(me.userId)
+            ? <b>💬 The DM is waiting for your answer.</b>
+            : <span>💬 The DM is waiting for {askedNames.join(' and ')} to answer and carries on as soon as {askedNames.length > 1 ? 'they reply' : 'they do'}. You can still add something {name} does.</span>}
+        </div>
+      )}
       {rev && (
         <div className="revise-note">
           <b>🎲 The DM asks you <span className="tiny muted">(only you can see this)</span></b>
@@ -138,7 +148,8 @@ function ActionBox() {
 }
 
 function ReadyRow({ view }) {
-  const req = view.members.filter((m) => m.required || m.submitted);
+  const asked = view.round.waitFor || [];
+  const req = view.members.filter((m) => (asked.length ? asked.includes(m.userId) : m.required) || m.submitted);
   return (
     <div className="ready-row" title="Who has declared an action">
       {req.map((m) => {
@@ -193,7 +204,7 @@ function RollRequestCard({ r, locked = false }) {
   }
   return (
     <div className="roll-req fade-in">
-      <div className="rr-head"><span className="rr-die">🎲</span><div className="grow"><b>{label}</b>{r.dc ? <span className="pill">DC {r.dc}</span> : null}<div className="small story">{r.reason}</div></div></div>
+      <div className="rr-head"><span className="rr-die">🎲</span><div className="grow"><b>{label}</b>{r.dc ? <span className="pill">DC {r.dc}</span> : null}<div className="small story">{r.reason}</div>{r.contestWith?.length > 0 && <div className="contest-note tiny">⚔ Contest against {r.contestWith.join(' and ')}: the higher total wins and that action happens.</div>}</div></div>
       <div className="row wrap" style={{ gap: 6 }}>
         {r.kind !== 'death' && !isDice && (
           <div className="tabs adv-tabs">{[['dis', 'Disadv.'], ['none', 'Normal'], ['adv', 'Adv.']].map(([k, l]) => <button key={k} className={adv === k ? 'on' : ''} onClick={() => setAdv(k)}>{l}</button>)}</div>

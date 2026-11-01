@@ -40,6 +40,8 @@ const rollRequest = obj({
   advantage: en('none', 'adv', 'dis'),
   reason: S,        // shown to the player: "Your fingertips find the edge of a hidden panel - make an Investigation check"
   secret: B,        // true = only the roller (and DM) see the result
+  contest: S,       // "" normally. The same short id (e.g. "grab_idol") on two characters' requests makes it a contest:
+                    // the app compares their totals and the higher one wins
 });
 
 // effect.type is one of EFFECT_TYPES (listed in the system prompt; validated by the engine, kept as a plain string so the
@@ -108,6 +110,9 @@ export const TURN_SCHEMA = obj({
   // [] normally. When a player declared more than their turn allows: one private note per such character saying the
   // most they can do and asking which parts they want; everything else in the response is left empty.
   clarify: arr(obj({ characterId: S, message: S })),
+  // [] normally (the next round waits for everyone). Character id(s) when an NPC has just asked them something or is in
+  // a one-on-one conversation with them: the next round waits only for their answer.
+  waitFor: arr(S),
   ruling: S,                         // "Judgment call: ..." disclosure, or ""
   dmNotes: S,                        // private continuity notes to remember (secrets, puzzle answers, plans) or ""
   summary: S,                        // 1-3 factual sentences for the campaign log

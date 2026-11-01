@@ -5,7 +5,7 @@ import { getCharacter, partyCharacters, characterOwner, member } from './campaig
 import { computeLight, computeVisibility, encodeCells } from './vision.js';
 import { safeDerive } from './context.js';
 import * as combat from './combat.js';
-import { onlineUsers, requiredUsers, actingUsers, joinLevel } from './engine.js';
+import { onlineUsers, requiredUsers, roundNeeds, joinLevel } from './engine.js';
 import { aiStatus, PRICES } from '../ai/client.js';
 
 export function logVisibleTo(c, entry, userId) {
@@ -119,8 +119,16 @@ function areaView(c, userId) {
     const k = c.knowledge[userId]?.[map.id] || { owned: false, discovered: [], current: null };
     const discovered = new Set(k.discovered || []);
     if (!k.owned && !discovered.size && map.id !== c.scene.areaMapId && !god) continue;
-    const locations = map.locations.filter((l) => god || discovered.has(l.id) || (k.owned && !l.secret));
-    out.push({ map: { ...map, locations }, knowledge: { owned: !!k.owned || god, discovered: [...discovered], current: c.scene.areaMapId === map.id ? c.scene.areaLocationId || k.current : k.current } });
+    // Everyone gets the same map: every place that isn't secret is sent (the drawing is built from them), but a
+    // place you don't know yet comes without its name or description. Secret places arrive only once found.
+    const here = c.scene.areaMapId === map.id ? c.scene.areaLocationId || k.current : k.current;
+    const knows = (l) => god || discovered.has(l.id) || l.id === here || (k.owned && !l.secret);
+    const locations = map.locations
+      .filter((l) => !l.secret || knows(l))
+      .map((l) => (knows(l) ? l : { id: l.id, x: l.x, y: l.y, kind: l.kind, unknown: true }));
+    const sent = new Set(locations.map((l) => l.id));
+    const connections = (map.connections || []).filter(([a, b]) => sent.has(a) && sent.has(b));
+    out.push({ map: { ...map, locations, connections }, knowledge: { owned: !!k.owned || god, discovered: [...discovered], current: here } });
   }
   return out;
 }
@@ -186,7 +194,7 @@ export function buildView(c, userId, cache = {}) {
   const online = onlineUsers(c);
   const need = requiredUsers(c);
   const rollPool = [...(c.round.rollRequests || []), ...(c.combat?.rollRequests || [])];
-  const myRolls = rollPool.filter((r) => r.userId === userId && r.status === 'pending').map((r) => ({ id: r.id, kind: r.kind, key: r.key, dc: r.secret ? 0 : r.dc, advantage: r.advantage, reason: r.reason, purpose: r.purpose, label: r.label }));
+  const myRolls = rollPool.filter((r) => r.userId === userId && r.status === 'pending').map((r) => ({ id: r.id, kind: r.kind, key: r.key, dc: r.secret ? 0 : r.dc, advantage: r.advantage, reason: r.reason, purpose: r.purpose, label: r.label, contestWith: r.contest ? rollPool.filter((o) => o.contest === r.contest && o.id !== r.id).map((o) => o.characterName) : [] }));
   const waitingRolls = rollPool.filter((r) => r.status === 'pending').map((r) => ({ characterName: r.characterName, userId: r.userId, label: r.secret ? 'a secret roll' : r.reason?.slice(0, 60) }));
   const view = {
     at: Date.now(),
@@ -207,7 +215,7 @@ export function buildView(c, userId, cache = {}) {
     myCharacter: m?.characterId ? getCharacter(m.characterId) : null,
     phase: c.phase,
     thinking: c.thinking || null,
-    round: { n: c.round.n, myAction: c.round.actions[userId] || null, myRevision: c.round.revise?.[userId] || null, submittedCount: Object.keys(c.round.actions).length, requiredCount: actingUsers(c).length },
+    round: { n: c.round.n, myAction: c.round.actions[userId] || null, myRevision: c.round.revise?.[userId] || null, submittedCount: Object.keys(c.round.actions).length, requiredCount: roundNeeds(c).length, waitFor: c.round.waitFor?.length ? roundNeeds(c) : [] },
     rolls: { mine: myRolls, waiting: waitingRolls },
     scene: { ...c.scene },
     tactical: tacticalView(c, userId, cache),

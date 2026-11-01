@@ -186,8 +186,14 @@ export function buildArea(map, knowledge) {
   const W = AW, H = AH;
   const IX0 = M, IY0 = M, IX1 = W - M, IY1 = H - M;
   const P = (l) => [IX0 + clamp(l.x, 0, 1) * (IX1 - IX0), IY0 + clamp(l.y, 0, 1) * (IY1 - IY0)];
-  const allLocs = (map.locations || []).map((l) => ({ ...l, p: P(l) }));
+  // The map's shape (roads, buildings, rivers, trees) comes only from the places that aren't secret, the same set for
+  // every player, so everyone sees the same map and only the markers, labels and fog differ. Secret places never
+  // change the drawing; once found they just get a marker.
+  const everyLoc = (map.locations || []).map((l) => ({ ...l, p: P(l) }));
+  const allLocs = everyLoc.filter((l) => !l.secret);
+  const secretLocs = everyLoc.filter((l) => l.secret);
   const byId = new Map(allLocs.map((l) => [l.id, l]));
+  const conns = (map.connections || []).filter(([a, b]) => byId.has(a) && byId.has(b));
   const shown = new Set(visibleLocations(map, knowledge).map((l) => l.id));
   const scene = { W, H, style, seed, name: map.name || 'Unnamed', description: map.description || '', roads: [], buildings: [], trees: [], hills: [], mountains: [], fields: [], rivers: [], lakes: [], bridges: [], plazas: [], graves: [], markers: [], rooms: [], corridors: [], doors: [], settlements: [] };
   const roadGrid = new SegGrid(48), waterGrid = new SegGrid(48), occ = new PointGrid(40);
@@ -288,7 +294,7 @@ export function buildArea(map, knowledge) {
     occ.add(l.p[0], l.p[1], r * 1.2);
   }
 
-  if (style === 'dungeon') return buildDungeon(scene, map, allLocs, byId, shown, knowledge, R, seed, P);
+  if (style === 'dungeon') return buildDungeon(scene, { ...map, connections: conns }, allLocs, byId, shown, knowledge, R, seed, P, secretLocs);
 
   // ---------------- settlement centre & extent
   const center = (() => {
@@ -331,7 +337,7 @@ export function buildArea(map, knowledge) {
     if (inSea(edge[0], edge[1])) scene.roads.pop();
   }
   // explicit connections
-  for (const [a, b] of map.connections || []) {
+  for (const [a, b] of conns) {
     const A = byId.get(a), B = byId.get(b);
     if (A && B) addRoad(curve(A.p, B.p, 0.12), style === 'region' ? mainW : streetW + 1, 'main');
   }
@@ -339,7 +345,7 @@ export function buildArea(map, knowledge) {
   if (style !== 'region') {
     // connect every location to its nearest neighbour so nothing floats
     for (const l of allLocs) {
-      if ((map.connections || []).some(([a, b]) => a === l.id || b === l.id)) continue;
+      if (conns.some(([a, b]) => a === l.id || b === l.id)) continue;
       const nb = allLocs.filter((o) => o !== l).sort((a, b) => Math.hypot(a.p[0] - l.p[0], a.p[1] - l.p[1]) - Math.hypot(b.p[0] - l.p[0], b.p[1] - l.p[1]))[0];
       if (nb) addRoad(curve(l.p, nb.p, 0.1), streetW, 'street');
     }
@@ -621,7 +627,7 @@ export function buildArea(map, knowledge) {
     scene.trees.sort((a, b) => a.y - b.y);
   }
 
-  finishScene(scene, allLocs, shown, knowledge, R, seed, style);
+  finishScene(scene, allLocs, shown, knowledge, R, seed, style, secretLocs);
   return scene;
 }
 
@@ -676,7 +682,7 @@ function buildWalls(scene, center, ext, seed, R, roadGrid, inSea, bounds) {
 }
 
 // ------------------------------------------------------------------ dungeon overview
-function buildDungeon(scene, map, allLocs, byId, shown, knowledge, R, seed, P) {
+function buildDungeon(scene, map, allLocs, byId, shown, knowledge, R, seed, P, secretLocs = []) {
   const SIZE = { room: [92, 66], graveyard: [128, 82], temple: [118, 86], jail: [104, 58], well: [62, 62], portal: [70, 70], dungeon: [100, 70], cave: [96, 74], landmark: [80, 60] };
   const rooms = allLocs.map((l, i) => {
     const [bw, bh] = SIZE[l.kind] || SIZE.room;
@@ -760,7 +766,7 @@ function buildDungeon(scene, map, allLocs, byId, shown, knowledge, R, seed, P) {
     const r = roomOf.get(l.id);
     return { ...l, p: [r.x, r.y], room: r };
   });
-  finishScene(scene, locsAdj, shown, knowledge, R, seed, 'dungeon');
+  finishScene(scene, locsAdj, shown, knowledge, R, seed, 'dungeon', secretLocs);
   return scene;
 }
 
@@ -781,11 +787,11 @@ function roomPath(r, RR) {
 }
 
 // ------------------------------------------------------------------ markers, labels, fog, decorations
-function finishScene(scene, allLocs, shown, knowledge, R, seed, style) {
+function finishScene(scene, allLocs, shown, knowledge, R, seed, style, secretLocs = []) {
   const big = (l) => (style === 'region' ? (l.kind === 'city' ? 22 : l.kind === 'town' ? 19 : l.kind === 'village' ? 16 : 14) : style === 'dungeon' ? 14 : 15);
   const boxes = [];
   const markers = [];
-  const visLocs = allLocs.filter((l) => shown.has(l.id));
+  const visLocs = [...allLocs, ...secretLocs].filter((l) => shown.has(l.id));
   for (const l of visLocs) {
     const r = style === 'region' && (l.kind === 'city' || l.kind === 'town' || l.kind === 'village') ? 0 : 11;
     markers.push({ loc: l, x: l.p[0], y: l.p[1], r, secret: !!l.secret, dm: !!l._dm || !knowledge, current: knowledge && knowledge.current === l.id });

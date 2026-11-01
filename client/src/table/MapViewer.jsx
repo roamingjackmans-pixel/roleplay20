@@ -4,6 +4,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { useStore } from '../lib/store.js';
 import { useUI } from './ui.js';
 import AreaMapView from '../map/AreaMapView.jsx';
+import { visibleLocations } from '../map/areaRenderer.js';
 import { Modal } from '../components/Toasts.jsx';
 
 const KIND_ICON = { tavern: '🍺', inn: '🛏', temple: '⛪', shrine: '🕯', shop: '🛍', market: '🧺', smithy: '⚒', tower: '🗼', square: '⛲', dock: '⚓', mill: '🌾', farm: '🌾', forest: '🌲', mountain: '⛰', lake: '💧', castle: '🏰', keep: '🏰', gate: '🚪', cave: '🕳', dungeon: '🕳', ruins: '🏚', city: '🏙', town: '🏘', village: '🏡', house: '🏠', camp: '⛺', graveyard: '🪦', landmark: '📍' };
@@ -27,8 +28,9 @@ export default function MapViewer() {
 
   if (!entry) return null;
   const { map, knowledge } = entry;
-  const places = map.locations.slice().sort((a, b) => (a.id === knowledge.current ? -1 : b.id === knowledge.current ? 1 : a.name.localeCompare(b.name)));
-  const picked = sel && map.locations.find((l) => l.id === sel);
+  // only the places you know (the map also carries nameless ones so it's drawn the same for everyone)
+  const places = visibleLocations(map, knowledge).filter((l) => l.name).sort((a, b) => (a.id === knowledge.current ? -1 : b.id === knowledge.current ? 1 : a.name.localeCompare(b.name)));
+  const picked = sel && places.find((l) => l.id === sel);
 
   return (
     <Modal title={`🗺 ${map.name}`} onClose={close} wide>
