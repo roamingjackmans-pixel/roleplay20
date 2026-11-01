@@ -79,7 +79,8 @@ moment private only when it really is (a secret roll, a whisper, a character off
 - **Maps.** Town and region maps appear as you discover places; the full map must be found, bought or given in the story.
   Everyone sees the same drawing of a place; only the fog and which places are named depend on what you've found.
   Open any map full screen from the Maps & handouts panel and pick a place to light it up. "Hide map" folds the map
-  away so the story can use the whole screen.
+  away so the story can use the whole screen. Each map has its tools in its top corner: battle maps get select/move,
+  measure, ping, find my token and fit; town and region maps get ping, find where you are, fit and full screen.
   Battle maps are generated for scenes and fights with **dynamic lighting and fog of war**: each player sees only what
   their character can see (darkvision, torches, walls, doors). Hidden enemies stay invisible to a player until that
   character notices them - one player may see the goblin while another doesn't. When the story moves people (the party

@@ -1188,9 +1188,9 @@ export function moveTokenFree(c, userId, tokenId, x, y) {
   return combat.moveOutOfCombat(c, t, x, y);
 }
 
-export function ping(c, userId, x, y) {
+export function ping(c, userId, x, y, mapId = null) {
   const u = getUser(userId);
-  emitToUsers(c, 'ping', { x, y, color: u?.color || '#fff', by: u?.displayName, at: Date.now() }, 'all');
+  emitToUsers(c, 'ping', { x, y, ...(mapId ? { mapId } : {}), color: u?.color || '#fff', by: u?.displayName, at: Date.now() }, 'all');
 }
 
 export function chat(c, userId, text) {

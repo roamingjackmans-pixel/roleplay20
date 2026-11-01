@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
+import { forwardRef, useCallback, useEffect, useId, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import { buildArea, AW, AH } from './areaRenderer.js';
 import { fbm, mulberry32 } from './rng.js';
 import './map.css';
@@ -551,7 +551,11 @@ function Frame() {
  * Parchment overview map (town / city / village / region / dungeon).
  * Props: map (AreaMap), knowledge ({ owned, discovered, current } | null = DM: everything), onLocationClick(loc).
  */
-export function AreaMapView({ map, knowledge = null, onLocationClick, highlightId = null, className = '', style }) {
+/**
+ * ref: { fit(), centerOnCurrent() }. mode "ping" turns a click into onPing(x, y) with x and y from 0 to 1 across the
+ * map; pings ([{ x, y, color, by, at }]) ripple where they landed.
+ */
+export const AreaMapView = forwardRef(function AreaMapView({ map, knowledge = null, onLocationClick, highlightId = null, className = '', style, mode = 'select', onPing = null, pings = [] }, ref) {
   const uid = useId().replace(/[^a-zA-Z0-9]/g, '') + 'a';
   const scene = useMemo(() => (map ? buildArea(map, knowledge) : null), [map, knowledge]);
   const wrapRef = useRef(null);
@@ -652,7 +656,10 @@ export function AreaMapView({ map, knowledge = null, onLocationClick, highlightI
     pointers.current.delete(e.pointerId);
     const d = drag.current;
     svgRef.current?.classList.remove('rp-map-dragging');
-    if (d && !d.pinch && !d.moved) {
+    if (d && !d.pinch && !d.moved && mode === 'ping' && onPing) {
+      const [sx, sy] = toSvg(e.clientX, e.clientY);
+      onPing(Math.min(1, Math.max(0, sx / AW)), Math.min(1, Math.max(0, sy / AH)));
+    } else if (d && !d.pinch && !d.moved) {
       const g = d.target && d.target.closest && d.target.closest('[data-loc]');
       if (g && onLocationClick) {
         const loc = (map.locations || []).find((l) => l.id === g.getAttribute('data-loc'));
@@ -744,10 +751,31 @@ export function AreaMapView({ map, knowledge = null, onLocationClick, highlightI
     if (!inside) setVb(clampVb({ x: hl.x - v.w / 2, y: hl.y - v.h / 2, w: v.w, h: v.h }));
   }, [highlightId, map?.id]); // eslint-disable-line
 
+  useImperativeHandle(ref, () => ({
+    fit: () => setVb({ x: 0, y: 0, w: AW, h: AH }),
+    centerOnCurrent: () => {
+      const cur = scene?.markers.find((m) => m.current);
+      if (!cur) return false;
+      const w = Math.min(vbRef.current.w, AW / 2.2);
+      const h = (w * AH) / AW;
+      setVb(clampVb({ x: cur.x - w / 2, y: cur.y - h / 2, w, h }));
+      return true;
+    },
+  }), [scene]); // eslint-disable-line
+
+  // pings fade after a couple of seconds
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    if (!pings.length) return undefined;
+    const t = setTimeout(() => setTick((n) => n + 1), 2700);
+    return () => clearTimeout(t);
+  }, [pings]);
+  const livePings = pings.filter((pg) => Date.now() - pg.at < 2600);
+
   if (!scene) return <div className={`rp-map-area ${className}`} style={style} />;
   const fog = scene.fog;
   return (
-    <div ref={wrapRef} className={`rp-map-area ${className}`} style={style}>
+    <div ref={wrapRef} className={`rp-map-area ${className} ${mode === 'ping' ? 'pinging' : ''}`} style={style}>
       <svg
         ref={svgRef}
         className="rp-map-area-svg"
@@ -791,6 +819,16 @@ export function AreaMapView({ map, knowledge = null, onLocationClick, highlightI
           </g>
         )}
         {markers}
+        {livePings.map((pg) => (
+          <g key={`${pg.at}-${pg.by}`} pointerEvents="none" transform={`translate(${pg.x * AW} ${pg.y * AH})`}>
+            <circle r="10" fill={pg.color || '#e0b354'} fillOpacity="0.85" stroke="#1d140a" strokeWidth="1.5" />
+            <circle r="10" fill="none" stroke={pg.color || '#e0b354'} strokeWidth="4">
+              <animate attributeName="r" values="10;60" dur="1.2s" repeatCount="2" />
+              <animate attributeName="stroke-opacity" values="1;0" dur="1.2s" repeatCount="2" />
+            </circle>
+            {pg.by && <text y="-18" textAnchor="middle" className="rp-map-area-label" fontSize="15" strokeWidth="4" fill="#2a1c0e">{pg.by}</text>}
+          </g>
+        ))}
         <Compass {...scene.compass} uid={uid} />
         <Title t={scene.title} dungeon={scene.style === 'dungeon'} />
         <Frame />
@@ -819,6 +857,6 @@ export function AreaMapView({ map, knowledge = null, onLocationClick, highlightI
       </div>
     </div>
   );
-}
+});
 
 export default AreaMapView;

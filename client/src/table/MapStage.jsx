@@ -12,6 +12,7 @@ export default function MapStage() {
   const toast = useStore((s) => s.toast);
   const ui = useUI();
   const mapRef = useRef(null);
+  const areaRef = useRef(null);
   const tac = view.tactical;
   const areas = view.areaMaps || [];
   const tab = ui.mapTab === 'area' || !tac ? (areas.length ? 'area' : 'tactical') : 'tactical';
@@ -90,21 +91,6 @@ export default function MapStage() {
             🗺 {a.map.name}{!a.knowledge.owned ? ' (sketch)' : ''}
           </button>
         ))}
-        <div className="spacer" />
-        {tab === 'tactical' && tac && (
-          <div className="map-tools">
-            {[['select', '🖐', 'Select & move'], ['measure', '📏', 'Measure distance'], ['ping', '📍', 'Ping the map']].map(([m, ic, tip]) => (
-              <button key={m} className={`btn icon ${ui.mode === m && !t ? 'active' : ''}`} title={tip} onClick={() => { ui.cancelTargeting(); ui.set({ mode: m }); }}>{ic}</button>
-            ))}
-            {myTok && <button className="btn icon" title="Find my token" onClick={() => mapRef.current?.centerOn?.(myTok.id)}>◎</button>}
-            <button className="btn icon" title="Fit map" onClick={() => mapRef.current?.fit?.()}>⤢</button>
-          </div>
-        )}
-        {tab === 'area' && area && (
-          <div className="map-tools">
-            <button className="btn icon" title="Open this map full screen" onClick={() => ui.set({ viewMapId: area.map.id })}>⛶</button>
-          </div>
-        )}
       </div>
       {t && (
         <div className="targeting-banner">
@@ -113,6 +99,25 @@ export default function MapStage() {
         </div>
       )}
       <div className="map-canvas-wrap" onKeyDown={(e) => e.key === 'Escape' && ui.cancelTargeting()} tabIndex={-1}>
+        {tab === 'tactical' && tac && (
+          // battle maps: tokens and a grid scale, so moving and measuring make sense
+          <div className="map-tools-overlay">
+            {[['select', '🖐', 'Select & move'], ['measure', '📏', 'Measure distance'], ['ping', '📍', 'Ping the map: everyone sees where you point']].map(([m, ic, tip]) => (
+              <button key={m} className={`btn icon ${ui.mode === m && !t ? 'active' : ''}`} title={tip} onClick={() => { ui.cancelTargeting(); ui.set({ mode: m }); }}>{ic}</button>
+            ))}
+            {myTok && <button className="btn icon" title="Find my token" onClick={() => mapRef.current?.centerOn?.(myTok.id)}>◎</button>}
+            <button className="btn icon" title="Fit the whole map" onClick={() => mapRef.current?.fit?.()}>⤢</button>
+          </div>
+        )}
+        {tab === 'area' && area && (
+          // town and region maps: no tokens or scale, so no move or measure tools
+          <div className="map-tools-overlay">
+            <button className={`btn icon ${ui.mode === 'ping' ? 'active' : ''}`} title={ui.mode === 'ping' ? 'Stop pinging' : 'Ping the map: everyone sees where you point'} onClick={() => ui.set({ mode: ui.mode === 'ping' ? 'select' : 'ping' })}>📍</button>
+            {area.knowledge.current && <button className="btn icon" title="Find where you are" onClick={() => areaRef.current?.centerOnCurrent?.()}>◎</button>}
+            <button className="btn icon" title="Fit the whole map" onClick={() => areaRef.current?.fit?.()}>⤢</button>
+            <button className="btn icon" title="Open this map full screen" onClick={() => ui.set({ viewMapId: area.map.id })}>⛶</button>
+          </div>
+        )}
         {tab === 'tactical' && tac && (
           <TacticalMapView
             ref={mapRef}
@@ -125,7 +130,7 @@ export default function MapStage() {
             mode={t ? (template ? 'template' : 'target') : ui.mode}
             template={template}
             movement={movement}
-            pings={pings}
+            pings={pings.filter((pg) => !pg.mapId)}
             onMoveToken={onMoveToken}
             onSelectToken={(id) => ui.set({ selectedTokenId: id })}
             onTarget={onTarget}
@@ -136,7 +141,9 @@ export default function MapStage() {
         )}
         {tab === 'area' && area && (
           <div className="area-wrap">
-            <AreaMapView map={area.map} knowledge={area.knowledge} onLocationClick={(loc) => toast(`${loc.name}${loc.description ? ` - ${loc.description}` : ''}`, 'info', 5000)} />
+            <AreaMapView ref={areaRef} map={area.map} knowledge={area.knowledge} mode={ui.mode === 'ping' ? 'ping' : 'select'}
+              pings={pings.filter((pg) => pg.mapId === area.map.id)} onPing={(x, y) => emit('ping', { x, y, mapId: area.map.id })}
+              onLocationClick={(loc) => toast(`${loc.name}${loc.description ? ` - ${loc.description}` : ''}`, 'info', 5000)} />
             {!area.knowledge.owned && <div className="area-note">You don't have a map of {area.map.name} - only the places you've found. Ask around town, buy one, or keep exploring.</div>}
           </div>
         )}

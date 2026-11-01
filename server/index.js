@@ -390,7 +390,8 @@ io.on('connection', (socket) => {
   socket.on('roll:respond', wrap((p) => act() || E.respondRoll(c, userId, p.requestId, p)));
   socket.on('roll:free', wrap((p) => act() || E.freeRoll(c, userId, p)));
   socket.on('token:move', wrap((p) => act() || E.moveTokenFree(c, userId, p.tokenId, p.x | 0, p.y | 0)));
-  socket.on('ping', wrap((p) => need() || (E.ping(c, userId, p.x | 0, p.y | 0), { ok: true })));
+  // battle-map pings are grid cells; town and region map pings are 0-1 positions on that map
+  socket.on('ping', wrap((p) => need() || (p.mapId ? E.ping(c, userId, Math.min(1, Math.max(0, Number(p.x) || 0)), Math.min(1, Math.max(0, Number(p.y) || 0)), String(p.mapId).slice(0, 80)) : E.ping(c, userId, p.x | 0, p.y | 0), { ok: true })));
   socket.on('chat', wrap((p) => need() || (E.chat(c, userId, p.text), { ok: true })));
   socket.on('notes', wrap((p) => { if (need()) return need(); c.notes[userId] = String(p.text || '').slice(0, 50000); C.saveCampaign(c); return { ok: true }; }));
 
