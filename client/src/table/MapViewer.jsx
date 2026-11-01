@@ -1,6 +1,6 @@
 // Full-screen viewer for a town or region map, opened from the Maps & handouts panel (or the map stage).
 // Shows only what this player knows: the whole map if they own it, otherwise just the places they've found.
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useStore } from '../lib/store.js';
 import { useUI } from './ui.js';
 import AreaMapView from '../map/AreaMapView.jsx';
@@ -13,7 +13,10 @@ export default function MapViewer() {
   const areas = useStore((s) => s.view?.areaMaps || []);
   const entry = ui.viewMapId ? areas.find((a) => a.map.id === ui.viewMapId) : null;
   const [sel, setSel] = useState(null);
+  const canvasRef = useRef(null);
   const close = () => { ui.set({ viewMapId: null }); setSel(null); };
+  // picking a place from the list lights it up on the map and brings the map back into view
+  const pickFromList = (id) => { setSel(id); canvasRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); };
 
   useEffect(() => {
     if (!entry) return undefined;
@@ -30,8 +33,8 @@ export default function MapViewer() {
   return (
     <Modal title={`🗺 ${map.name}`} onClose={close} wide>
       <div className="map-viewer">
-        <div className="map-viewer-canvas">
-          <AreaMapView map={map} knowledge={knowledge} onLocationClick={(loc) => setSel(loc.id)} />
+        <div className="map-viewer-canvas" ref={canvasRef}>
+          <AreaMapView map={map} knowledge={knowledge} highlightId={sel} onLocationClick={(loc) => setSel(loc.id)} />
         </div>
         <div className="tiny muted" style={{ marginTop: 8 }}>
           {knowledge.owned ? 'You have this map.' : `A sketch: you don't have a map of ${map.name}, only the places you've found. Ask around, buy one, or keep exploring.`} Drag to pan, scroll or pinch to zoom.
@@ -47,7 +50,7 @@ export default function MapViewer() {
         {!places.length && <div className="tiny muted">None yet.</div>}
         <div className="map-viewer-places">
           {places.map((l) => (
-            <button key={l.id} className={`list-card ${sel === l.id ? 'on' : ''}`} onClick={() => setSel(l.id)}>
+            <button key={l.id} className={`list-card ${sel === l.id ? 'on' : ''}`} onClick={() => pickFromList(l.id)}>
               <b>{KIND_ICON[l.kind] || '📍'} {l.name}{l.id === knowledge.current ? ' · you are here' : ''}</b>
               {l.description && <span className="tiny muted">{l.description}</span>}
             </button>

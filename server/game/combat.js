@@ -405,20 +405,7 @@ function beginTurn(c) {
       E.addLog(c, { kind: 'turn', text: `🎯 ${ch.name}'s turn`, characterId: ch.id, tone: 'turn' });
       const owner = characterOwner(c, ch.id);
       E.toast(c, [owner], "It's your turn! Move your token, attack or cast from your sheet, then End Turn.", 'turn');
-      if (!E.onlineUsers(c).has(owner)) {
-        // give a disconnected player time to come back (a page refresh shouldn't cost a turn)
-        const turnKey = `${k.round}:${k.turnIndex}`;
-        setTimeout(() => {
-          if (c.combat !== k || `${k.round}:${k.turnIndex}` !== turnKey || k.state !== 'turn') return;
-          if (E.onlineUsers(c).has(owner)) return;
-          E.system(c, `${ch.name}'s player is away; they take the Dodge action.`);
-          if (!ch.conditions.includes('dodging')) ch.conditions.push('dodging');
-          saveCharacter(ch);
-          k.turnIndex++;
-          beginTurn(c);
-          E.pushViews(c);
-        }, 45000);
-      }
+      // If this player has dropped off, the table simply pauses until they're back (no actions without everyone).
       E.pushViews(c);
       return;
     }

@@ -315,6 +315,8 @@ io.on('connection', (socket) => {
     if (owner && !isOwner()) return { error: 'Only the campaign owner can do that.' };
     return null;
   };
+  // game actions need a running session with every player at the table (looking around and table talk never do)
+  const act = (owner = false) => need(owner) || E.canAct(c);
 
   socket.on('join', wrap(({ campaignId }) => {
     const camp = C.getCampaign(campaignId);
@@ -336,28 +338,28 @@ io.on('connection', (socket) => {
     setTimeout(() => { if (c) E.maybeResolve(c); }, 1500);
   });
 
-  socket.on('action', wrap((p) => need() || E.submitAction(c, userId, p)));
-  socket.on('action:withdraw', wrap(() => need() || E.withdrawAction(c, userId)));
-  socket.on('force', wrap(() => need(true) || (E.maybeResolve(c, true), { ok: true })));
+  socket.on('action', wrap((p) => act() || E.submitAction(c, userId, p)));
+  socket.on('action:withdraw', wrap(() => act() || E.withdrawAction(c, userId)));
+  socket.on('force', wrap(() => act(true) || (E.maybeResolve(c, true), { ok: true })));
   socket.on('away', wrap(({ away }) => { if (need()) return need(); const m = C.member(c, userId); m.away = !!away; E.pushViews(c); E.maybeResolve(c); return { ok: true }; }));
-  socket.on('roll:respond', wrap((p) => need() || E.respondRoll(c, userId, p.requestId, p)));
-  socket.on('roll:free', wrap((p) => need() || E.freeRoll(c, userId, p)));
-  socket.on('token:move', wrap((p) => need() || E.moveTokenFree(c, userId, p.tokenId, p.x | 0, p.y | 0)));
+  socket.on('roll:respond', wrap((p) => act() || E.respondRoll(c, userId, p.requestId, p)));
+  socket.on('roll:free', wrap((p) => act() || E.freeRoll(c, userId, p)));
+  socket.on('token:move', wrap((p) => act() || E.moveTokenFree(c, userId, p.tokenId, p.x | 0, p.y | 0)));
   socket.on('ping', wrap((p) => need() || (E.ping(c, userId, p.x | 0, p.y | 0), { ok: true })));
   socket.on('chat', wrap((p) => need() || (E.chat(c, userId, p.text), { ok: true })));
   socket.on('notes', wrap((p) => { if (need()) return need(); c.notes[userId] = String(p.text || '').slice(0, 50000); C.saveCampaign(c); return { ok: true }; }));
 
-  socket.on('combat:attack', wrap((p) => need() || K.attack(c, userId, p)));
-  socket.on('combat:damage', wrap((p) => need() || K.damage(c, userId, p)));
-  socket.on('cast', wrap((p) => need() || K.castSpell(c, userId, p)));
-  socket.on('combat:action', wrap((p) => need() || K.takeAction(c, userId, p)));
-  socket.on('combat:ask', wrap((p) => need() || K.combatAsk(c, userId, p.text)));
-  socket.on('combat:endTurn', wrap(() => need() || K.endTurn(c, userId)));
+  socket.on('combat:attack', wrap((p) => act() || K.attack(c, userId, p)));
+  socket.on('combat:damage', wrap((p) => act() || K.damage(c, userId, p)));
+  socket.on('cast', wrap((p) => act() || K.castSpell(c, userId, p)));
+  socket.on('combat:action', wrap((p) => act() || K.takeAction(c, userId, p)));
+  socket.on('combat:ask', wrap((p) => act() || K.combatAsk(c, userId, p.text)));
+  socket.on('combat:endTurn', wrap(() => act() || K.endTurn(c, userId)));
   socket.on('combat:skip', wrap(() => need(true) || K.skipTurn(c)));
   socket.on('combat:end', wrap((p) => need(true) || K.endCombatManual(c, p.outcome)));
 
   socket.on('sheet:rest', wrap((p) => {
-    if (need()) return need();
+    if (act()) return act();
     if (c.combat) return { error: "You can't rest in the middle of a fight." };
     const ch = C.getCharacter(C.member(c, userId)?.characterId);
     if (!ch) return { error: 'No character.' };
@@ -376,9 +378,13 @@ io.on('connection', (socket) => {
     return { ok: true };
   }));
 
-  socket.on('session:start', wrap(() => need(true) || E.startSession(c)));
+  socket.on('session:start', wrap(() => {
+    if (need()) return need();
+    if (!isOwner() && !C.member(c, userId)?.characterId) return { error: 'Only players at the table can begin the session.' };
+    return E.startSession(c);
+  }));
   socket.on('session:end', wrap(() => need(true) || E.endSession(c)));
-  socket.on('dm:retry', wrap(() => need() || E.retryTurn(c)));
+  socket.on('dm:retry', wrap(() => act() || E.retryTurn(c)));
   socket.on('dm:narrate', wrap((p) => need(true) || E.manualNarration(c, p)));
   socket.on('dm:settings', wrap((p) => {
     if (need(true)) return need(true);

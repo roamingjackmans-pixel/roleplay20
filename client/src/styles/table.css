@@ -235,3 +235,25 @@
 .map-viewer-places { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px; }
 .map-viewer-places .list-card.on { border-color: var(--gold, #d9a441); }
 @media (max-width: 640px) { .map-viewer-canvas { height: 56vh; } }
+
+/* minimised map: a slim strip, and the story gets the room */
+.map-collapsed { display: flex; flex-direction: column; align-items: center; justify-content: flex-start; padding: 8px 6px; background: #0f0b12; height: 100%; }
+.map-expand { writing-mode: vertical-rl; white-space: nowrap; padding: 14px 7px; gap: 8px; max-height: 100%; overflow: hidden; text-overflow: ellipsis; }
+.map-hide { flex: none; }
+.table-root.map-min .stage { flex: none; width: 52px; }
+.table-root.map-min .story-col { flex: 1; width: auto; align-items: center; }
+.table-root.map-min .story-col > * { width: min(900px, 100%); }
+
+/* between sessions / paused banner */
+.table-status { margin: 8px 10px 0; padding: 10px 12px; border: 1px solid #5a4632; border-radius: 12px; background: rgba(217, 164, 65, .08); display: flex; flex-direction: column; gap: 4px; flex: none; }
+.table-status.paused { border-color: #8a4a3a; background: rgba(200, 80, 60, .1); }
+.ts-who { display: flex; flex-wrap: wrap; gap: 6px 12px; margin-top: 4px; }
+.ts-player { font-size: 12px; color: var(--muted); display: inline-flex; align-items: center; gap: 5px; }
+.ts-player.on { color: var(--text, #eee); }
+
+@media (max-width: 860px) {
+  .table-root.map-min .stage { width: auto; height: auto; }
+  .table-root.map-min .map-collapsed { flex-direction: row; height: auto; padding: 6px 8px; }
+  .table-root.map-min .map-expand { writing-mode: horizontal-tb; width: 100%; justify-content: center; padding: 8px 12px; }
+}
+.table-root.map-min .story-col > .table-status { width: min(880px, calc(100% - 20px)); }

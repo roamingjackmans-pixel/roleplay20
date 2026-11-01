@@ -69,9 +69,21 @@ export default function MapStage() {
     await emit('cast', { spellIndex: t.spell.index, slotLevel: t.slotLevel, template: { target } });
   }
 
+  if (ui.mapCollapsed) {
+    const name = tab === 'tactical' && tac ? tac.map.name : area?.map.name || view.scene.location || '';
+    return (
+      <div className="map-collapsed">
+        <button className="btn sm map-expand" onClick={() => ui.setMapCollapsed(false)} title="Show the map again">
+          🗺 <span className="mc-label">Show map{name ? ` · ${name}` : ''}</span>
+        </button>
+      </div>
+    );
+  }
+
   return (
     <div className="map-stage">
       <div className="map-tabs">
+        <button className="btn sm ghost map-hide" onClick={() => ui.setMapCollapsed(true)} title="Minimize the map so the story can use the whole screen">— Hide map</button>
         {tac && <button className={`btn sm ${tab === 'tactical' ? 'active' : ''}`} onClick={() => ui.set({ mapTab: 'tactical' })}>⚔ {tac.map.name}</button>}
         {areas.map((a) => (
           <button key={a.map.id} className={`btn sm ${tab === 'area' && area?.map.id === a.map.id ? 'active' : ''}`} onClick={() => ui.set({ mapTab: 'area', areaMapId: a.map.id })} title={a.knowledge.owned ? 'You have this map' : 'You only know the places you have found'}>

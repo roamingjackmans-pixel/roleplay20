@@ -23,12 +23,17 @@ what their character can actually see, hear and notice.
   Wind, Channel Divinity…) as pips; casting a spell spends the slot automatically. Short and long rests, level-up wizard.
 - **Private perception.** The DM writes separate narration for each character. The rogue who passed the Perception check
   hears the whisper; the others don't. Private actions stay private.
-- **Everyone acts, then the DM narrates.** Each player writes what they do and presses Ready. When everyone present is
+- **Everyone acts, then the DM narrates.** Each player writes what they do and presses Ready. When everyone is
   ready, the DM resolves all actions together, asks for rolls where the outcome is uncertain, and narrates.
+- **The whole table, or nobody.** A session begins only when every player is at the table and someone presses
+  **Begin session**. If anyone drops off, the game pauses until they're back. Between sessions (or while paused)
+  everyone can still read their sheet, maps, handouts and the journal, and chat.
 - **Your dice or ours.** Every roll request has "Roll for me" or a box to type what your real d20 showed.
 - **Voices.** The story is read aloud with the browser's built-in voices. Every NPC keeps their own voice (gender, age,
   accent, pitch, speed) for the whole campaign - the old lady always sounds like the old lady. Best in Microsoft Edge.
 - **Maps.** Town and region maps appear as you discover places; the full map must be found, bought or given in the story.
+  Open any map full screen from the Maps & handouts panel and pick a place to light it up. "Hide map" folds the map
+  away so the story can use the whole screen.
   Battle maps are generated for scenes and fights with **dynamic lighting and fog of war**: each player sees only what
   their character can see (darkvision, torches, walls, doors). Hidden enemies stay invisible to a player until that
   character notices them - one player may see the goblin while another doesn't.

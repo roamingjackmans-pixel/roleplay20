@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useStore, emit } from '../lib/store.js';
-import { useUI } from './ui.js';
+import { useUI, tableStatus } from './ui.js';
 import { Splash } from '../App.jsx';
 import { Avatar, D20Icon } from '../lib/format.jsx';
 import { stopSpeaking, onSpeaking } from '../lib/tts.js';
@@ -18,20 +18,26 @@ import VoiceSettings from './VoiceSettings.jsx';
 export default function GameTable({ id }) {
   const { view, joining, joinCampaign, leaveCampaign, connected } = useStore();
   const srd = useStore((s) => s.srd);
+  const ui = useUI();
   useEffect(() => { joinCampaign(id); return () => { leaveCampaign(); stopSpeaking(); }; }, [id]); // eslint-disable-line
+  // bring the map back when it's your turn in a fight (you need it to move and target)
+  const myTurn = !!view?.combat?.myTurn;
+  useEffect(() => { if (myTurn && useUI.getState().mapCollapsed) useUI.getState().setMapCollapsed(false); }, [myTurn]);
   if (!view || !srd) return <Splash text={joining ? 'Pulling up a chair at the table…' : 'Connecting…'} />;
+  const min = ui.mapCollapsed;
   return (
-    <div className={`table-root ${view.combat ? 'in-combat' : ''}`}>
+    <div className={`table-root ${view.combat ? 'in-combat' : ''} ${min ? 'map-min' : ''}`}>
       <TopBar />
       <div className="table-body">
         <SidePanel />
         <main className="stage">
-          {view.combat && <InitiativeBar />}
+          {view.combat && !min && <InitiativeBar />}
           <MapStage />
-          {view.combat && <TurnPanel />}
-          <DiceTray />
+          {view.combat && !min && <TurnPanel />}
+          {!min && <DiceTray />}
         </main>
         <aside className="story-col">
+          <TableStatus />
           <StoryFeed />
           <Composer />
         </aside>
@@ -82,9 +88,44 @@ function TopBar() {
       <button className={`btn icon ${prefs.readAloud !== false ? 'active' : ''}`} title={prefs.readAloud !== false ? 'Read-aloud is on' : 'Read-aloud is off'} onClick={() => { const on = prefs.readAloud === false; setPrefs({ readAloud: on }); if (!on) stopSpeaking(); }}>{prefs.readAloud !== false ? '🔊' : '🔇'}</button>
       <button className="btn icon" title="Voices & sound" onClick={() => setVoiceOpen(true)}>⚙</button>
       {isOwner && <button className="btn sm" onClick={() => ui.set({ dmOpen: true })}>🎭 DM Screen</button>}
-      {isOwner && !view.campaign.sessionActive && <button className="btn primary sm" onClick={() => emit('session:start')}>▶ {view.campaign.sessionNumber ? `Start session ${view.campaign.sessionNumber + 1}` : 'Begin the adventure'}</button>}
+      {(isOwner || view.me.characterId) && !view.campaign.sessionActive && (() => {
+        const st = tableStatus(view);
+        return (
+          <button className="btn primary sm" disabled={!st.allHere} title={st.allHere ? 'Everyone is here' : `Waiting for ${st.names}`} onClick={() => emit('session:start')}>
+            ▶ {view.campaign.sessionNumber ? `Begin session ${view.campaign.sessionNumber + 1}` : 'Begin the adventure'}
+          </button>
+        );
+      })()}
       {isOwner && view.campaign.sessionActive && !view.combat && <button className="btn sm" onClick={() => { if (confirm('End this session? The DM will write up the session log.')) emit('session:end'); }}>⏹ End session</button>}
       {voiceOpen && <VoiceSettings onClose={() => setVoiceOpen(false)} onSounds={(v) => { setPrefs({ sounds: v }); setSoundsEnabled(v); }} />}
     </header>
+  );
+}
+
+/** Between sessions, or paused because someone isn't at the table: say who we're waiting for. */
+function TableStatus() {
+  const view = useStore((s) => s.view);
+  const st = tableStatus(view);
+  if (!st.between && !st.paused) return null;
+  const who = (
+    <div className="ts-who">
+      {st.players.map((p) => <span key={p.label} className={`ts-player ${p.online ? 'on' : ''}`}><span className={`dot ${p.online ? 'on' : ''}`} /> {p.label}</span>)}
+    </div>
+  );
+  if (st.paused) {
+    return (
+      <div className="table-status paused">
+        <b>⏸ Paused: waiting for {st.names} to join the table.</b>
+        <span className="small">You can look at sheets, maps, handouts and the journal, and chat, but nobody can act until everyone is here.</span>
+        {who}
+      </div>
+    );
+  }
+  return (
+    <div className="table-status">
+      <b>{st.allHere ? '✨ Everyone is here.' : `Between sessions: waiting for ${st.names}.`}</b>
+      <span className="small">{st.allHere ? `Press ▶ ${view.campaign.sessionNumber ? `Begin session ${view.campaign.sessionNumber + 1}` : 'Begin the adventure'} (top right) when you're ready.` : 'Look around as much as you like: sheets, maps, handouts, the journal. The session can begin once every player is at the table.'}</span>
+      {who}
+    </div>
   );
 }

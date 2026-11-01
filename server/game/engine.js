@@ -37,10 +37,37 @@ export function onlineUsers(c) {
   return new Set([...(presence.get(c.id)?.keys() || [])]);
 }
 
-/** Players whose action we wait for: online members with a character, who aren't marked away. */
+/** The players the table waits for: every member with a character. The game only moves when all of them are here. */
 export function requiredUsers(c) {
+  return c.members.filter((m) => m.characterId).map((m) => m.userId);
+}
+
+/** Players who aren't at the table right now. */
+export function missingPlayers(c) {
   const on = onlineUsers(c);
-  return c.members.filter((m) => m.characterId && on.has(m.userId) && !m.away).map((m) => m.userId);
+  return requiredUsers(c).filter((u) => !on.has(u));
+}
+
+function playerLabel(c, userId) {
+  const m = c.members.find((x) => x.userId === userId);
+  const ch = m?.characterId ? getCharacter(m.characterId) : null;
+  const name = getUser(userId)?.displayName || 'a player';
+  return ch ? `${name} (${ch.name})` : name;
+}
+
+function listNames(names) {
+  return names.length <= 1 ? names.join('') : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
+}
+
+/**
+ * Game actions (declaring actions, rolls, moves, attacks, spells, rests) need a running session with every player at
+ * the table. Looking at sheets, maps, handouts and the journal, table talk and private notes are always allowed.
+ */
+export function canAct(c) {
+  if (!c.sessionActive) return { error: "The session hasn't started yet. When everyone is at the table, press Begin session." };
+  const missing = missingPlayers(c);
+  if (missing.length) return { error: `Paused until everyone is here: waiting for ${listNames(missing.map((u) => playerLabel(c, u)))}.` };
+  return null;
 }
 
 // ---------------------------------------------------------------- broadcasting
@@ -851,11 +878,26 @@ export function startSession(c) {
   if (c.sessionActive) return { error: 'A session is already running.' };
   if (c.status === 'genesis') return { error: 'The world is still being built.' };
   if (!partyCharacters(c).length) return { error: 'At least one player needs a character.' };
+  const missing = missingPlayers(c);
+  if (missing.length) return { error: `Everyone needs to be at the table first: waiting for ${listNames(missing.map((u) => playerLabel(c, u)))}.` };
   c.sessionActive = true;
   c.sessionNumber += 1;
   c.status = 'active';
   c.sessions.push({ n: c.sessionNumber, startedAt: Date.now(), endedAt: null, recap: '', logEntry: '' });
   addLog(c, { kind: 'session', text: `Session ${c.sessionNumber}`, n: c.sessionNumber });
+  if (c.nextOpening) {
+    // a prepared opening (for example a campaign carried over from another table): post it instead of an AI recap
+    const o = c.nextOpening;
+    delete c.nextOpening;
+    const posted = postNarration(c, o.narration);
+    c.round.n += 1;
+    c.chronicle.turns.push({ n: c.round.n, at: Date.now(), kind: 'recap', actions: [], rolls: [], narration: posted.map((p) => ({ to: p.to, parts: p.parts })), summary: o.summary || '' });
+    const reqs = (o.rollRequests || []).map((r) => makeRollRequest(c, r, 'turn', { ...(r.label ? { label: r.label } : {}), ...(r.expr ? { expr: r.expr } : {}) })).filter(Boolean);
+    if (reqs.length) { c.phase = 'rolls'; c.round.rollRequests = reqs; } else openActions(c);
+    c.lastPlayedAt = Date.now();
+    pushViews(c);
+    return { ok: true };
+  }
   if (c.sessionNumber === 1 && !c.chronicle.turns.length) {
     if (!c.scene.tacticalMapId && c.scene.location) {
       // nothing; the opening turn may set a scene map

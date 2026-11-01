@@ -7,6 +7,7 @@ export const useUI = create((set, get) => ({
   mapTab: 'tactical',            // tactical | area
   areaMapId: null,
   viewMapId: null,               // area map open in the full-screen viewer
+  mapCollapsed: (() => { try { return localStorage.getItem('rp20.mapCollapsed') === '1'; } catch { return false; } })(),
   mode: 'select',                // select | measure | template | target | ping
   targeting: null,               // { kind: 'attack', attackId } | { kind: 'spell', spell, slotLevel } | null
   selectedTokenId: null,
@@ -19,7 +20,29 @@ export const useUI = create((set, get) => ({
   togglePanel: () => set((s) => ({ panelOpen: !s.panelOpen })),
   set: (patch) => set(patch),
   setRollMode: (m) => { try { localStorage.setItem('rp20.rollMode', m); } catch { /* ignore */ } set({ rollMode: m }); },
+  setMapCollapsed: (v) => { try { localStorage.setItem('rp20.mapCollapsed', v ? '1' : '0'); } catch { /* ignore */ } set({ mapCollapsed: !!v }); },
   takeAdv: () => { const a = get().nextAdv; if (a !== 'none') set({ nextAdv: 'none' }); return a; },
-  startTargeting: (t) => set({ targeting: t, mode: t.kind === 'spell' && t.spell?.area ? 'template' : 'target', mapTab: 'tactical' }),
+  startTargeting: (t) => set({ targeting: t, mode: t.kind === 'spell' && t.spell?.area ? 'template' : 'target', mapTab: 'tactical', mapCollapsed: false }),
   cancelTargeting: () => set({ targeting: null, mode: 'select' }),
 }));
+
+/**
+ * Who the table is waiting for. The game only moves when every player (member with a character) is here:
+ * before that people can look around and chat, but nobody can act or begin the session.
+ */
+export function tableStatus(view) {
+  const players = view.members.filter((m) => m.characterId);
+  const label = (m) => {
+    const ch = view.party.find((p) => p.userId === m.userId);
+    return ch ? `${m.displayName} (${ch.name.split(' ')[0]})` : m.displayName;
+  };
+  const missing = players.filter((m) => !m.online).map(label);
+  const names = missing.length <= 1 ? missing.join('') : `${missing.slice(0, -1).join(', ')} and ${missing[missing.length - 1]}`;
+  return {
+    players: players.map((m) => ({ label: label(m), online: m.online })),
+    missing, names,
+    allHere: players.length > 0 && !missing.length,
+    paused: !!view.campaign.sessionActive && missing.length > 0,
+    between: !view.campaign.sessionActive,
+  };
+}

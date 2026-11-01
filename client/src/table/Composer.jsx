@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useStore, emit } from '../lib/store.js';
-import { useUI } from './ui.js';
+import { useUI, tableStatus } from './ui.js';
 import { Avatar } from '../lib/format.jsx';
 
 export default function Composer() {
@@ -39,8 +39,10 @@ function ActionBox() {
   const name = view.myCharacter?.name?.split(' ')[0] || 'your character';
   const waitingOn = view.members.filter((m) => m.required && !m.submitted);
 
+  const st = tableStatus(view);
   if (!view.myCharacter) return <div className="composer-body muted small">Create a character to take part. You can still watch and chat.</div>;
-  if (!view.campaign.sessionActive) return <div className="composer-body muted small">{isOwner ? `Press "${view.campaign.sessionNumber ? `Start session ${view.campaign.sessionNumber + 1}` : 'Begin the adventure'}" (top right) when everyone is here.` : 'Waiting for the host to start the session.'}</div>;
+  if (!view.campaign.sessionActive) return <div className="composer-body muted small">{st.allHere ? `Everyone is here. Press "▶ ${view.campaign.sessionNumber ? `Begin session ${view.campaign.sessionNumber + 1}` : 'Begin the adventure'}" (top right) to start.` : `The session begins when everyone is at the table. Waiting for ${st.names}.`}</div>;
+  if (st.paused) return <div className="composer-body muted small">⏸ Waiting for {st.names} to join the table. Nobody can act until everyone is here.</div>;
   if (phase === 'thinking') return <div className="composer-body row muted"><span className="spinner" /> The Dungeon Master is narrating…</div>;
   if (phase === 'rolls') return <div className="composer-body muted small">🎲 Waiting for dice: {view.rolls.waiting.map((w) => w.characterName).join(', ')}{isOwner ? <button className="btn xs ghost" onClick={() => emit('force')}>skip</button> : null}</div>;
   if (phase === 'manual' || phase === 'failed') {
@@ -117,10 +119,12 @@ function RollRequests() {
   const view = useStore((s) => s.view);
   const mine = view.rolls?.mine || [];
   if (!mine.length) return null;
-  return <div className="roll-reqs">{mine.map((r) => <RollRequestCard key={r.id} r={r} />)}</div>;
+  const st = tableStatus(view);
+  const locked = st.paused || st.between;
+  return <div className="roll-reqs">{mine.map((r) => <RollRequestCard key={r.id} r={r} locked={locked} />)}</div>;
 }
 
-function RollRequestCard({ r }) {
+function RollRequestCard({ r, locked = false }) {
   const [adv, setAdv] = useState(r.advantage || 'none');
   const [n, setN] = useState('');
   const [busy, setBusy] = useState(false);
@@ -141,10 +145,11 @@ function RollRequestCard({ r }) {
         {r.kind !== 'death' && !isDice && (
           <div className="tabs adv-tabs">{[['dis', 'Disadv.'], ['none', 'Normal'], ['adv', 'Adv.']].map(([k, l]) => <button key={k} className={adv === k ? 'on' : ''} onClick={() => setAdv(k)}>{l}</button>)}</div>
         )}
-        <button className="btn primary sm" disabled={busy} onClick={() => go('auto')}>Roll for me</button>
+        <button className="btn primary sm" disabled={busy || locked} onClick={() => go('auto')}>Roll for me</button>
         <span className="tiny muted">or</span>
-        <input className="input rr-input" inputMode="numeric" placeholder={isDice ? 'total' : 'd20'} value={n} onChange={(e) => setN(e.target.value.replace(/[^0-9]/g, '').slice(0, isDice ? 3 : 2))} onKeyDown={(e) => e.key === 'Enter' && valid && go('manual')} title={isDice ? `Roll ${r.key} with your own dice and type the total` : 'Type the number your real d20 shows (the app adds your modifier)'} />
-        <button className="btn sm" disabled={busy || !valid} onClick={() => go('manual')}>I rolled it</button>
+        <input className="input rr-input" inputMode="numeric" disabled={locked} placeholder={isDice ? 'total' : 'd20'} value={n} onChange={(e) => setN(e.target.value.replace(/[^0-9]/g, '').slice(0, isDice ? 3 : 2))} onKeyDown={(e) => e.key === 'Enter' && valid && !locked && go('manual')} title={isDice ? `Roll ${r.key} with your own dice and type the total` : 'Type the number your real d20 shows (the app adds your modifier)'} />
+        <button className="btn sm" disabled={busy || !valid || locked} onClick={() => go('manual')}>I rolled it</button>
+        {locked && <span className="tiny muted">Waiting for everyone to be at the table.</span>}
       </div>
     </div>
   );

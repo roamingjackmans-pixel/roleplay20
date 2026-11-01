@@ -551,7 +551,7 @@ function Frame() {
  * Parchment overview map (town / city / village / region / dungeon).
  * Props: map (AreaMap), knowledge ({ owned, discovered, current } | null = DM: everything), onLocationClick(loc).
  */
-export function AreaMapView({ map, knowledge = null, onLocationClick, className = '', style }) {
+export function AreaMapView({ map, knowledge = null, onLocationClick, highlightId = null, className = '', style }) {
   const uid = useId().replace(/[^a-zA-Z0-9]/g, '') + 'a';
   const scene = useMemo(() => (map ? buildArea(map, knowledge) : null), [map, knowledge]);
   const wrapRef = useRef(null);
@@ -734,6 +734,16 @@ export function AreaMapView({ map, knowledge = null, onLocationClick, className 
     });
   }, [scene, uid, onLocationClick, map]);
 
+  // the place picked from a list lights up: a warm glow and a pulsing ring around its marker
+  const hl = highlightId && scene ? scene.markers.find((m) => m.loc.id === highlightId) : null;
+  const hlR = hl ? (scene.style === 'region' && !hl.r ? (hl.loc.kind === 'city' ? 30 : 20) : 12.5) : 0;
+  useEffect(() => {
+    if (!hl) return;
+    const v = vbRef.current;
+    const inside = hl.x > v.x + v.w * 0.08 && hl.x < v.x + v.w * 0.92 && hl.y > v.y + v.h * 0.08 && hl.y < v.y + v.h * 0.92;
+    if (!inside) setVb(clampVb({ x: hl.x - v.w / 2, y: hl.y - v.h / 2, w: v.w, h: v.h }));
+  }, [highlightId, map?.id]); // eslint-disable-line
+
   if (!scene) return <div className={`rp-map-area ${className}`} style={style} />;
   const fog = scene.fog;
   return (
@@ -769,6 +779,16 @@ export function AreaMapView({ map, knowledge = null, onLocationClick, className 
               <rect x="0" y="0" width={AW} height={AH} fill={`url(#${uid}vig)`} />
             </g>
           </>
+        )}
+        {hl && (
+          <g pointerEvents="none" className="rp-map-area-highlight">
+            <circle cx={hl.x} cy={hl.y} r={hlR + 14} fill="#ffd25e" fillOpacity="0.35" />
+            <circle cx={hl.x} cy={hl.y} r={hlR + 5} fill="none" stroke="#e39b12" strokeWidth="4.5" />
+            <circle cx={hl.x} cy={hl.y} r={hlR + 5} fill="none" stroke="#ffcc3d" strokeWidth="3">
+              <animate attributeName="r" values={`${hlR + 5};${hlR + 30};${hlR + 5}`} dur="1.6s" repeatCount="indefinite" />
+              <animate attributeName="stroke-opacity" values="1;0;1" dur="1.6s" repeatCount="indefinite" />
+            </circle>
+          </g>
         )}
         {markers}
         <Compass {...scene.compass} uid={uid} />

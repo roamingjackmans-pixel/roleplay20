@@ -182,7 +182,7 @@ function Party() {
             <Avatar size="lg" name={p.name} color={p.color} img={p.portrait} />
             <div className="grow">
               <b>{p.name}</b> <span className={`dot ${m?.online ? 'on' : ''}`} />
-              <div className="tiny muted">L{p.level} {titleIndex(p.subrace || p.race)} {titleIndex(p.class)} · {p.playerName}{m?.away ? ' (away)' : ''}</div>
+              <div className="tiny muted">L{p.level} {titleIndex(p.subrace || p.race)} {titleIndex(p.class)} · {p.playerName}{m && !m.online ? ' (not at the table)' : ''}</div>
               <div className="row small" style={{ gap: 8 }}><span>❤ {p.hp.current}/{p.hp.max}</span><span>🛡 {p.ac}</span><span>👁 {p.passivePerception}</span></div>
               {p.conditions.length > 0 && <div className="row wrap" style={{ gap: 4 }}>{p.conditions.map((c) => <span key={c} className="pill red">{c}</span>)}</div>}
             </div>
