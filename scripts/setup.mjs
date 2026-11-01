@@ -45,12 +45,39 @@ function writeEnv(vals) {
 }
 
 function ask(question, { hidden = false } = {}) {
+  if (hidden && process.stdin.isTTY) return askHidden(question);
   return new Promise((resolve) => {
     const rl = readline.createInterface({ input: process.stdin, output: process.stdout, terminal: true });
-    if (hidden) {
-      rl._writeToOutput = function (s) { if (s.includes(question)) rl.output.write(s); else rl.output.write('*'); };
-    }
-    rl.question(question, (a) => { rl.close(); if (hidden) process.stdout.write('\n'); resolve(a.trim()); });
+    rl.question(question, (a) => { rl.close(); resolve(a.trim()); });
+  });
+}
+
+/** Read a secret without ever echoing it: raw keypresses, one * per character, pastes included. */
+function askHidden(question) {
+  return new Promise((resolve) => {
+    const stdin = process.stdin;
+    process.stdout.write(question);
+    stdin.setRawMode(true);
+    stdin.resume();
+    stdin.setEncoding('utf8');
+    let buf = '';
+    const finish = () => {
+      stdin.removeListener('data', onData);
+      stdin.setRawMode(false);
+      stdin.pause();
+      process.stdout.write('\n');
+      resolve(buf.trim());
+    };
+    const onData = (chunk) => {
+      const text = String(chunk).replace(/\x1b\[[0-9;]*[~A-Za-z]/g, ''); // drop bracketed-paste and arrow-key sequences
+      for (const ch of text) {
+        if (ch === '\r' || ch === '\n') return finish();
+        if (ch === '\u0003') { stdin.setRawMode(false); process.stdout.write('\n'); process.exit(130); }
+        if (ch === '\u007f' || ch === '\b') { if (buf) { buf = buf.slice(0, -1); process.stdout.write('\b \b'); } continue; }
+        if (ch >= ' ') { buf += ch; process.stdout.write('*'); }
+      }
+    };
+    stdin.on('data', onData);
   });
 }
 
