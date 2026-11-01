@@ -1112,6 +1112,44 @@ const magicItems = raw.magicItems.map((mi) => {
   return o;
 });
 
+// ─── common options outside SRD 5.1 ────────────────────────────────────────────────────────
+// Standard 5e mechanics for a few popular player options; the descriptions are original text written for Roleplay20.
+const EXTRA_SUBRACES = {
+  elf: [{
+    index: "wood-elf", name: "Wood Elf", srd: false,
+    desc: "Wood elves live close to the old forests. They are quick on their feet, hard to spot among leaves and weather, and tend to trust instinct over ceremony.",
+    abilityBonuses: { wis: 1 }, speed: 35,
+    proficiencies: { armor: [], weapons: ["Longswords", "Shortswords", "Shortbows", "Longbows"], tools: [], skills: [] },
+    proficiencyChoices: [], languageChoices: null,
+    traits: [
+      { index: "elf-weapon-training", name: "Elf Weapon Training", desc: "You have proficiency with the longsword, shortsword, shortbow and longbow." },
+      { index: "fleet-of-foot", name: "Fleet of Foot", desc: "Your base walking speed is 35 feet." },
+      { index: "mask-of-the-wild", name: "Mask of the Wild", desc: "You can try to hide even when you are only lightly obscured by natural things: foliage, heavy rain, falling snow, mist." },
+    ],
+  }],
+  dwarf: [{
+    index: "mountain-dwarf", name: "Mountain Dwarf", srd: false,
+    desc: "Mountain dwarves come from the great holds under the peaks: broad, strong, raised among forges and gate-watches, and used to wearing armour as if it were clothing.",
+    abilityBonuses: { str: 2 },
+    proficiencies: { armor: ["Light Armor", "Medium Armor"], weapons: [], tools: [], skills: [] },
+    proficiencyChoices: [], languageChoices: null,
+    traits: [{ index: "dwarven-armor-training", name: "Dwarven Armor Training", desc: "You have proficiency with light and medium armour." }],
+  }],
+};
+for (const r of races) for (const s of EXTRA_SUBRACES[r.index] || []) if (!r.subraces.some((x) => x.index === s.index)) r.subraces.push(s);
+
+const EXTRA_SPELLS = [{
+  index: "dissonant-whispers", name: "Dissonant Whispers", srd: false, level: 1, school: "enchantment",
+  castingTime: "1 action", range: "60 feet", rangeFt: 60, components: ["V"], material: null, duration: "Instantaneous",
+  concentration: false, ritual: false,
+  desc: "You aim a jarring, private sound at one creature you can see within range; only it can hear it. The target makes a Wisdom saving throw. On a failure it takes 3d6 psychic damage and must immediately use its reaction, if it has one, to move as far away from you as its speed allows (it won't move into obviously dangerous ground such as fire or a pit). On a success it takes half damage and doesn't have to move. A creature that is deafened automatically succeeds.",
+  higherLevel: "With a spell slot of 2nd level or higher, the damage increases by 1d6 for each slot level above 1st.",
+  attackType: null, area: null,
+  damage: { type: "psychic", atSlot: Object.fromEntries(Array.from({ length: 9 }, (_, i) => [String(i + 1), `${i + 3}d6`])) },
+  heal: null, dc: { ability: "wis", success: "half" }, classes: ["bard"], subclasses: [],
+}];
+for (const s of EXTRA_SPELLS) if (!spells.some((x) => x.index === s.index)) spells.push(s);
+
 // ─── write ─────────────────────────────────────────────────────────────────────────────────
 fs.mkdirSync(OUT, { recursive: true });
 const outputs = {

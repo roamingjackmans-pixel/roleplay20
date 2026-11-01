@@ -124,23 +124,27 @@ function RollRequestCard({ r }) {
   const [adv, setAdv] = useState(r.advantage || 'none');
   const [n, setN] = useState('');
   const [busy, setBusy] = useState(false);
-  const label = r.kind === 'death' ? 'Death saving throw' : r.kind === 'initiative' ? 'Initiative' : r.kind === 'skill' ? `${titleSkill(r.key)} check` : r.kind === 'save' ? `${r.key.toUpperCase()} saving throw` : r.kind === 'ability' ? `${r.key.toUpperCase()} check` : r.label || 'Roll';
+  // "custom" rolls are plain dice like 1d4+3 (healing, damage): the player types their total, not a d20
+  const isDice = r.kind === 'custom' || r.kind === 'damage';
+  const label = r.kind === 'death' ? 'Death saving throw' : r.kind === 'initiative' ? 'Initiative' : r.kind === 'skill' ? `${titleSkill(r.key)} check` : r.kind === 'save' ? `${r.key.toUpperCase()} saving throw` : r.kind === 'ability' ? `${r.key.toUpperCase()} check` : r.label || (isDice ? `Roll ${r.key}` : 'Roll');
+  const valid = isDice ? Number(n) >= 1 : Number(n) >= 1 && Number(n) <= 20;
   async function go(mode) {
     setBusy(true);
-    await emit('roll:respond', { requestId: r.id, mode, natural: mode === 'manual' ? Number(n) : undefined, advantage: adv });
+    const manual = mode === 'manual';
+    await emit('roll:respond', { requestId: r.id, mode, natural: manual && !isDice ? Number(n) : undefined, total: manual && isDice ? Number(n) : undefined, advantage: adv });
     setBusy(false);
   }
   return (
     <div className="roll-req fade-in">
       <div className="rr-head"><span className="rr-die">🎲</span><div className="grow"><b>{label}</b>{r.dc ? <span className="pill">DC {r.dc}</span> : null}<div className="small story">{r.reason}</div></div></div>
       <div className="row wrap" style={{ gap: 6 }}>
-        {r.kind !== 'death' && (
+        {r.kind !== 'death' && !isDice && (
           <div className="tabs adv-tabs">{[['dis', 'Disadv.'], ['none', 'Normal'], ['adv', 'Adv.']].map(([k, l]) => <button key={k} className={adv === k ? 'on' : ''} onClick={() => setAdv(k)}>{l}</button>)}</div>
         )}
         <button className="btn primary sm" disabled={busy} onClick={() => go('auto')}>Roll for me</button>
         <span className="tiny muted">or</span>
-        <input className="input rr-input" inputMode="numeric" placeholder="d20" value={n} onChange={(e) => setN(e.target.value.replace(/[^0-9]/g, '').slice(0, 2))} onKeyDown={(e) => e.key === 'Enter' && n && go('manual')} title="Type the number your real d20 shows (the app adds your modifier)" />
-        <button className="btn sm" disabled={busy || !n || Number(n) < 1 || Number(n) > 20} onClick={() => go('manual')}>I rolled it</button>
+        <input className="input rr-input" inputMode="numeric" placeholder={isDice ? 'total' : 'd20'} value={n} onChange={(e) => setN(e.target.value.replace(/[^0-9]/g, '').slice(0, isDice ? 3 : 2))} onKeyDown={(e) => e.key === 'Enter' && valid && go('manual')} title={isDice ? `Roll ${r.key} with your own dice and type the total` : 'Type the number your real d20 shows (the app adds your modifier)'} />
+        <button className="btn sm" disabled={busy || !valid} onClick={() => go('manual')}>I rolled it</button>
       </div>
     </div>
   );

@@ -17,9 +17,9 @@ them leniently with `normName()` (case/plural/word-order insensitive).
 | file | entries | ~size | notes |
 |---|---|---|---|
 | classes.json | 12 | 270 KB | level tables 1–20, subclasses, equipment option sets |
-| races.json | 9 | 22 KB | subraces folded in |
+| races.json | 9 | 23 KB | subraces folded in (adds Wood Elf and Mountain Dwarf, original text) |
 | backgrounds.json | 13 | 26 KB | Acolyte (SRD) + 12 more with original descriptions |
-| spells.json | 319 | 400 KB | |
+| spells.json | 320 | 400 KB | 319 SRD spells + Dissonant Whispers (original text) |
 | monsters.json | 334 | 657 KB | **server-side only** (DM knowledge) |
 | equipment.json | 237 | 77 KB | |
 | features.json | 407 | 184 KB | every class/subclass feature incl. option sub-features |
