@@ -169,7 +169,7 @@ function partyView(c) {
     const uid = characterOwner(c, ch.id);
     return {
       id: ch.id, userId: uid, name: ch.name, race: ch.race, subrace: ch.subrace, class: ch.class, level: ch.level, portrait: ch.portrait, color: ch.color,
-      hp: ch.hp, ac: d?.ac ?? null, conditions: ch.conditions || [], dead: !!ch.dead, deathSaves: ch.deathSaves, passivePerception: d?.passive?.perception ?? null,
+      hp: ch.hp, ac: d?.ac ?? null, conditions: ch.conditions || [], dead: !!ch.dead, dice: ch.dice || null, deathSaves: ch.deathSaves, passivePerception: d?.passive?.perception ?? null,
       playerName: getUser(uid)?.displayName || '?',
     };
   });
@@ -194,7 +194,7 @@ export function buildView(c, userId, cache = {}) {
   const online = onlineUsers(c);
   const need = requiredUsers(c);
   const rollPool = [...(c.round.rollRequests || []), ...(c.combat?.rollRequests || [])];
-  const myRolls = rollPool.filter((r) => r.userId === userId && r.status === 'pending').map((r) => ({ id: r.id, kind: r.kind, key: r.key, dc: r.secret ? 0 : r.dc, advantage: r.advantage, reason: r.reason, purpose: r.purpose, label: r.label, contestWith: r.contest ? rollPool.filter((o) => o.contest === r.contest && o.id !== r.id).map((o) => o.characterName) : [] }));
+  const myRolls = rollPool.filter((r) => r.userId === userId && r.status === 'pending').map((r) => ({ id: r.id, kind: r.kind, key: r.key, dc: r.secret || r.purpose === 'turn' || r.purpose === 'combat_ask' ? 0 : r.dc, advantage: r.advantage, reason: r.reason, purpose: r.purpose, label: r.label, contestWith: r.contest ? rollPool.filter((o) => o.contest === r.contest && o.id !== r.id).map((o) => o.characterName) : [] }));
   const waitingRolls = rollPool.filter((r) => r.status === 'pending').map((r) => ({ characterName: r.characterName, userId: r.userId, label: r.secret ? 'a secret roll' : r.reason?.slice(0, 60) }));
   const view = {
     at: Date.now(),

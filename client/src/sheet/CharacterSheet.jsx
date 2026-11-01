@@ -6,6 +6,7 @@ import { Modal } from '../components/Toasts.jsx';
 import { deriveCharacter, ABILITIES, SKILLS, SKILL_NAMES, xpForLevel } from '../../../shared/rules.js';
 import { Avatar, fmtMod, titleIndex, Markdown } from '../lib/format.jsx';
 import LevelUp from './LevelUp.jsx';
+import DicePicker from './DicePicker.jsx';
 
 const ABIL = { str: 'Strength', dex: 'Dexterity', con: 'Constitution', int: 'Intelligence', wis: 'Wisdom', cha: 'Charisma' };
 
@@ -180,6 +181,8 @@ export default function CharacterSheet() {
         {ch.appearance && <p><b>Appearance.</b> {ch.appearance}</p>}
         {ch.backstory && <details><summary><b>Backstory</b></summary><Markdown text={ch.backstory} className="prose small-prose" /></details>}
       </div>
+
+      <DicePicker ch={ch} />
 
       {!ch.dead && (
         <div className="retire-zone">

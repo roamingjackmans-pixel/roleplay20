@@ -20,7 +20,9 @@ moment private only when it really is (a secret roll, a whisper, a character off
   personality and backstory tied to the campaign world.
 - **Character sheet (two pages).** Page 1: abilities, saves, skills, attacks, HP, conditions, death saves - click
   anything to roll. Page 2: **Spells & Abilities** - spell slots and every limited-use class ability (Rage, Ki, Second
-  Wind, Channel Divinity…). Casting asks which slot level to use and spends that slot.
+  Wind, Channel Divinity…). Casting asks which slot level to use and spends that slot. At the bottom, **Your dice**:
+  pick your d20's color (27 of them), finish (classic, marble, galaxy, glass, metal, gemstone, glitter, neon, wood) and
+  number color. Everyone sees your die when you roll.
 - **Only the DM changes stats.** Players can't edit hit points, spell slots, uses, Inspiration, coins, items,
   conditions or experience. They say what they do ("I buy the rope", "I use my Inspiration", "we make camp") and the
   DM applies it: it charges coins (paying with change), adds and removes items, heals and hurts, grants rests and Hit
@@ -32,7 +34,9 @@ moment private only when it really is (a secret roll, a whisper, a character off
   for big story goals) and other wins the DM rewards: solved puzzles, discoveries, hard-won talks. The DM can also give
   a milestone level. When a level is ready, the **level-up wizard** (during a session, not mid-fight) asks which class
   gains it - one you have, or a new one if your ability scores allow multiclassing - then walks through hit points,
-  features, subclass, ability scores and spells, and repeats if more levels are waiting.
+  features, subclass, ability scores, skills and spells, and repeats if more levels are waiting. Every choice is
+  required (three new spells means picking three), and each option is a full-width card with its details: a spell's
+  level, casting time, range, components, duration and what it does.
 - **Retiring and replacing heroes.** "Retire" at the bottom of the sheet takes a character out of play for good, with
   an optional farewell. Their story stays: the journal, the logs and the DM remember them, and the Party panel lists
   former members. A hero who dies must be laid to rest the same way. The new character is built at the party's level
@@ -51,13 +55,14 @@ moment private only when it really is (a secret roll, a whisper, a character off
   others can still chime in), so a one-on-one conversation can go back and forth without the rest of the table typing.
 - **Contested rolls.** When two players try things that can't both happen (both grab the falling idol, one bars the
   door the other is opening), the DM asks each for a roll with the stat that fits how they're trying it. The higher
-  total with modifiers wins and that action happens; on a tie neither gets their way.
+  total with modifiers wins and that action happens (the story shows who won); on a tie neither gets their way.
 - **The whole table, or nobody.** A session begins only when every player is at the table and someone presses
   **Begin session**. If anyone drops off, the game pauses until they're back. Between sessions (or while paused)
   everyone can still read their sheet, maps, handouts and the journal, and chat.
 - **Lots of dice.** The DM asks for a roll whenever an action could go more than one way, including knowledge, Insight and
   Perception checks, and often has several players roll at once. Every roll request has "Roll for me" or a box to type
-  what your real d20 showed.
+  what your real d20 showed. You see the number you rolled but not the DC or whether it passed: the story shows what
+  happened.
 - **Type or talk.** Your action and table talk each have a 🎤 button for voice typing (Chrome, Edge and Safari): speak
   and your words appear in the box, ready to edit. Switching between the two keeps both drafts, and each box only sends
   its own text.

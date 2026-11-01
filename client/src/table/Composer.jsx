@@ -204,7 +204,7 @@ function RollRequestCard({ r, locked = false }) {
   }
   return (
     <div className="roll-req fade-in">
-      <div className="rr-head"><span className="rr-die">🎲</span><div className="grow"><b>{label}</b>{r.dc ? <span className="pill">DC {r.dc}</span> : null}<div className="small story">{r.reason}</div>{r.contestWith?.length > 0 && <div className="contest-note tiny">⚔ Contest against {r.contestWith.join(' and ')}: the higher total wins and that action happens.</div>}</div></div>
+      <div className="rr-head"><span className="rr-die">🎲</span><div className="grow"><b>{label}</b>{r.dc ? <span className="pill">DC {r.dc}</span> : null}<div className="small story">{r.reason}</div>{r.contestWith?.length > 0 && <div className="contest-note tiny">⚔ Contest against {r.contestWith.join(' and ')}: the higher total wins, and the story tells you who.</div>}</div></div>
       <div className="row wrap" style={{ gap: 6 }}>
         {r.kind !== 'death' && !isDice && (
           <div className="tabs adv-tabs">{[['dis', 'Disadv.'], ['none', 'Normal'], ['adv', 'Adv.']].map(([k, l]) => <button key={k} className={adv === k ? 'on' : ''} onClick={() => setAdv(k)}>{l}</button>)}</div>

@@ -85,3 +85,12 @@ test('applying a patch only flips equipped and keeps always-prepared spells', ()
   assert.deepEqual(c.spellcasting.prepared, ['cure-wounds', 'command']);
   assert.equal(c.spellcasting.slotsUsed[0], 1);
 });
+
+test('your dice look can change any time, but only to a real choice', () => {
+  assert.equal(sheetPatchError(ch(), { dice: { color: 'ruby', style: 'galaxy', ink: 'gold' } }, between), null);
+  assert.match(sheetPatchError(ch(), { dice: { color: 'plaid', style: 'galaxy', ink: 'gold' } }, live), /isn't one of the choices/);
+  assert.match(sheetPatchError(ch(), { dice: { color: 'ruby', style: 'galaxy', ink: 'gold', hp: 99 } }, live), /isn't one of the choices/);
+  const c = ch();
+  applySheetPatch(c, { dice: { color: 'aurora', style: 'neon', ink: 'auto' } });
+  assert.deepEqual(c.dice, { color: 'aurora', style: 'neon', ink: 'auto' });
+});

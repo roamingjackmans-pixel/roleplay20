@@ -1,4 +1,5 @@
 import React from 'react';
+import { createPortal } from 'react-dom';
 import { useStore } from '../lib/store.js';
 
 export default function Toasts() {
@@ -10,8 +11,9 @@ export default function Toasts() {
   );
 }
 
+// Dialogs open over the whole page (not inside the side panel they were opened from), so they get the full width.
 export function Modal({ title, onClose, children, wide = false, actions = null }) {
-  return (
+  return createPortal(
     <div className="modal-back" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose?.(); }}>
       <div className={`card modal ${wide ? 'wide' : ''}`} role="dialog" aria-label={title}>
         <div className="modal-head">
@@ -22,6 +24,7 @@ export function Modal({ title, onClose, children, wide = false, actions = null }
         </div>
         <div className="pad">{children}</div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

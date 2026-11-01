@@ -1106,7 +1106,8 @@ export function completeRoll(c, req, r, { auto = false } = {}) {
   req.success = success;
   addLog(c, {
     kind: 'dice', characterId: req.characterId, name: req.characterName, label: rollLabel(req) + (auto ? ' (rolled automatically)' : ''),
-    result: req.result, advantage: r.advantage, dc: req.secret ? 0 : req.dc, success: req.secret ? null : success, to: req.secret ? [req.userId] : 'all',
+    // checks the DM asked for never show their DC or whether they passed: the story tells you what happened
+    result: req.result, advantage: r.advantage, dc: req.secret || hidesOutcome(req) ? 0 : req.dc, success: req.secret || hidesOutcome(req) ? null : success, to: req.secret ? [req.userId] : 'all',
   });
   if (req.purpose === 'turn') {
     pushViews(c);
@@ -1116,6 +1117,11 @@ export function completeRoll(c, req, r, { auto = false } = {}) {
     combat.onRollComplete(c, req);
     pushViews(c);
   }
+}
+
+/** Checks and saves the DM asks for keep their DC and result hidden (fights, death saves and concentration don't). */
+export function hidesOutcome(req) {
+  return req.purpose === 'turn' || req.purpose === 'combat_ask';
 }
 
 /**
@@ -1137,13 +1143,13 @@ function resolveRolls(c) {
   const lines = reqs.map((r) => `${r.characterName} (${r.characterId}) ${rollLabel(r)}${r.reason ? ` [${r.reason}]` : ''}: total ${r.result.total}${r.result.natural ? ` (natural ${r.result.natural})` : ''}${r.dc ? ` vs DC ${r.dc} -> ${r.success ? 'SUCCESS' : 'FAILURE'}` : ''}${r.result.manual ? ' (rolled at the table)' : ''}`);
   for (const k of contestResults(reqs)) {
     const vs = k.sides.map((r) => `${r.characterName} ${r.result.total} (${rollLabel(r)})`).join(' vs ');
-    system(c, k.tie ? `⚔ Contest: ${vs}. A tie, so neither gets their way.` : `⚔ Contest: ${vs}. ${k.winner.characterName} wins.`, 'all', { tone: 'roll' });
+    // the table learns who won from the story, not from a scoreboard
     lines.push(k.tie
       ? `CONTEST "${k.id}": ${vs} -> TIE. Neither action happens; things stay as they were.`
       : `CONTEST "${k.id}": ${vs} -> ${k.winner.characterName.toUpperCase()} WINS. ${k.winner.characterName}'s action happens; ${k.sides.filter((r) => r !== k.winner).map((r) => r.characterName).join(' and ')}'s doesn't.`);
   }
   c.round.rollRequests = [];
-  runTurn(c, { kind: 'rolls', rollsText: lines, text: `Roll results for the checks you asked for:\n${lines.join('\n')}\n\nNarrate the outcomes for the whole table (privately only for secret rolls or things only that character could perceive), then move the scene on.` });
+  runTurn(c, { kind: 'rolls', rollsText: lines, text: `Roll results for the checks you asked for:\n${lines.join('\n')}\n\nNarrate the outcomes for the whole table (privately only for secret rolls or things only that character could perceive), then move the scene on. Players don't see the DCs or SUCCESS/FAILURE above: show what happens, never announce a pass, a fail or a winner.` });
 }
 
 /** A roll a player makes from their sheet. If it matches a pending request, it answers the request. */

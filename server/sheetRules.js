@@ -1,13 +1,14 @@
 // What a player may change on their own character sheet.
+import { validDiceLook } from '../shared/diceStyles.js';
 //
 // Hit points, spell slots, limited uses, Inspiration, coins, items, conditions, rests and experience change only
 // through the DM (story effects), the rules engine (attacks and spells cast through the app) or the level-up wizard.
-// The sheet itself can only: change your picture (any time), and during a session light or put out a torch, end
+// The sheet itself can only: change your picture and your dice (any time), and during a session light or put out a torch, end
 // concentration, choose what you wear and wield (not mid-fight) and change prepared spells right after a long rest.
 
 export const DM_ONLY = 'Only the DM changes hit points, spell slots, uses, Inspiration, coins, items and conditions. Say what you do in your action and the DM updates your sheet.';
 
-const ALWAYS = new Set(['portrait', 'color']);
+const ALWAYS = new Set(['portrait', 'color', 'dice']);
 const IN_SESSION = new Set(['light', 'concentration', 'equipment', 'spellcasting']);
 
 /**
@@ -20,6 +21,7 @@ export function sheetPatchError(ch, patch, { sessionError = null, inCombat = fal
   const keys = Object.keys(patch || {}).filter((k) => patch[k] !== undefined);
   for (const k of keys) if (!ALWAYS.has(k) && !IN_SESSION.has(k)) return DM_ONLY;
   if (typeof patch.portrait === 'string' && patch.portrait.length > 400000) return 'That picture is too big.';
+  if (patch.dice !== undefined && !validDiceLook(patch.dice)) return "That dice look isn't one of the choices.";
   if (!keys.some((k) => IN_SESSION.has(k))) return null;
 
   if (ch.dead) return `${ch.name} has died. Retire them at the bottom of the sheet to make a new character.`;
@@ -62,6 +64,7 @@ function equipError(cur, next) {
 /** Apply a patch that passed sheetPatchError. */
 export function applySheetPatch(ch, patch) {
   for (const k of ['portrait', 'color', 'light', 'concentration']) if (patch[k] !== undefined) ch[k] = patch[k];
+  if (patch.dice !== undefined) ch.dice = { color: patch.dice.color, style: patch.dice.style, ink: patch.dice.ink };
   if (Array.isArray(patch.equipment)) {
     const on = new Map(patch.equipment.map((i) => [i.id, !!i.equipped]));
     for (const it of ch.equipment || []) if (on.has(it.id)) it.equipped = on.get(it.id);

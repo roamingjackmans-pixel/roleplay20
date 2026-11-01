@@ -3,10 +3,14 @@ import { useStore, emit } from '../lib/store.js';
 import { useUI } from './ui.js';
 import { sounds } from '../lib/sound.js';
 import { Modal } from '../components/Toasts.jsx';
+import D20 from '../components/D20.jsx';
 
 /** A big tumbling d20 for your own rolls (and everyone's crits and fumbles). */
 export function DiceOverlay() {
   const dice = useStore((s) => s.dice);
+  const party = useStore((s) => s.view?.party);
+  // each player's die keeps the look they picked on their sheet, on everyone's screen
+  const look = dice?.look || party?.find((p) => p.id === dice?.characterId)?.dice || null;
   const [phase, setPhase] = useState('hidden');
   const [face, setFace] = useState(20);
   useEffect(() => {
@@ -30,15 +34,7 @@ export function DiceOverlay() {
   return (
     <div className={`dice-overlay ${phase} ${cls}`} onClick={() => setPhase('hidden')}>
       <div className="d20-3d">
-        <svg viewBox="0 0 120 120" width="150" height="150">
-          <defs>
-            <linearGradient id="dg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stopColor={cls === 'nat1' ? '#ff8a7a' : '#ffe2a0'} /><stop offset="1" stopColor={cls === 'nat1' ? '#7a1d16' : '#9a6416'} /></linearGradient>
-          </defs>
-          <polygon points="60,4 110,32 110,88 60,116 10,88 10,32" fill="url(#dg)" stroke="#2b1a08" strokeWidth="2" />
-          <polygon points="60,22 94,80 26,80" fill="rgba(255,255,255,.18)" stroke="#2b1a08" strokeWidth="1.6" />
-          <path d="M60 4 60 22 M110 32 94 80 M10 32 26 80 M60 116 26 80 M60 116 94 80 M10 88 26 80 M110 88 94 80 M10 32 60 22 M110 32 60 22" stroke="#2b1a08" strokeWidth="1.2" opacity=".6" />
-          <text x="60" y="68" textAnchor="middle" fontFamily="Cinzel, Georgia, serif" fontWeight="900" fontSize={face >= 10 ? 26 : 30} fill="#1d1206">{face}</text>
-        </svg>
+        <D20 look={look} face={face} size={150} />
       </div>
       {phase === 'landed' && (
         <div className="dice-result">

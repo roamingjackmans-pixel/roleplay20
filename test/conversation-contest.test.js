@@ -80,3 +80,19 @@ test('contest roll requests are open to both players, with no DC', () => {
   assert.equal(r.secret, false);
   assert.equal(r.key, 'sleightOfHand');
 });
+
+test("a check's result reaches the players without its DC or pass/fail; the DM still gets it", async () => {
+  const c = setup();
+  const { buildView } = await import('../server/game/views.js');
+  c.phase = 'rolls';
+  const req = E.makeRollRequest(c, { characterId: charId(c, 'u_b'), kind: 'skill', key: 'medicine', dc: 10, reason: 'Stop the bleeding' }, 'turn');
+  c.round.rollRequests = [req];
+  assert.equal(buildView(c, 'u_b').rolls.mine[0].dc, 0, 'the roll card shows no DC');
+  E.respondRoll(c, 'u_b', req.id, { mode: 'auto' });
+  const dice = c.log.filter((e) => e.kind === 'dice').at(-1);
+  assert.equal(dice.dc, 0);
+  assert.equal(dice.success, null);
+  assert.ok(Number.isFinite(dice.result.total), 'the number rolled is still shown');
+  assert.equal(typeof req.success, 'boolean', 'the DM is told whether it passed');
+  assert.ok(E.hidesOutcome({ purpose: 'turn' }) && !E.hidesOutcome({ purpose: 'death' }));
+});
