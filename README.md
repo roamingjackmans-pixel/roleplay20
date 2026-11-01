@@ -118,11 +118,12 @@ turns) costs about:
 
 | DM model | per session | notes |
 |---|---|---|
-| Claude Opus 5.5 (default) | ~$3 to $6 | richest narration and NPCs |
+| Claude Fable 5.1 (default, medium effort) | ~$8 to $15 | deepest narration and NPCs, slowest replies |
+| Claude Opus 5.5 | ~$3 to $6 | rich narration and NPCs |
 | Claude Sonnet 5.5 | ~$1.50 to $3 | faster replies, very good storytelling |
 | Claude Haiku 5.5 | ~$0.10 to $0.30 | quickest and cheapest, simpler prose |
 
-Building a new world is a one-off ~$0.30 on Opus. Switch models any time on the DM Screen; it shows the running cost.
+Building a new world is a one-off ~$0.30 on Opus (~$0.75 on Fable). Switch models any time on the DM Screen; it shows the running cost.
 
 ## Development
 

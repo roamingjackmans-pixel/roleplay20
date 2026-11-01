@@ -29,8 +29,8 @@ function writeEnv(vals) {
     '# Anthropic API key for the AI Dungeon Master (starts with sk-ant-)',
     `ANTHROPIC_API_KEY=${vals.ANTHROPIC_API_KEY || ''}`,
     '',
-    '# Which Claude runs the Dungeon Master: claude-opus-5-5 (richest), claude-sonnet-5-5 (faster, about half the cost), claude-haiku-5-5 (cheapest)',
-    `DM_MODEL=${vals.DM_MODEL || 'claude-opus-5-5'}`,
+    '# Which Claude runs the Dungeon Master: claude-fable-5-1 (deepest), claude-opus-5-5 (rich, under half the cost), claude-sonnet-5-5 (faster, a fifth of the cost), claude-haiku-5-5 (cheapest)',
+    `DM_MODEL=${vals.DM_MODEL || 'claude-fable-5-1'}`,
     `DM_EFFORT=${vals.DM_EFFORT || 'medium'}`,
     '',
     '# Site password (stored only as a scrypt hash) and the server signing secret.',
@@ -133,8 +133,8 @@ if (env.ANTHROPIC_API_KEY) {
 }
 
 // 3. model
-const m = await ask(`\nDungeon Master brain: ${c.bold('1')} Opus 5.5 (richest) / ${c.bold('2')} Sonnet 5.5 (faster, ~half cost) / ${c.bold('3')} Haiku 5.5 (cheapest) ${c.dim(`[current: ${env.DM_MODEL || 'claude-opus-5-5'}]`)} `);
-env.DM_MODEL = { 1: 'claude-opus-5-5', 2: 'claude-sonnet-5-5', 3: 'claude-haiku-5-5' }[m] || env.DM_MODEL || 'claude-opus-5-5';
+const m = await ask(`\nDungeon Master brain: ${c.bold('1')} Fable 5.1 (deepest) / ${c.bold('2')} Opus 5.5 (rich, under half cost) / ${c.bold('3')} Sonnet 5.5 (faster, ~1/5 cost) / ${c.bold('4')} Haiku 5.5 (cheapest) ${c.dim(`[current: ${env.DM_MODEL || 'claude-fable-5-1'}]`)} `);
+env.DM_MODEL = { 1: 'claude-fable-5-1', 2: 'claude-opus-5-5', 3: 'claude-sonnet-5-5', 4: 'claude-haiku-5-5' }[m] || env.DM_MODEL || 'claude-fable-5-1';
 writeEnv(env);
 console.log(c.green(`  ✓ Settings written to .env (${env.DM_MODEL}).`));
 

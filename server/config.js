@@ -45,9 +45,10 @@ export const config = {
   // or "off" (no AI: the campaign owner narrates by hand from the DM screen).
   aiProvider: env.AI_PROVIDER || (env.ANTHROPIC_API_KEY ? 'api' : 'off'),
   anthropicKey: env.ANTHROPIC_API_KEY || '',
-  defaultModel: env.DM_MODEL || 'claude-opus-5-5',
+  defaultModel: env.DM_MODEL || 'claude-fable-5-1',
   defaultEffort: env.DM_EFFORT || 'medium',
-  aiTimeoutMs: num(env.AI_TIMEOUT_SECONDS, 240) * 1000,
+  // Fable is slower than Opus or Sonnet; world building at high effort can take several minutes.
+  aiTimeoutMs: num(env.AI_TIMEOUT_SECONDS, 360) * 1000,
 
   // Public URL discovery for the GitHub Pages shell. The game runs on Fly.io at a fixed address, so the PC tunnel is
   // off unless TUNNEL=auto is set (it would publish this PC's address and pull the website away from the cloud server).
