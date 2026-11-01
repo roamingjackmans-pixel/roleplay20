@@ -94,7 +94,7 @@ const combatStart = obj({
 const quest = obj({ id: S, title: S, status: en('active', 'completed', 'failed', 'rumor'), summary: S, giver: S, update: S, xp: I });
 const handout = obj({ id: S, title: S, kind: en('letter', 'note', 'poster', 'book', 'map', 'item', 'other'), content: S, to: arr(S) });
 
-const scene = obj({ location: S, timeOfDay: S, weather: S, mood: S, areaMapId: S, areaLocationId: S });
+const scene = obj({ location: S, timeOfDay: S, weather: S, mood: S, areaMapId: S, areaLocationId: S, clearBattleMap: B });
 
 export const TURN_SCHEMA = obj({
   narration,

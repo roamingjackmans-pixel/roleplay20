@@ -20,6 +20,16 @@ export default function MapStage() {
   const myTok = tac?.tokens.find((t) => t.isMine);
   const combat = view.combat;
 
+  // follow the party: a freshly laid battle map, or a move onto another area map, comes to the front
+  const lastScene = useRef({ area: view.scene.areaMapId, tac: tac?.map.id || null });
+  useEffect(() => {
+    const prev = lastScene.current;
+    const nowTac = tac?.map.id || null;
+    if (nowTac && nowTac !== prev.tac) ui.set({ mapTab: 'tactical' });
+    else if (view.scene.areaMapId && view.scene.areaMapId !== prev.area) ui.set({ mapTab: 'area', areaMapId: view.scene.areaMapId });
+    lastScene.current = { area: view.scene.areaMapId, tac: nowTac };
+  }, [view.scene.areaMapId, tac?.map.id]); // eslint-disable-line
+
   // centre on a party member when their pill is clicked
   useEffect(() => {
     if (!ui.focusCharacterId || !tac) return;

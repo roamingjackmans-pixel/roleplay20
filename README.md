@@ -87,6 +87,9 @@ moment private only when it really is (a secret roll, a whisper, a character off
   their character can see (darkvision, torches, walls, doors). Hidden enemies stay invisible to a player until that
   character notices them - one player may see the goblin while another doesn't. When the story moves people (the party
   climbs to the balcony, an NPC walks in, an enemy creeps out of the dark), the DM moves their tokens to match.
+  "You are here" follows the party: the map they are on marks their spot, a region map marks the town they are in,
+  and a town they have left marks nothing. When they move on, the old battle map and everyone's chips are put away
+  (unless a fight is on), and the map panel switches to wherever they are now.
 - **Clean combat.** Initiative, turn order, movement limited by speed and terrain, attacks and spells against real AC and
   saving throws, area templates (cones, spheres, lines) that hit everyone inside - friends too - concentration, death
   saves, advantage from conditions and lighting, Sneak Attack, Divine Smite, Rage. Claude plays the monsters with tactics

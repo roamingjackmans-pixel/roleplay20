@@ -5,7 +5,7 @@ import { getCharacter, partyCharacters, characterOwner, member } from './campaig
 import { computeLight, computeVisibility, encodeCells } from './vision.js';
 import { safeDerive } from './context.js';
 import * as combat from './combat.js';
-import { onlineUsers, requiredUsers, roundNeeds, joinLevel } from './engine.js';
+import { onlineUsers, requiredUsers, roundNeeds, joinLevel, partyWhereabouts } from './engine.js';
 import { aiStatus, PRICES } from '../ai/client.js';
 
 export function logVisibleTo(c, entry, userId) {
@@ -115,13 +115,14 @@ function areaView(c, userId) {
   const out = [];
   const m = member(c, userId);
   const god = m?.role === 'owner' && c.settings.dmView;
+  const where = partyWhereabouts(c);
   for (const map of Object.values(c.maps.area || {})) {
     const k = c.knowledge[userId]?.[map.id] || { owned: false, discovered: [], current: null };
     const discovered = new Set(k.discovered || []);
     if (!k.owned && !discovered.size && map.id !== c.scene.areaMapId && !god) continue;
     // Everyone gets the same map: every place that isn't secret is sent (the drawing is built from them), but a
     // place you don't know yet comes without its name or description. Secret places arrive only once found.
-    const here = c.scene.areaMapId === map.id ? c.scene.areaLocationId || k.current : k.current;
+    const here = where[map.id] || null;
     const knows = (l) => god || discovered.has(l.id) || l.id === here || (k.owned && !l.secret);
     const locations = map.locations
       .filter((l) => !l.secret || knows(l))

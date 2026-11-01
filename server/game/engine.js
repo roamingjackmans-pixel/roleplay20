@@ -305,12 +305,60 @@ export function discoverLocation(c, mapId, locId, target = 'party') {
 export function moveParty(c, mapId, locId) {
   const m = c.maps.area[mapId];
   if (!m) return;
+  const otherMap = c.scene.areaMapId !== mapId;
   c.scene.areaMapId = mapId;
   if (locId && m.locations.some((l) => l.id === locId)) {
     c.scene.areaLocationId = locId;
     discoverLocation(c, mapId, locId, 'party');
-    for (const mem of c.members) knowledge(c, mem.userId, mapId).current = locId;
+  } else if (otherMap) c.scene.areaLocationId = ''; // a place on the old map means nothing on this one
+}
+
+// "Thimblewick" on the region map and the Thimblewick town map are the same place
+const placeKey = (s) => String(s || '').toLowerCase().replace(/\([^)]*\)/g, ' ').replace(/^\s*the\s+/, '').replace(/[^a-z0-9]+/g, ' ').trim();
+export function samePlace(a, b) {
+  const x = placeKey(a), y = placeKey(b);
+  if (!x || !y) return false;
+  return x === y || (x.length >= 5 && y.startsWith(x + ' ')) || (y.length >= 5 && x.startsWith(y + ' '));
+}
+
+/**
+ * Where the party is on every area map, worked out fresh from the scene: { mapId: locationId }. The map they're on
+ * marks their spot, and the bigger maps around it mark the place that map shows (inside Thimblewick, the region map
+ * marks Thimblewick). Any other map marks nothing, so a town they've left forgets where they stood.
+ */
+export function partyWhereabouts(c) {
+  const maps = c.maps?.area || {};
+  const here = {};
+  const start = maps[c.scene?.areaMapId];
+  if (!start) return here;
+  if (start.locations.some((l) => l.id === c.scene.areaLocationId)) here[start.id] = c.scene.areaLocationId;
+  const seen = new Set([start.id]);
+  let inner = start;
+  for (let depth = 0; depth < 4; depth++) {
+    const outer = Object.values(maps).find((m) => !seen.has(m.id) && m.locations.some((l) => !l.secret && samePlace(l.name, inner.name)));
+    if (!outer) break;
+    here[outer.id] = outer.locations.find((l) => !l.secret && samePlace(l.name, inner.name)).id;
+    seen.add(outer.id);
+    inner = outer;
   }
+  return here;
+}
+
+/**
+ * The battle map shows one spot. Once the party has moved somewhere else (and the DM laid out no new map and no
+ * fight is on), it is put away along with everyone's chips, so nobody is left standing on a balcony they walked off.
+ */
+function putAwayOldBattleMap(c, before, { asked = false } = {}) {
+  if (c.combat || !c.scene.tacticalMapId || c.scene.tacticalMapId !== before.tac) return;
+  const tm = c.maps.tactical[c.scene.tacticalMapId];
+  const moved = !!before.loc && (before.map !== c.scene.areaMapId || before.loc !== c.scene.areaLocationId);
+  const stillThere = !!tm?.at?.areaLocationId && tm.at.areaMapId === c.scene.areaMapId && tm.at.areaLocationId === c.scene.areaLocationId;
+  if (asked || (moved && !stillThere)) clearBattleMap(c);
+}
+
+export function clearBattleMap(c) {
+  c.scene.tacticalMapId = '';
+  c.tokens = {};
 }
 
 /** Lay out a scene on a fresh battle map and place the party (and present NPCs) on it. */
@@ -328,6 +376,7 @@ export function setSceneMap(c, spec, { keepTokens = false } = {}) {
   const ids = Object.keys(c.maps.tactical);
   if (ids.length > 6) for (const old of ids.slice(0, ids.length - 6)) if (old !== map.id) delete c.maps.tactical[old];
   c.scene.tacticalMapId = map.id;
+  map.at = { areaMapId: c.scene.areaMapId || '', areaLocationId: c.scene.areaLocationId || '', location: c.scene.location || '' };
   if (!keepTokens) c.tokens = {};
   const party = partyCharacters(c);
   const interior = ['tavern', 'temple', 'castle', 'ship'].includes(map.theme);
@@ -729,9 +778,11 @@ export function applyTurnResult(c, data, input = {}) {
   for (const n of data.npcs || []) upsertNpc(c, n);
   for (const m of data.areaMaps || []) upsertAreaMap(c, m);
   const s = data.scene || {};
+  const before = { map: c.scene.areaMapId, loc: c.scene.areaLocationId, tac: c.scene.tacticalMapId };
   for (const k of ['location', 'timeOfDay', 'weather', 'mood']) if (s[k]) c.scene[k] = s[k];
   if (s.areaMapId && c.maps.area[s.areaMapId]) moveParty(c, s.areaMapId, s.areaLocationId);
   else if (s.areaLocationId && c.scene.areaMapId) moveParty(c, c.scene.areaMapId, s.areaLocationId);
+  if (s.areaLocationId === 'none') c.scene.areaLocationId = ''; // somewhere no map shows: the open road, a dream
 
   const startCombat = (data.combatStart || [])[0];
   if (data.sceneMap?.[0] && !startCombat) setSceneMap(c, data.sceneMap[0]);
@@ -763,6 +814,7 @@ export function applyTurnResult(c, data, input = {}) {
   if (c.chronicle.turns.length > 120) c.chronicle.turns.splice(0, c.chronicle.turns.length - 120);
   rememberTurn(c, { n: c.round.n, summary: data.summary, location: c.scene?.location });
   c.lastPlayedAt = Date.now();
+  if (!startCombat) putAwayOldBattleMap(c, before, { asked: !!s.clearBattleMap });
 
   if (c.combat) {
     combat.afterAsk(c, data);

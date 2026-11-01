@@ -59,6 +59,19 @@ export function newCampaign(owner, { name, settings }) {
 
 const recovered = new Set();
 
+// Battle maps laid out before they remembered their spot: if the scene has clearly moved on (no word of the map's
+// name in where the party is now), put it away; otherwise remember that it shows the current spot.
+const WORDS = (s) => new Set(String(s || '').toLowerCase().split(/[^a-z0-9']+/).filter((w) => w.length >= 4 && !['with', 'from', 'into', 'near', 'above', 'below', 'inside', 'outside', 'aboard'].includes(w)));
+function tidyBattleMap(c) {
+  const tm = c.maps?.tactical?.[c.scene?.tacticalMapId];
+  if (!tm || tm.at || c.combat) return;
+  const loc = c.maps.area?.[c.scene.areaMapId]?.locations?.find((l) => l.id === c.scene.areaLocationId);
+  const now = new Set([...WORDS(c.scene.location), ...WORDS(loc?.name)]);
+  const overlap = [...WORDS(tm.name)].some((w) => now.has(w));
+  if (!now.size || overlap) tm.at = { areaMapId: c.scene.areaMapId || '', areaLocationId: c.scene.areaLocationId || '', location: c.scene.location || '' };
+  else { c.scene.tacticalMapId = ''; c.tokens = {}; }
+}
+
 export function getCampaign(id) {
   if (!id || !index().campaigns[id]) return null;
   const c = load(cfile(id), null);
@@ -76,6 +89,7 @@ export function getCampaign(id) {
         c.genesisError = 'World building was interrupted by a server restart. Press "Rebuild world".';
       } else c.phase = c.pendingInput ? 'failed' : 'actions';
     } else if (c.combat?.state === 'enemy') c.combat.state = 'enemy_failed';
+    tidyBattleMap(c);
   }
   return c;
 }
