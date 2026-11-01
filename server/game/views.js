@@ -231,6 +231,7 @@ export function buildView(c, userId, cache = {}) {
       sessions: c.sessions.map((s) => ({ n: s.n, startedAt: s.startedAt, endedAt: s.endedAt, logEntry: s.logEntry, recap: s.recap, partyState: s.partyState })),
     },
     notes: c.notes[userId] || '',
+    notesAt: c.notesAt?.[userId] || 0,
     ai: { ...aiStatus(), usage: isOwner ? { ...c.usage } : null, models: Object.entries(PRICES).map(([id, p]) => ({ id, label: p.label })) },
     canRetry: c.phase === 'failed' || c.combat?.state === 'enemy_failed',
   };

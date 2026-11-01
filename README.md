@@ -93,6 +93,8 @@ moment private only when it really is (a secret roll, a whisper, a character off
   that fit them (or switch to instant "quick tactics" on the DM Screen).
 - **Documents panel.** Sheet, spells, inventory, private notes, maps and handouts, quests, the people you've met (with a
   "hear their voice" button), the journal (world bible and session logs), party status and a rules reference.
+  Private notes save as you type and whenever you click away or close the app; if the connection drops, they stay on
+  your device and are sent when it comes back.
 - **Session logs.** Ending a session makes the DM write the campaign log, a "previously on…" recap, NPC and quest
   updates and a compressed memory for future sessions. The top of the journal always shows "The story so far":
   older sessions in a line each, the latest one or two in more detail. Every journal page and handout can be read aloud.

@@ -844,7 +844,7 @@ function finishScene(scene, allLocs, shown, knowledge, R, seed, style, secretLoc
   // title: top edge, choose the side with fewer labels
   const leftCrowd = allLocs.filter((l) => l.p[1] < 220 && l.p[0] < AW / 2).length;
   const rightCrowd = allLocs.filter((l) => l.p[1] < 220 && l.p[0] >= AW / 2).length;
-  const tw = Math.max(260, scene.name.length * 21 + 90);
+  const tw = Math.min(AW / 2 - M, Math.max(260, scene.name.length * 21 + 90, scene.description ? Math.min(scene.description.length, 64) * 6.9 + 44 : 0));
   let tx = leftCrowd <= rightCrowd ? M + 24 + tw / 2 : AW - M - 24 - tw / 2;
   if (Math.abs(tx - scene.compass.x) < tw / 2 + 70 && scene.compass.y < AH / 2) tx = AW - tx;
   scene.title = { x: tx, y: M + 46, w: tw, text: scene.name, sub: scene.description };

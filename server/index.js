@@ -393,7 +393,16 @@ io.on('connection', (socket) => {
   // battle-map pings are grid cells; town and region map pings are 0-1 positions on that map
   socket.on('ping', wrap((p) => need() || (p.mapId ? E.ping(c, userId, Math.min(1, Math.max(0, Number(p.x) || 0)), Math.min(1, Math.max(0, Number(p.y) || 0)), String(p.mapId).slice(0, 80)) : E.ping(c, userId, p.x | 0, p.y | 0), { ok: true })));
   socket.on('chat', wrap((p) => need() || (E.chat(c, userId, p.text), { ok: true })));
-  socket.on('notes', wrap((p) => { if (need()) return need(); c.notes[userId] = String(p.text || '').slice(0, 50000); C.saveCampaign(c); return { ok: true }; }));
+  // private notes: saved with the campaign (they survive sessions, restarts and closing the app); the answer tells the
+  // player's screen what was saved, so coming back to the notes tab shows the latest text
+  socket.on('notes', wrap((p) => {
+    if (need()) return need();
+    const text = String(p.text || '').slice(0, 50000);
+    c.notes[userId] = text;
+    (c.notesAt ||= {})[userId] = Date.now();
+    C.saveCampaign(c);
+    return { ok: true, at: c.notesAt[userId], length: text.length };
+  }));
 
   socket.on('combat:attack', wrap((p) => act() || K.attack(c, userId, p)));
   socket.on('combat:damage', wrap((p) => act() || K.damage(c, userId, p)));

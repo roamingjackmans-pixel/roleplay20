@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useStore, emit } from '../lib/store.js';
 import { useUI } from './ui.js';
 import CharacterSheet from '../sheet/CharacterSheet.jsx';
@@ -17,14 +17,12 @@ const TABS = [
 export default function SidePanel() {
   const ui = useUI();
   const view = useStore((s) => s.view);
-  const questN = view.quests.filter((q) => q.status === 'active').length;
   return (
     <>
       <nav className="panel-rail">
         {TABS.map(([k, icon, label]) => (
           <button key={k} className={`rail-btn ${ui.panelOpen && ui.panelTab === k ? 'on' : ''}`} title={label} onClick={() => (ui.panelOpen && ui.panelTab === k ? ui.set({ panelOpen: false }) : ui.set({ panelOpen: true, panelTab: k }))}>
             <span>{icon}</span>
-            {k === 'quests' && questN > 0 && <i className="badge">{questN}</i>}
             {k === 'sheet' && view.myCharacter?.pendingLevelUp && <i className="badge gold">↑</i>}
           </button>
         ))}
@@ -50,23 +48,74 @@ export default function SidePanel() {
   );
 }
 
+// Private notes are saved on the server with the campaign, so they last across sessions, devices and closing the app.
+// A copy is also kept on this device until the server confirms it, so nothing typed is lost when you click away,
+// close the tab or lose the connection; anything unsent goes up the next time the notes open.
+const notesKey = (cid) => `rp20.notes.${cid}`;
+const readLocalNotes = (cid) => { try { return JSON.parse(localStorage.getItem(notesKey(cid)) || 'null'); } catch { return null; } };
+const writeLocalNotes = (cid, v) => { try { localStorage.setItem(notesKey(cid), JSON.stringify(v)); } catch { /* private mode */ } };
+
 function Notes() {
-  const notes = useStore((s) => s.view.notes);
-  const [t, setT] = useState(notes || '');
-  const [saved, setSaved] = useState(true);
+  const view = useStore((s) => s.view);
+  const cid = view.campaign.id;
+  const [initial] = useState(() => {
+    const local = readLocalNotes(cid);
+    return local && !local.saved ? { text: local.text, dirty: true } : { text: view.notes || '', dirty: false };
+  });
+  const [t, setT] = useState(initial.text);
+  const [status, setStatus] = useState(initial.dirty ? 'saving' : 'saved'); // saved | saving | offline
+  const latest = useRef(initial.text);
+  const dirty = useRef(initial.dirty);
   const timer = useRef(null);
-  useEffect(() => { setT(notes || ''); }, []); // eslint-disable-line
+  const mounted = useRef(true);
+
+  const save = useCallback(async () => {
+    clearTimeout(timer.current);
+    timer.current = null;
+    if (!dirty.current) return;
+    const text = latest.current;
+    const r = await emit('notes', { text }, { quiet: true });
+    if (r?.ok) {
+      if (latest.current === text) { dirty.current = false; writeLocalNotes(cid, { text, saved: true }); }
+      useStore.setState((s) => (s.view?.campaign?.id === cid ? { view: { ...s.view, notes: text, notesAt: r.at } } : {}));
+      if (mounted.current) setStatus(dirty.current ? 'saving' : 'saved');
+    } else if (mounted.current) setStatus('offline');
+  }, [cid]);
+
   const change = (v) => {
     setT(v);
-    setSaved(false);
+    latest.current = v;
+    dirty.current = true;
+    writeLocalNotes(cid, { text: v, saved: false });
+    setStatus('saving');
     clearTimeout(timer.current);
-    timer.current = setTimeout(async () => { await emit('notes', { text: v }, { quiet: true }); setSaved(true); }, 700);
+    timer.current = setTimeout(save, 600);
   };
+
+  // the connection came back: send what was kept on this device
+  const connected = useStore((st) => st.connected);
+  useEffect(() => { if (connected && dirty.current) save(); }, [connected, save]);
+
+  // send anything unsent now, and again whenever you leave: another tab, hiding the page, closing it
+  useEffect(() => {
+    mounted.current = true;
+    if (dirty.current) save();
+    const flush = () => { if (dirty.current) save(); };
+    window.addEventListener('pagehide', flush);
+    document.addEventListener('visibilitychange', flush);
+    return () => {
+      mounted.current = false;
+      window.removeEventListener('pagehide', flush);
+      document.removeEventListener('visibilitychange', flush);
+      flush();
+    };
+  }, [save]);
+
   return (
     <div className="col" style={{ height: '100%' }}>
-      <div className="tiny muted">Private: only you can see these. Clues, suspicions, names, debts, plans.</div>
-      <textarea className="textarea notes-area" value={t} onChange={(e) => change(e.target.value)} placeholder="The innkeeper flinched when we mentioned the lighthouse…" />
-      <div className="tiny faint">{saved ? 'Saved' : 'Saving…'}</div>
+      <div className="tiny muted">Private: only you can see these. Clues, suspicions, names, debts, plans. They're kept with this campaign.</div>
+      <textarea className="textarea notes-area" value={t} onChange={(e) => change(e.target.value)} onBlur={() => dirty.current && save()} placeholder="The innkeeper flinched when we mentioned the lighthouse…" />
+      <div className="tiny faint">{status === 'saved' ? 'Saved ✓' : status === 'saving' ? 'Saving…' : 'Not connected: kept on this device, and saved when you reconnect.'}</div>
     </div>
   );
 }

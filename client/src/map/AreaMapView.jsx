@@ -79,9 +79,15 @@ const KIND_ICON = {
 };
 
 // ------------------------------------------------------------------ static layer
+// the frame's inner line; nothing on the map is drawn past it
+const EDGE = 20;
+
 function Defs({ uid, dungeon }) {
   return (
     <defs>
+      <clipPath id={`${uid}inside`}>
+        <rect x={EDGE} y={EDGE} width={AW - EDGE * 2} height={AH - EDGE * 2} />
+      </clipPath>
       <radialGradient id={`${uid}vig`} cx="50%" cy="50%" r="70%">
         <stop offset="55%" stopColor="#5a3a14" stopOpacity="0" />
         <stop offset="100%" stopColor="#4a2c0c" stopOpacity="0.5" />
@@ -196,6 +202,8 @@ function Compass({ x, y, r, uid }) {
   );
 }
 
+const fitText = (str, max) => (str.length > max ? str.slice(0, Math.max(1, Math.floor(max) - 1)).trimEnd() + '…' : str);
+
 function Title({ t, dungeon }) {
   const { x, y, w, text, sub } = t;
   const h = sub ? 70 : 54;
@@ -215,22 +223,31 @@ function Title({ t, dungeon }) {
       </text>
       {sub && (
         <text x={x} y={y0 + 56} textAnchor="middle" className="rp-map-area-italic" fontSize="14.5" fill="#5a4128">
-          {sub.length > 60 ? sub.slice(0, 58) + '…' : sub}
+          {fitText(sub, (w - 2 * curl - 12) / 6.9)}
         </text>
       )}
     </g>
   );
 }
 
-function StaticLayer({ s, uid }) {
+// the sheet of paper: a soft shadow under it, and nothing outside it
+function Paper() {
   const paper = paperTexture();
+  return (
+    <g pointerEvents="none">
+      <rect x="6" y="9" width={AW} height={AH} fill="#000" fillOpacity="0.35" />
+      <rect x="3" y="4" width={AW} height={AH} fill="#000" fillOpacity="0.25" />
+      <rect x="0" y="0" width={AW} height={AH} fill="#e7d3a7" />
+      {paper && <image href={paper} x="0" y="0" width={AW} height={AH} preserveAspectRatio="none" />}
+    </g>
+  );
+}
+
+function StaticLayer({ s, uid }) {
   const dungeon = s.style === 'dungeon';
   const region = s.style === 'region';
   return (
     <g>
-      {/* paper */}
-      <rect x="-200" y="-200" width={AW + 400} height={AH + 400} fill="#e7d3a7" />
-      {paper && <image href={paper} x="0" y="0" width={AW} height={AH} preserveAspectRatio="none" />}
       {dungeon && <rect x="0" y="0" width={AW} height={AH} fill={`url(#${uid}graph)`} />}
       {s.stains.map((st, i) => (
         <circle key={i} cx={st.x} cy={st.y} r={st.r} fill={`url(#${uid}stain)`} opacity={st.o * 2.2} />
@@ -367,8 +384,6 @@ function StaticLayer({ s, uid }) {
       {/* dungeon */}
       {dungeon && <DungeonLayer s={s} uid={uid} />}
 
-      {/* vignette + frame */}
-      <rect x="0" y="0" width={AW} height={AH} fill={`url(#${uid}vig)`} pointerEvents="none" />
     </g>
   );
 }
@@ -789,7 +804,10 @@ export const AreaMapView = forwardRef(function AreaMapView({ map, knowledge = nu
         aria-label={`${scene.style} map: ${scene.name}`}
       >
         <Defs uid={uid} dungeon={scene.style === 'dungeon'} />
-        {staticLayer}
+        <Paper />
+        <g clipPath={`url(#${uid}inside)`}>{staticLayer}</g>
+        <rect x="0" y="0" width={AW} height={AH} fill={`url(#${uid}vig)`} pointerEvents="none" />
+        <g clipPath={`url(#${uid}inside)`}>
         {fog && (
           <>
             <mask id={`${uid}fog`}>
@@ -831,6 +849,7 @@ export const AreaMapView = forwardRef(function AreaMapView({ map, knowledge = nu
         ))}
         <Compass {...scene.compass} uid={uid} />
         <Title t={scene.title} dungeon={scene.style === 'dungeon'} />
+        </g>
         <Frame />
       </svg>
       {tip && !tip.focus && (
