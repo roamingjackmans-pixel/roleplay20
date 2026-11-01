@@ -107,8 +107,8 @@ export const TURN_SCHEMA = obj({
   combatStart: arr(combatStart),     // [] or one
   quests: arr(quest),
   handouts: arr(handout),
-  // [] normally. When a player declared more than their turn allows: one private note per such character saying the
-  // most they can do and asking which parts they want; everything else in the response is left empty.
+  // [] normally. A private question to a player whose action is more than a turn holds or too unclear to resolve
+  // without guessing ("Which item do you investigate?"); everything else in the response is left empty.
   clarify: arr(obj({ characterId: S, message: S })),
   // [] normally (the next round waits for everyone). Character id(s) when an NPC has just asked them something or is in
   // a one-on-one conversation with them: the next round waits only for their answer.

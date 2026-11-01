@@ -44,7 +44,9 @@ moment private only when it really is (a secret roll, a whisper, a character off
 - **Everyone acts, then the DM narrates.** Each player writes what they do and presses Ready. When everyone is
   ready, the DM resolves all actions together, asks for rolls where the outcome is uncertain, and narrates. If someone
   declares more than one turn holds (three attacks and a sprint), the DM doesn't pick for them: it privately tells that
-  player the most they can do, reopens their action to edit, and resolves the round once they've revised it.
+  player the most they can do, reopens their action to edit, and resolves the round once they've revised it. The same
+  happens when an action is unclear ("I investigate the item" with several items around): the DM quickly asks that player
+  which one they mean instead of guessing.
 - **Talking with NPCs.** When an NPC asks one character a question, the DM waits only for that player's answer (the
   others can still chime in), so a one-on-one conversation can go back and forth without the rest of the table typing.
 - **Contested rolls.** When two players try things that can't both happen (both grab the falling idol, one bars the
@@ -53,7 +55,9 @@ moment private only when it really is (a secret roll, a whisper, a character off
 - **The whole table, or nobody.** A session begins only when every player is at the table and someone presses
   **Begin session**. If anyone drops off, the game pauses until they're back. Between sessions (or while paused)
   everyone can still read their sheet, maps, handouts and the journal, and chat.
-- **Your dice or ours.** Every roll request has "Roll for me" or a box to type what your real d20 showed.
+- **Lots of dice.** The DM asks for a roll whenever an action could go more than one way, including knowledge, Insight and
+  Perception checks, and often has several players roll at once. Every roll request has "Roll for me" or a box to type
+  what your real d20 showed.
 - **Type or talk.** Your action and table talk each have a 🎤 button for voice typing (Chrome, Edge and Safari): speak
   and your words appear in the box, ready to edit. Switching between the two keeps both drafts, and each box only sends
   its own text.

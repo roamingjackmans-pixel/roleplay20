@@ -887,9 +887,9 @@ function resolveActions(c) {
     if (!a.logged) addLog(c, { kind: 'action', userId: uid, characterId: ch.id, name: ch.name, text: a.text, private: a.private, to: a.private ? [uid] : 'all' });
   }
   const asked = (c.round.waitFor || []).map((u) => getCharacter(member(c, u)?.characterId)?.name).filter(Boolean);
-  const text = acts.map((a) => `${a.name} (${a.characterId})${a.private ? ' [PRIVATE - only this player knows]' : ''}${a.revised ? ' [REVISED after you asked them to fit it into one turn - do not ask them again]' : ''}: ${a.text}`).join('\n') +
+  const text = acts.map((a) => `${a.name} (${a.characterId})${a.private ? ' [PRIVATE - only this player knows]' : ''}${a.revised ? ' [REVISED after you asked them a question - do not ask them again]' : ''}: ${a.text}`).join('\n') +
     (asked.length ? `\n\n(This round waited only for ${asked.join(' and ')} to answer; anyone else listed chimed in on their own. Everyone else is watching and listening.)` : '') +
-    '\n\nResolve these actions together as one shared narration for the whole table (private segments only where something truly cannot be shared; a PRIVATE action that could not logically go unnoticed happens in the open). Move tokens on the battle map to match where people go. Ask for rolls where outcomes are uncertain. If any character declared more than their turn allows (and has not already revised), use "clarify" for them instead of resolving anything.';
+    '\n\nResolve these actions together as one shared narration for the whole table (private segments only where something truly cannot be shared; a PRIVATE action that could not logically go unnoticed happens in the open). Move tokens on the battle map to match where people go. Ask for a roll wherever an action gives a chance to (this table loves dice; several characters can roll at once). If any character declared more than their turn allows, or wrote something so unclear you would have to guess what they mean (which item, which person, which door), and has not already revised, use "clarify" to ask them instead of resolving anything.';
   c.round.actions = {};
   c.round.casts = {};
   // prepared spells can change only in the round right after a long rest
