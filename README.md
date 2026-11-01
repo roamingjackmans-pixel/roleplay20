@@ -4,7 +4,7 @@ A private virtual tabletop for Dungeons & Dragons 5e where **Claude is the Dunge
 builds the world, voices every NPC, runs the monsters and narrates a different, private story to each player based on
 what their character can actually see, hear and notice.
 
-**Play:** https://josephjackman.com/roleplay20 (password protected; the server runs on the host's PC)
+**Play:** https://josephjackman.com/roleplay20 (password protected; the game server runs around the clock on Fly.io)
 
 ## What it does
 
@@ -57,19 +57,25 @@ Tip: use Microsoft Edge or Chrome for the best NPC voices, and turn on 🔊 in t
 
 ## Running it (host)
 
-You need Windows, Node.js 22+, the GitHub CLI (`gh`, signed in) and an Anthropic API key.
+The game server runs on [Fly.io](https://fly.io): one always-on machine near Chicago (shared CPU, 512 MB) with a 1 GB
+volume for accounts, campaigns and characters. Nothing has to run on your own PC. You need Node.js 22+, the GitHub CLI
+(`gh`, signed in) and an Anthropic API key on the PC you set it up from.
 
-1. `npm run setup` - sets the site password, stores your API key in `.env` (never committed), picks the DM model,
-   builds the app, offers to install `cloudflared`, and (once) offers to create the public `roleplay20` GitHub repo and
-   turn on GitHub Pages so the gate appears at josephjackman.com/roleplay20.
-2. Double-click **Start Roleplay20.bat** (or `npm start`). Keep the window open while you play.
-3. The server starts a free Cloudflare quick tunnel (no Cloudflare account needed), then publishes the tunnel address to
-   the `live` branch of this repo. The gate page at josephjackman.com/roleplay20 reads it from there, so friends just
-   open the normal URL. Locally you can also use http://localhost:3020/roleplay20/.
+1. `npm run setup` - sets the site password, stores your API key in `.env` (never committed), picks the DM model and
+   builds the app. It also (once) creates the public `roleplay20` GitHub repo and turns on GitHub Pages so the gate
+   appears at josephjackman.com/roleplay20.
+2. `npm run cloud-setup` - installs the Fly.io tool, opens a browser so you can sign in (add a card under Billing),
+   creates the app and its volume, copies the settings from `.env` as Fly secrets (values never shown), deploys,
+   moves saved games from `data/` once, and writes the cloud address to `server.json` on the `live` branch, where the
+   gate page looks it up. Run it again after changing `.env` (a new API key or site password).
+3. `npm run deploy` - push code changes to the cloud server.
 
-If the PC sleeps or the server stops, the gate page shows "The tavern is closed". The tunnel runs as its own background
-process, so restarting the server keeps the same address and players' pages reconnect by themselves; if the address
-does change (after a reboot), open pages look up the new one and reload. `npm run stop-tunnel` ends the tunnel.
+Useful: `fly logs -a roleplay20` (server log), `fly status -a roleplay20`, `fly ssh console -a roleplay20` (the saved
+games are in `/data`). Fly.io billing: about $4 a month for this machine and volume, plus AI usage below.
+
+The gate page asks the address in `server.json` first, so the server can move (another app name, another host) without
+changing the website. `TUNNEL=auto npm start` still hosts from a PC through a free Cloudflare tunnel for testing, but
+it publishes that PC's address, so the website stops using the cloud server until `npm run cloud-setup` runs again.
 
 Players only ever see their own declared actions; everyone else learns what you did from the table or the DM's narration.
 

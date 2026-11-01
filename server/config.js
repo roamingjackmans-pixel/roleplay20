@@ -2,6 +2,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { restoreBundle } from './restore.js';
 
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -48,8 +49,9 @@ export const config = {
   defaultEffort: env.DM_EFFORT || 'medium',
   aiTimeoutMs: num(env.AI_TIMEOUT_SECONDS, 240) * 1000,
 
-  // Public URL discovery for the GitHub Pages shell.
-  tunnel: env.TUNNEL || 'auto',                // auto | cloudflared | off
+  // Public URL discovery for the GitHub Pages shell. The game runs on Fly.io at a fixed address, so the PC tunnel is
+  // off unless TUNNEL=auto is set (it would publish this PC's address and pull the website away from the cloud server).
+  tunnel: env.TUNNEL || 'off',                 // auto | off
   publicUrl: env.PUBLIC_URL || '',             // set when you run your own named tunnel / reverse proxy
   publishRepo: env.PUBLISH_REPO || 'roamingjackmans-pixel/roleplay20',
   publishBranch: env.PUBLISH_BRANCH || 'live',
@@ -57,3 +59,6 @@ export const config = {
 };
 
 fs.mkdirSync(config.dataDir, { recursive: true });
+
+// Saved games moved from another server (scripts/cloud-setup.mjs) are unpacked before anything loads.
+try { restoreBundle(config.dataDir); } catch (e) { console.error('[restore] could not unpack the data bundle:', e.message); }

@@ -46,7 +46,8 @@ function gh(args, input) {
   });
 }
 
-async function publishToGitHub(url) {
+/** Point josephjackman.com/roleplay20 at a server: writes server.json on the `live` branch. */
+export async function publishToGitHub(url) {
   const repo = config.publishRepo;
   const branch = config.publishBranch;
   try {

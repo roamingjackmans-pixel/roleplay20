@@ -1,0 +1,41 @@
+# Roleplay20 on Fly.io: one always-on server near Chicago with a 1 GB volume for saved games.
+# Set up and deploy with:  npm run cloud-setup     Update after code changes with:  npm run deploy
+app = 'roleplay20'
+primary_region = 'ord'
+kill_signal = 'SIGINT'
+kill_timeout = '10s'
+
+[build]
+  dockerfile = 'Dockerfile'
+
+[env]
+  DATA_DIR = '/data'
+  PORT = '3020'
+  TUNNEL = 'off'
+
+[[mounts]]
+  source = 'rp20_data'
+  destination = '/data'
+
+[http_service]
+  internal_port = 3020
+  force_https = true
+  auto_stop_machines = 'off'
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [http_service.concurrency]
+    type = 'connections'
+    soft_limit = 200
+    hard_limit = 250
+
+  [[http_service.checks]]
+    grace_period = '20s'
+    interval = '30s'
+    method = 'GET'
+    path = '/roleplay20/api/ping'
+    timeout = '5s'
+
+[[vm]]
+  size = 'shared-cpu-1x'
+  memory = '512mb'

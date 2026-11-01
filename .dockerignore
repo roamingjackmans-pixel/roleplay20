@@ -1,0 +1,17 @@
+# Never send secrets, saved games or local tools to the image builder.
+.env
+.env.*
+data/
+data-test/
+data-src/
+node_modules/
+bin/
+.git/
+.github/
+.claude/
+test/
+docs/
+scripts/
+*.tmp
+*.log
+Start Roleplay20.bat

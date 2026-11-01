@@ -1,4 +1,4 @@
-// Interactive setup: site password, Anthropic API key, Dungeon Master model, build, tunnel check.
+// Interactive setup: site password, Anthropic API key, Dungeon Master model, build. Then: npm run cloud-setup
 // Run with:  npm run setup
 import fs from 'node:fs';
 import path from 'node:path';
@@ -143,25 +143,16 @@ console.log(`\n${c.bold('Building the app…')}`);
 if (!fs.existsSync(path.join(ROOT, 'node_modules'))) execSync('npm install', { cwd: ROOT, stdio: 'inherit' });
 execSync('npm run build', { cwd: ROOT, stdio: 'inherit' });
 
-// 5. tunnel + publishing
+// 5. publishing the gate page
 console.log(`\n${c.bold('Going online')}`);
-const cloudflared = has('cloudflared') || fs.existsSync('C:\\Program Files (x86)\\cloudflared\\cloudflared.exe') || fs.existsSync(path.join(ROOT, 'bin', 'cloudflared.exe'));
-if (cloudflared) console.log(c.green('  ✓ cloudflared is installed (free Cloudflare tunnel, no account needed).'));
-else if (process.platform === 'win32' && has('winget')) {
-  const a = await ask(`  cloudflared (Cloudflare's free tunnel tool) is needed so friends can reach your PC. Install it now with winget? ${c.dim('(Y/n)')} `);
-  if (!/^n/i.test(a)) {
-    try { execSync('winget install --id Cloudflare.cloudflared -e --accept-source-agreements --accept-package-agreements', { stdio: 'inherit' }); console.log(c.green('  ✓ Installed. Open a new terminal before starting the server.')); }
-    catch { console.log(c.red('  Install failed - get it from https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/')); }
-  }
-} else console.log(c.gold('  Install cloudflared: https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/'));
 const REPO = 'roamingjackmans-pixel/roleplay20';
 if (has('gh')) {
   const r = spawnSync('gh', ['auth', 'status'], { encoding: 'utf8' });
-  console.log(r.status === 0 ? c.green('  ✓ GitHub CLI is signed in, so the server can publish its address for josephjackman.com/roleplay20.') : c.gold('  Run `gh auth login` so the server can publish its address for the website.'));
+  console.log(r.status === 0 ? c.green('  ✓ GitHub CLI is signed in, so the website can be pointed at the cloud server.') : c.gold('  Run `gh auth login` so the website can be pointed at the cloud server.'));
   const exists = spawnSync('gh', ['repo', 'view', REPO, '--json', 'name'], { encoding: 'utf8' }).status === 0;
   if (!exists) {
     console.log(`\n  The website josephjackman.com/roleplay20 needs a ${c.bold('public')} GitHub repo named ${c.bold('roleplay20')} (like lieage and horserace).`);
-    console.log(c.dim('  Only the password gate page is published by GitHub Pages; the repo holds the source code. .env and all game data stay on this PC.'));
+    console.log(c.dim('  Only the password gate page is published by GitHub Pages; the repo holds the source code. .env and saved games are never committed.'));
     const a = await ask(`  Create ${REPO}, push the code and turn on GitHub Pages now? ${c.dim('(y/N)')} `);
     if (/^y/i.test(a)) {
       try {
@@ -174,6 +165,6 @@ if (has('gh')) {
       }
     }
   } else console.log(c.green(`  ✓ ${REPO} exists.`));
-} else console.log(c.gold('  Install the GitHub CLI (https://cli.github.com) so the server can publish its address for the website.'));
+} else console.log(c.gold('  Install the GitHub CLI (https://cli.github.com) so the website can be pointed at the cloud server.'));
 
-console.log(`\n${c.gold(c.bold('  All set!'))} Start the game with ${c.bold('Start Roleplay20.bat')} (or ${c.bold('npm start')}).\n`);
+console.log(`\n${c.gold(c.bold('  All set!'))} Next, put the game in the cloud with ${c.bold('npm run cloud-setup')} (nothing has to run on this PC).\n`);

@@ -62,10 +62,15 @@ export function sha256(s) {
 
 const LOOPBACK = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1']);
 
-/** The real client IP. Behind the Cloudflare tunnel every request arrives from localhost with CF-Connecting-IP set. */
+/**
+ * The real client IP (the password lockout counts per IP, so this must not be the proxy's address).
+ * On Fly.io every request comes through Fly's edge proxy, which sets Fly-Client-IP itself.
+ * Behind a Cloudflare tunnel on a PC every request arrives from localhost with CF-Connecting-IP set.
+ */
 export function clientIp(reqOrSocket) {
   const remote = reqOrSocket.socket?.remoteAddress || reqOrSocket.conn?.remoteAddress || reqOrSocket.handshake?.address || '';
   const headers = reqOrSocket.headers || reqOrSocket.handshake?.headers || {};
+  if (process.env.FLY_APP_NAME && headers['fly-client-ip']) return String(headers['fly-client-ip']).trim();
   if (LOOPBACK.has(remote)) {
     const cf = headers['cf-connecting-ip'];
     if (cf) return String(cf).trim();

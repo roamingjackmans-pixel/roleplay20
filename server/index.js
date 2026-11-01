@@ -18,7 +18,7 @@ import { buildCharacter, applyLevelUp } from '../shared/charbuild.js';
 import { randomId } from './security.js';
 
 const app = express();
-app.set('trust proxy', 'loopback');
+app.set('trust proxy', process.env.FLY_APP_NAME ? 1 : 'loopback'); // Fly.io: one edge proxy in front of us
 app.disable('x-powered-by');
 const BASE = config.basePath; // "/roleplay20"
 
