@@ -15,12 +15,13 @@ export class NoAIError extends Error {
 
 // $ per million tokens. cacheRead is the cache-hit price; cache writes (5-minute TTL) cost 1.25x input.
 export const PRICES = {
-  'claude-opus-5-5': { in: 4, out: 20, cacheRead: 0.2, label: 'Claude Opus 5.5 (richest storytelling)' },
+  'claude-fable-5-1': { in: 10, out: 50, cacheRead: 0.25, label: 'Claude Fable 5.1 (deepest storytelling, slowest)' },
+  'claude-opus-5-5': { in: 4, out: 20, cacheRead: 0.2, label: 'Claude Opus 5.5 (rich storytelling, under half the cost)' },
   'claude-sonnet-5-5': { in: 2, out: 10, cacheRead: 0.2, label: 'Claude Sonnet 5.5 (fast and vivid)' },
   'claude-haiku-5-5': { in: 0.1, out: 0.5, cacheRead: 0.01, label: 'Claude Haiku 5.5 (cheapest, quickest)' },
 };
 export const MODELS = Object.keys(PRICES);
-const FALLBACK_OK = new Set(['claude-opus-5-5', 'claude-sonnet-5-5']);
+const FALLBACK_OK = new Set(['claude-fable-5-1', 'claude-opus-5-5', 'claude-sonnet-5-5']);
 
 let client = null;
 function api() {
@@ -37,7 +38,7 @@ export function aiStatus() {
 }
 
 export function costOf(model, usage) {
-  const p = PRICES[model] || PRICES['claude-opus-5-5'];
+  const p = PRICES[model] || PRICES['claude-fable-5-1'];
   const u = usage || {};
   const usd = ((u.input_tokens || 0) * p.in + (u.cache_creation_input_tokens || 0) * p.in * 1.25 +
     (u.cache_read_input_tokens || 0) * p.cacheRead + (u.output_tokens || 0) * p.out) / 1e6;
