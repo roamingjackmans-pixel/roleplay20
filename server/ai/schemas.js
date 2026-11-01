@@ -150,6 +150,7 @@ export const SESSION_END_SCHEMA = obj({
   dmSecrets: S,            // full updated markdown, or "" if unchanged
   storyArc: S,             // full updated markdown, or "" if unchanged
   chronicle: S,            // compressed story-so-far for future prompts
+  storySoFar: S,           // player-facing quick recap of the whole campaign for the top of the journal (markdown)
 });
 
 export const CHARACTER_ASSIST_SCHEMA = obj({

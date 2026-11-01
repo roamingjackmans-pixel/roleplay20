@@ -16,8 +16,8 @@ export function useCharacter() {
 }
 
 export async function saveChar(ch, patch) {
-  try { await api(`characters/${ch.id}`, { method: 'PUT', body: patch }); }
-  catch (e) { useStore.getState().toast(e.message, 'bad'); }
+  try { await api(`characters/${ch.id}`, { method: 'PUT', body: patch }); return true; }
+  catch (e) { useStore.getState().toast(e.message, 'bad'); return false; }
 }
 
 /** Roll from the sheet: automatically, or ask the player to type what they rolled at the table. */
@@ -37,13 +37,15 @@ export default function CharacterSheet() {
   const hpPct = Math.max(0, Math.min(100, (ch.hp.current / Math.max(1, ch.hp.max)) * 100));
   const nextXp = xpForLevel ? xpForLevel(Math.min(20, ch.level + 1)) : null;
 
-  const changeHp = (sign) => {
+  // HP can only go down from the sheet; healing comes from spells, rests and the DM
+  const takeDamage = () => {
     const n = Math.abs(parseInt(dmg, 10));
     if (!n) return;
     const hp = { ...ch.hp };
-    if (sign < 0) { let r = n; if (hp.temp) { const t = Math.min(hp.temp, r); hp.temp -= t; r -= t; } hp.current = Math.max(0, hp.current - r); }
-    else hp.current = Math.min(hp.max, hp.current + n);
-    saveChar(ch, { hp, ...(hp.current > 0 ? { deathSaves: { success: 0, fail: 0 }, conditions: ch.conditions.filter((c) => c !== 'unconscious') } : {}) });
+    let r = n;
+    if (hp.temp) { const t = Math.min(hp.temp, r); hp.temp -= t; r -= t; }
+    hp.current = Math.max(0, hp.current - r);
+    saveChar(ch, { hp });
     setDmg('');
   };
   const toggleCond = (c) => saveChar(ch, { conditions: ch.conditions.includes(c) ? ch.conditions.filter((x) => x !== c) : [...ch.conditions, c] });
@@ -52,13 +54,13 @@ export default function CharacterSheet() {
   return (
     <div className="sheet">
       <div className="sheet-head">
-        <Avatar size="lg" name={ch.name} color={ch.color} img={ch.portrait} />
+        <PortraitPicker ch={ch} />
         <div className="grow">
           <div className="sheet-name">{ch.name}</div>
           <div className="muted small">Level {ch.level} {titleIndex(ch.subrace || ch.race)} {(ch.classes || [{ class: ch.class, level: ch.level, subclass: ch.subclass }]).map((k) => `${titleIndex(k.class)}${k.subclass ? ` (${titleIndex(k.subclass)})` : ''}`).join(' / ')}</div>
           <div className="xpbar" title={`${ch.xp || 0} / ${nextXp} XP`}><i style={{ width: `${Math.min(100, ((ch.xp || 0) / Math.max(1, nextXp || 1)) * 100)}%` }} /></div>
         </div>
-        <button className={`btn icon ${ch.inspiration ? 'active' : ''}`} title="Inspiration" onClick={() => saveChar(ch, { inspiration: !ch.inspiration })}>🌟</button>
+        <button className={`btn icon ${ch.inspiration ? 'active' : ''}`} disabled={!ch.inspiration} title={ch.inspiration ? 'You have Inspiration: click to use it' : 'No Inspiration. Only the DM can give it to you.'} onClick={() => { if (ch.inspiration && confirm('Use your Inspiration now?')) saveChar(ch, { inspiration: false }); }}>🌟</button>
       </div>
       {ch.pendingLevelUp && <button className="btn primary levelup-btn" onClick={() => setShowLevel(true)}>⬆ Level up to {ch.level + 1}!</button>}
       {showLevel && <LevelUp onClose={() => setShowLevel(false)} />}
@@ -70,10 +72,9 @@ export default function CharacterSheet() {
           <div className="hp-bar"><i style={{ width: `${hpPct}%`, background: hpPct > 50 ? 'var(--green)' : hpPct > 25 ? 'var(--gold)' : 'var(--red)' }} /></div>
           <div className="row" style={{ gap: 4, marginTop: 6 }}>
             <input className="input hp-in" inputMode="numeric" value={dmg} onChange={(e) => setDmg(e.target.value.replace(/[^0-9]/g, ''))} placeholder="#" />
-            <button className="btn xs danger" onClick={() => changeHp(-1)} title="Take damage">−</button>
-            <button className="btn xs" onClick={() => changeHp(1)} title="Heal" style={{ color: 'var(--green)' }}>+</button>
-            <button className="btn xs ghost" title="Temporary HP" onClick={() => { const n = parseInt(dmg, 10); if (n >= 0) { saveChar(ch, { hp: { ...ch.hp, temp: n } }); setDmg(''); } }}>temp</button>
+            <button className="btn xs danger" onClick={takeDamage} title="Take damage">− damage</button>
           </div>
+          <div className="tiny faint" style={{ marginTop: 4 }}>Healing comes from spells, rests and the DM.</div>
         </div>
         <div className="vital"><b>{d.ac}</b><span>AC</span></div>
         <button className="vital click" onClick={() => sheetRoll({ kind: 'initiative', key: 'dex', label: 'Initiative' })}><b>{fmtMod(d.initiative)}</b><span>INIT</span></button>
@@ -166,4 +167,44 @@ export default function CharacterSheet() {
       </div>
     </div>
   );
+}
+
+/** Your picture in this campaign: click it to choose a new one (it's cropped square and kept small). */
+function PortraitPicker({ ch }) {
+  const input = React.useRef(null);
+  const [busy, setBusy] = useState(false);
+  async function pick(file) {
+    if (!file) return;
+    if (!/^image\//.test(file.type)) { useStore.getState().toast('Pick an image file.', 'bad'); return; }
+    setBusy(true);
+    try {
+      const url = await squareImage(file, 320);
+      if (await saveChar(ch, { portrait: url })) useStore.getState().toast('Picture updated.', 'good');
+    } catch { useStore.getState().toast("Couldn't read that image.", 'bad'); }
+    setBusy(false);
+  }
+  return (
+    <button className={`portrait-pick ${busy ? 'busy' : ''}`} title="Change your picture for this campaign" onClick={() => input.current?.click()}>
+      <Avatar size="lg" name={ch.name} color={ch.color} img={ch.portrait} />
+      <span className="portrait-edit">📷</span>
+      <input ref={input} type="file" accept="image/*" hidden onChange={(e) => { pick(e.target.files?.[0]); e.target.value = ''; }} />
+    </button>
+  );
+}
+
+function squareImage(file, size) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const src = URL.createObjectURL(file);
+    img.onload = () => {
+      const s = Math.min(img.width, img.height);
+      const canvas = document.createElement('canvas');
+      canvas.width = canvas.height = size;
+      canvas.getContext('2d').drawImage(img, (img.width - s) / 2, (img.height - s) / 2, s, s, 0, 0, size, size);
+      URL.revokeObjectURL(src);
+      resolve(canvas.toDataURL('image/jpeg', 0.85));
+    };
+    img.onerror = () => { URL.revokeObjectURL(src); reject(new Error('bad image')); };
+    img.src = src;
+  });
 }

@@ -20,7 +20,9 @@ what their character can actually see, hear and notice.
   personality and backstory tied to the campaign world.
 - **Character sheet (two pages).** Page 1: abilities, saves, skills, attacks, HP, conditions, death saves - click
   anything to roll. Page 2: **Spells & Abilities** - spell slots and every limited-use class ability (Rage, Ki, Second
-  Wind, Channel Divinity…) as pips; casting a spell spends the slot automatically. Short and long rests, level-up wizard.
+  Wind, Channel Divinity…) as pips. Casting asks which slot level to use and spends that slot. HP, slots, Inspiration
+  and limited uses can only be spent from the sheet; they come back through rests, spells or the DM. Click your
+  picture to change it for this campaign. Short and long rests, level-up wizard.
 - **Private perception.** The DM writes separate narration for each character. The rogue who passed the Perception check
   hears the whisper; the others don't. Private actions stay private.
 - **Everyone acts, then the DM narrates.** Each player writes what they do and presses Ready. When everyone is
@@ -46,7 +48,8 @@ what their character can actually see, hear and notice.
 - **Documents panel.** Sheet, spells, inventory, private notes, maps and handouts, quests, the people you've met (with a
   "hear their voice" button), the journal (world bible and session logs), party status and a rules reference.
 - **Session logs.** Ending a session makes the DM write the campaign log, a "previously on…" recap, NPC and quest
-  updates and a compressed memory for future sessions.
+  updates and a compressed memory for future sessions. The top of the journal always shows "The story so far":
+  older sessions in a line each, the latest one or two in more detail. Every journal page and handout can be read aloud.
 - **DM Screen** (campaign owner): model and effort, enemy tactics, AI cost so far, retry, skip turn, end combat, narrate
   by hand as the narrator or any NPC, and an optional spoiler "god view".
 

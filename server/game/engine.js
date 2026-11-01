@@ -990,6 +990,7 @@ export async function endSession(c) {
       `# QUESTS\n${questBlock(c)}`,
       `# SCENE NOW\n${sceneBlock(c)}`,
       `# PREVIOUS CAMPAIGN LOG ENTRIES\n${c.sessions.slice(0, -1).map((s) => s.logEntry).filter(Boolean).slice(-3).join('\n\n') || '(first session)'}`,
+      `# CURRENT STORY-SO-FAR RECAP (rewrite it to include this session)\n${c.world.storySoFar || '(none yet)'}`,
       historyBlock({ ...c, chronicle: { summary: c.chronicle.summary, turns: c.chronicle.turns.filter((t) => t.at >= sess.startedAt) } }),
     ].join('\n\n');
     const res = await askClaude({ task: 'session_end', system: SESSION_END_CORE, cachedContext: cachedCampaignContext(c), prompt, schema: SESSION_END_SCHEMA, model: c.settings.model, effort: 'medium', campaignId: c.id });
@@ -1006,6 +1007,7 @@ export async function endSession(c) {
     if (d.dmSecrets) c.world.secrets = d.dmSecrets;
     if (d.storyArc) c.world.arc = d.storyArc;
     if (d.chronicle) c.chronicle.summary = d.chronicle;
+    if (d.storySoFar) c.world.storySoFar = d.storySoFar;
     system(c, `📖 The chronicle of session ${c.sessionNumber} has been written. Read it in the Journal panel.`, 'all', { tone: 'good' });
   } catch (e) {
     if (!(e instanceof NoAIError)) console.error('[session_end]', e);

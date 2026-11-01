@@ -7,12 +7,13 @@ import { fmtMod, titleIndex } from '../lib/format.jsx';
 import SpellCard from './SpellCard.jsx';
 import { Modal } from '../components/Toasts.jsx';
 
-function Pips({ max, used, onUse, onRestore, color = 'var(--gold)' }) {
+/** Uses you have left. Click a full pip to spend one; spent pips come back only with a rest, a spell or the DM. */
+function Pips({ max, used, onUse, color = 'var(--gold)' }) {
   return (
     <span className="pips">
       {Array.from({ length: max }).map((_, i) => {
         const spent = i >= max - used;
-        return <button key={i} className={`pip ${spent ? 'spent' : ''}`} style={{ '--pip': color }} onClick={() => (spent ? onRestore() : onUse())} title={spent ? 'Restore one' : 'Use one'} />;
+        return <button key={i} className={`pip ${spent ? 'spent' : ''}`} style={{ '--pip': color }} disabled={spent} onClick={() => !spent && onUse()} title={spent ? 'Spent: comes back with a rest (or the DM)' : 'Use one'} />;
       })}
     </span>
   );
@@ -23,7 +24,7 @@ export default function SpellsPage() {
   const view = useStore((s) => s.view);
   const ui = useUI();
   const [open, setOpen] = useState(null);
-  const [castSlot, setCastSlot] = useState({});
+  const [chooseLevel, setChooseLevel] = useState(null);
   const [preparing, setPreparing] = useState(false);
   const [hd, setHd] = useState(1);
   const [healTarget, setHealTarget] = useState(null);
@@ -52,9 +53,18 @@ export default function SpellsPage() {
     return out.sort((a, b) => a - b);
   };
 
-  async function cast(spell, ritual = false) {
-    const lvl = spell.level ? (castSlot[spell.index] || availableLevels(spell.level)[0]) : 0;
-    if (spell.level && !lvl && !ritual) { useStore.getState().toast(`No spell slots of level ${spell.level}+ left.`, 'bad'); return; }
+  // Casting a leveled spell always asks which slot level to use; that slot is the one spent.
+  function cast(spell, ritual = false) {
+    if (spell.level > 0 && !ritual) {
+      if (!availableLevels(spell.level).length) { useStore.getState().toast(`No spell slots of level ${spell.level} or higher left.`, 'bad'); return; }
+      setChooseLevel(spell);
+      return;
+    }
+    castAt(spell, 0, ritual);
+  }
+
+  async function castAt(spell, lvl, ritual = false) {
+    setChooseLevel(null);
     if (inCombat) {
       if (!view.combat.myTurn) { useStore.getState().toast("Wait for your turn to cast in combat.", 'bad'); return; }
       const needsTarget = spell.attackType || spell.dc || spell.heal || spell.index === 'magic-missile';
@@ -73,8 +83,8 @@ export default function SpellsPage() {
         <div key={r.key} className="res-row">
           <div className="grow"><b>{r.name}</b><div className="tiny muted">{r.recharge === 'short' ? 'recharges on a short or long rest' : r.recharge === 'dawn' ? 'recharges at dawn' : 'recharges on a long rest'}{r.desc ? ` · ${r.desc}` : ''}</div></div>
           {r.max == null ? <span className="pill">always on</span> : r.max <= 12
-            ? <Pips max={r.max} used={r.used || 0} onUse={() => setRes(r.key, (r.used || 0) + 1, r.max)} onRestore={() => setRes(r.key, (r.used || 0) - 1, r.max)} color="var(--purple)" />
-            : <span className="row"><button className="btn xs" onClick={() => setRes(r.key, (r.used || 0) + 1, r.max)}>−</button><b>{r.max - (r.used || 0)}</b>/{r.max}<button className="btn xs" onClick={() => setRes(r.key, (r.used || 0) - 1, r.max)}>+</button></span>}
+            ? <Pips max={r.max} used={r.used || 0} onUse={() => setRes(r.key, (r.used || 0) + 1, r.max)} color="var(--purple)" />
+            : <span className="row"><button className="btn xs" title="Spend one" disabled={(r.used || 0) >= r.max} onClick={() => setRes(r.key, (r.used || 0) + 1, r.max)}>−</button><b>{r.max - (r.used || 0)}</b>/{r.max}</span>}
         </div>
       )) : <div className="tiny muted">No limited-use class abilities at this level.</div>}
 
@@ -83,16 +93,17 @@ export default function SpellsPage() {
           <div className="sub-h" style={{ marginTop: 14 }}>Spellcasting <span className="tiny muted">({titleIndex(sc.ability)}) · save DC <b className="gold">{sc.dc}</b> · attack <b className="gold">{fmtMod(sc.attack)}</b></span></div>
           <div className="slots">
             {sc.slots.map((max, i) => max ? (
-              <div key={i} className="slot-row"><span className="slot-lvl">L{i + 1}</span><Pips max={max} used={used[i] || 0} onUse={() => setUsed(i + 1, (used[i] || 0) + 1)} onRestore={() => setUsed(i + 1, (used[i] || 0) - 1)} /><span className="tiny muted">{max - (used[i] || 0)} left</span></div>
+              <div key={i} className="slot-row"><span className="slot-lvl">L{i + 1}</span><Pips max={max} used={used[i] || 0} onUse={() => setUsed(i + 1, (used[i] || 0) + 1)} /><span className="tiny muted">{max - (used[i] || 0)} left</span></div>
             ) : null)}
-            {sc.pact && <div className="slot-row"><span className="slot-lvl">Pact L{sc.pact.level}</span><Pips max={sc.pact.slots} used={ch.spellcasting?.pactUsed || 0} onUse={() => saveChar(ch, { spellcasting: { pactUsed: (ch.spellcasting?.pactUsed || 0) + 1 } })} onRestore={() => saveChar(ch, { spellcasting: { pactUsed: Math.max(0, (ch.spellcasting?.pactUsed || 0) - 1) } })} color="var(--purple)" /><span className="tiny muted">short rest</span></div>}
+            {sc.pact && <div className="slot-row"><span className="slot-lvl">Pact L{sc.pact.level}</span><Pips max={sc.pact.slots} used={ch.spellcasting?.pactUsed || 0} onUse={() => saveChar(ch, { spellcasting: { pactUsed: (ch.spellcasting?.pactUsed || 0) + 1 } })} color="var(--purple)" /><span className="tiny muted">short rest</span></div>}
           </div>
+          <div className="tiny faint">Casting from this page spends the slot for you. Spent slots come back with a long rest (or the DM).</div>
 
           {sc.mode === 'prepared' || sc.mode === 'spellbook' ? <button className="btn sm" style={{ margin: '8px 0' }} onClick={() => setPreparing(true)}>📖 Change prepared spells ({(ch.spellcasting?.prepared || []).length}{sc.preparedMax ? `/${sc.preparedMax}` : ''})</button> : null}
 
           {cantrips.length > 0 && <SpellGroup title="Cantrips" list={cantrips.map((i) => srd.by.spells.get(i)).filter(Boolean)} onCast={cast} onOpen={setOpen} />}
           {Object.entries(byLevel).map(([lvl, list]) => (
-            <SpellGroup key={lvl} title={`Level ${lvl}`} list={list} onCast={cast} onOpen={setOpen} slots={(s) => availableLevels(s.level)} castSlot={castSlot} setCastSlot={setCastSlot} />
+            <SpellGroup key={lvl} title={`Level ${lvl}`} list={list} onCast={cast} onOpen={setOpen} slots={(s) => availableLevels(s.level)} />
           ))}
         </>
       )}
@@ -107,6 +118,27 @@ export default function SpellsPage() {
       </div>
 
       {open && <Modal title={open.name} onClose={() => setOpen(null)}><SpellCard spell={open} /></Modal>}
+      {chooseLevel && (
+        <Modal title={`Cast ${chooseLevel.name} at which level?`} onClose={() => setChooseLevel(null)}>
+          <div className="col">
+            {Array.from({ length: 10 - chooseLevel.level }, (_, i) => chooseLevel.level + i).filter((l) => sc.slots[l - 1] > 0).map((l) => {
+              const left = sc.slots[l - 1] - (used[l - 1] || 0);
+              return (
+                <button key={l} className={`btn cast-level ${l === chooseLevel.level ? 'primary' : ''}`} disabled={left <= 0} onClick={() => castAt(chooseLevel, l)}>
+                  <b>Level {l}</b>{l > chooseLevel.level ? <span className="tiny"> (upcast)</span> : null}<span className="spacer" /><span className="small">{left} of {sc.slots[l - 1]} left</span>
+                </button>
+              );
+            })}
+            {sc.pact && sc.pact.level >= chooseLevel.level && (
+              <button className="btn cast-level" disabled={sc.pact.slots - (ch.spellcasting?.pactUsed || 0) <= 0} onClick={() => castAt(chooseLevel, sc.pact.level)}>
+                <b>Pact slot (level {sc.pact.level})</b><span className="spacer" /><span className="small">{sc.pact.slots - (ch.spellcasting?.pactUsed || 0)} of {sc.pact.slots} left</span>
+              </button>
+            )}
+            {chooseLevel.ritual && !inCombat && <button className="btn ghost" onClick={() => castAt(chooseLevel, 0, true)}>Cast as a ritual (no slot, takes 10 minutes longer)</button>}
+            {chooseLevel.higherLevel && <div className="tiny muted" style={{ marginTop: 6 }}><b>At higher levels:</b> {chooseLevel.higherLevel}</div>}
+          </div>
+        </Modal>
+      )}
       {preparing && <PrepareModal ch={ch} d={d} srd={srd} onClose={() => setPreparing(false)} />}
       {healTarget && (
         <Modal title={`Cast ${healTarget.spell.name} on…`} onClose={() => setHealTarget(null)}>
@@ -123,7 +155,7 @@ export default function SpellsPage() {
   );
 }
 
-function SpellGroup({ title, list, onCast, onOpen, slots, castSlot, setCastSlot }) {
+function SpellGroup({ title, list, onCast, onOpen, slots }) {
   return (
     <div className="spell-group">
       <div className="tiny muted spell-group-h">{title}</div>
@@ -135,11 +167,6 @@ function SpellGroup({ title, list, onCast, onOpen, slots, castSlot, setCastSlot 
               <b>{s.name}</b>
               <span className="tiny muted">{s.castingTime}{s.concentration ? ' · ◎ conc.' : ''}{s.ritual ? ' · ritual' : ''}{s.area ? ` · ${s.area.size}ft ${s.area.type}` : ''}{s.damage ? ` · ${s.damage.type}` : ''}{s.heal ? ' · heal' : ''}</span>
             </button>
-            {s.level > 0 && lv.length > 1 && (
-              <select className="select slot-sel" value={castSlot?.[s.index] || lv[0]} onChange={(e) => setCastSlot({ ...castSlot, [s.index]: Number(e.target.value) })} title="Cast at slot level">
-                {lv.map((l) => <option key={l} value={l}>L{l}</option>)}
-              </select>
-            )}
             {s.ritual && <button className="btn xs ghost" title="Cast as a ritual (10 min longer, no slot)" onClick={() => onCast(s, true)}>ritual</button>}
             <button className="btn xs primary" disabled={s.level > 0 && !lv.length && !s.ritual} onClick={() => onCast(s)}>Cast</button>
           </div>

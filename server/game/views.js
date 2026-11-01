@@ -200,6 +200,7 @@ export function buildView(c, userId, cache = {}) {
     handouts: c.handouts.filter((h) => h.to === 'all' || (Array.isArray(h.to) && h.to.includes(userId))),
     journal: {
       worldBible: c.world.bible,
+      storySoFar: c.world.storySoFar || '',
       sessions: c.sessions.map((s) => ({ n: s.n, startedAt: s.startedAt, endedAt: s.endedAt, logEntry: s.logEntry, recap: s.recap, partyState: s.partyState })),
     },
     notes: c.notes[userId] || '',

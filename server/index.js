@@ -16,6 +16,7 @@ import { aiStatus, MODELS } from './ai/client.js';
 import { startTunnel } from './tunnel.js';
 import { buildCharacter, applyLevelUp } from '../shared/charbuild.js';
 import { randomId } from './security.js';
+import { consumableError } from './sheetRules.js';
 
 const app = express();
 app.set('trust proxy', process.env.FLY_APP_NAME ? 1 : 'loopback'); // Fly.io: one edge proxy in front of us
@@ -168,7 +169,10 @@ api.post('/campaigns/:id/leave', (req, res) => {
 
 api.get('/characters', (req, res) => res.json({ characters: C.charactersForUser(req.user.id) }));
 
-const SHEET_FIELDS = ['name', 'alignment', 'hp', 'deathSaves', 'equipment', 'currency', 'conditions', 'exhaustion', 'inspiration', 'personality', 'appearance', 'backstory', 'portrait', 'color', 'light', 'resources', 'acOverride', 'notes', 'concentration'];
+// Fields a player may change from their sheet. HP, spell slots, Inspiration and limited uses are spend-only
+// (see consumableError); death saves and hit dice only change through rolls and rests.
+const SHEET_FIELDS = ['name', 'alignment', 'hp', 'equipment', 'currency', 'conditions', 'exhaustion', 'inspiration', 'personality', 'appearance', 'backstory', 'portrait', 'color', 'light', 'acOverride', 'notes', 'concentration'];
+
 
 function sanitizeCharacter(ch, ownerId, campaignId) {
   const out = { ...ch };
@@ -216,7 +220,13 @@ api.put('/characters/:cid', (req, res) => {
   const ch = C.getCharacter(req.params.cid);
   if (!ch || ch.ownerId !== req.user.id) return res.status(404).json({ error: 'Character not found.' });
   const patch = req.body || {};
+  const blocked = consumableError(ch, patch);
+  if (blocked) return res.status(403).json({ error: blocked });
   for (const k of SHEET_FIELDS) if (patch[k] !== undefined) ch[k] = patch[k];
+  if (patch.resources && typeof patch.resources === 'object') {
+    ch.resources ||= {};
+    for (const [k, v] of Object.entries(patch.resources)) if (v && typeof v === 'object') ch.resources[k] = { ...(ch.resources[k] || {}), used: Math.max(0, Number(v.used) || 0) };
+  }
   if (patch.spellcasting && ch.spellcasting) {
     for (const k of ['slotsUsed', 'pactUsed', 'prepared']) if (patch.spellcasting[k] !== undefined) ch.spellcasting[k] = patch.spellcasting[k];
   }

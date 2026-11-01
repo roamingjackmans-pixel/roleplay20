@@ -6,6 +6,7 @@ import SpellsPage from '../sheet/SpellsPage.jsx';
 import Inventory from '../sheet/Inventory.jsx';
 import { Avatar, Markdown, titleIndex, timeAgo } from '../lib/format.jsx';
 import { previewVoice, voiceLabel } from '../lib/tts.js';
+import ReadAloud from '../components/ReadAloud.jsx';
 
 const TABS = [
   ['sheet', '🛡', 'Sheet'], ['spells', '✨', 'Spells & abilities'], ['bag', '🎒', 'Bag'], ['notes', '📝', 'My notes'],
@@ -89,7 +90,7 @@ function MapsTab() {
       {view.handouts.slice().reverse().map((h) => (
         <button key={h.id} className="list-card" onClick={() => setOpen(open === h.id ? null : h.id)}>
           <b>📜 {h.title}</b><span className="tiny muted">{titleIndex(h.kind)} · {timeAgo(h.at)}</span>
-          {open === h.id && <div className="handout"><Markdown text={h.content} className="prose handout-prose" /></div>}
+          {open === h.id && <div className="handout"><div className="row"><div className="spacer" /><ReadAloud inline text={`${h.title}. ${h.content}`} id={`handout-${h.id}`} /></div><Markdown text={h.content} className="prose handout-prose" /></div>}
         </button>
       ))}
     </div>
@@ -153,16 +154,32 @@ function Journal() {
   return (
     <div className="col">
       <div className="tabs"><button className={tab === 'log' ? 'on' : ''} onClick={() => setTab('log')}>Sessions</button><button className={tab === 'world' ? 'on' : ''} onClick={() => setTab('world')}>World bible</button></div>
-      {tab === 'world' && <Markdown text={j.worldBible || '_No world bible yet._'} />}
+      {tab === 'world' && (
+        <div className="col">
+          <div className="row"><div className="spacer" /><ReadAloud text={j.worldBible} id="journal-world" label="Read the world bible" /></div>
+          <Markdown text={j.worldBible || '_No world bible yet._'} />
+        </div>
+      )}
       {tab === 'log' && (
         <div className="col">
+          <div className="story-so-far">
+            <div className="row"><b className="display">📖 The story so far</b><div className="spacer" /><ReadAloud text={j.storySoFar} id="journal-sofar" label="Read" /></div>
+            {j.storySoFar ? <Markdown text={j.storySoFar} /> : <div className="tiny muted">A quick recap of the whole adventure appears here, updated at the end of every session.</div>}
+          </div>
           {!j.sessions.length && <div className="empty">Session logs are written when the host ends a session.</div>}
           {j.sessions.slice().reverse().map((s) => (
             <details key={s.n} className="session-log" open={s.n === j.sessions.length}>
               <summary><b className="display">Session {s.n}</b> <span className="tiny muted">{new Date(s.startedAt).toLocaleDateString()}</span></summary>
+              <div className="row"><div className="spacer" /><ReadAloud text={[s.recap, s.logEntry].filter(Boolean).join('\n\n')} id={`journal-s${s.n}`} label={`Read session ${s.n}`} /></div>
               {s.recap && <div className="recap story">“{s.recap}”</div>}
               {s.logEntry ? <Markdown text={s.logEntry} /> : <div className="tiny muted">{s.endedAt ? 'No log was written.' : 'In progress…'}</div>}
-              {s.partyState && <details><summary className="small">Party state at the end</summary><Markdown text={s.partyState} /></details>}
+              {s.partyState && (
+                <details>
+                  <summary className="small">Party state at the end</summary>
+                  <div className="row"><div className="spacer" /><ReadAloud text={s.partyState} id={`journal-ps${s.n}`} /></div>
+                  <Markdown text={s.partyState} />
+                </details>
+              )}
             </details>
           ))}
         </div>

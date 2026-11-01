@@ -143,6 +143,24 @@ export function speakEntry(entry, npcVoices = {}, prefs = {}) {
   play();
 }
 
+/** Read a page (journal, world bible, handout) in the narrator's voice. Markdown is turned into plain sentences. */
+export function speakText(text, prefs = {}, id = 'page') {
+  if (!synth) return;
+  stopSpeaking();
+  const plain = String(text || '')
+    .replace(/```[\s\S]*?```/g, ' ')
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, ' ')
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
+    .replace(/^\s{0,3}#{1,6}\s*(.+)$/gm, '$1.')
+    .replace(/^\s*>\s?/gm, '')
+    .replace(/^\s*(?:[-*+]|\d+\.)\s+(.+)$/gm, '$1.')
+    .replace(/[|`~]/g, ' ')
+    .replace(/\s*\n+\s*/g, ' ')
+    .replace(/([.!?:])\s*\.+/g, '$1');
+  enqueue(plain, narratorProfile(prefs), 'narrator', prefs, { entryId: id });
+  play();
+}
+
 /** Preview a voice profile ("Hear voice" buttons in the NPC panel). */
 export function previewVoice(profile, key, sample, prefs = {}) {
   stopSpeaking();
