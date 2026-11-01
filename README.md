@@ -60,7 +60,8 @@ Tip: use Microsoft Edge or Chrome for the best NPC voices, and turn on 🔊 in t
 You need Windows, Node.js 22+, the GitHub CLI (`gh`, signed in) and an Anthropic API key.
 
 1. `npm run setup` - sets the site password, stores your API key in `.env` (never committed), picks the DM model,
-   builds the app and offers to install `cloudflared`.
+   builds the app, offers to install `cloudflared`, and (once) offers to create the public `roleplay20` GitHub repo and
+   turn on GitHub Pages so the gate appears at josephjackman.com/roleplay20.
 2. Double-click **Start Roleplay20.bat** (or `npm start`). Keep the window open while you play.
 3. The server starts a free Cloudflare quick tunnel (no Cloudflare account needed), then publishes the tunnel address to
    the `live` branch of this repo. The gate page at josephjackman.com/roleplay20 reads it from there, so friends just

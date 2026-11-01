@@ -312,6 +312,12 @@ export function endCombat(c, outcome = 'victory', reason = '') {
   const pcs = partyCharacters(c).filter((ch) => !ch.dead);
   const xp = defeated.reduce((s, x) => s + (x.xp || 0), 0);
   c.combat = null;
+  // round-by-round states end with the fight
+  for (const ch of partyCharacters(c)) {
+    const before = (ch.conditions || []).length;
+    ch.conditions = (ch.conditions || []).filter((x) => !['dodging', 'shielded', 'raging', 'hidden'].includes(x));
+    if (ch.conditions.length !== before) saveCharacter(ch);
+  }
   for (const t of Object.values(c.tokens)) {
     t.combatantId = null;
     if (t.kind === 'enemy' && t.dead) t.name = `${t.name} (dead)`;

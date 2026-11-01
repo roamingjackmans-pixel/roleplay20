@@ -127,9 +127,26 @@ else if (process.platform === 'win32' && has('winget')) {
     catch { console.log(c.red('  Install failed - get it from https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/')); }
   }
 } else console.log(c.gold('  Install cloudflared: https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/'));
+const REPO = 'roamingjackmans-pixel/roleplay20';
 if (has('gh')) {
   const r = spawnSync('gh', ['auth', 'status'], { encoding: 'utf8' });
   console.log(r.status === 0 ? c.green('  ✓ GitHub CLI is signed in, so the server can publish its address for josephjackman.com/roleplay20.') : c.gold('  Run `gh auth login` so the server can publish its address for the website.'));
+  const exists = spawnSync('gh', ['repo', 'view', REPO, '--json', 'name'], { encoding: 'utf8' }).status === 0;
+  if (!exists) {
+    console.log(`\n  The website josephjackman.com/roleplay20 needs a ${c.bold('public')} GitHub repo named ${c.bold('roleplay20')} (like lieage and horserace).`);
+    console.log(c.dim('  Only the password gate page is published by GitHub Pages; the repo holds the source code. .env and all game data stay on this PC.'));
+    const a = await ask(`  Create ${REPO}, push the code and turn on GitHub Pages now? ${c.dim('(y/N)')} `);
+    if (/^y/i.test(a)) {
+      try {
+        execSync(`gh repo create ${REPO} --public --description "Roleplay20: an AI Dungeon Master and virtual tabletop for D&D 5e" --source . --remote origin --push`, { cwd: ROOT, stdio: 'inherit' });
+        execSync(`gh api -X POST repos/${REPO}/pages -f build_type=workflow`, { cwd: ROOT, stdio: 'inherit' });
+        execSync(`gh workflow run pages.yml -R ${REPO}`, { cwd: ROOT, stdio: 'inherit' });
+        console.log(c.green('  ✓ Published. In a minute or two the gate will be live at https://josephjackman.com/roleplay20/'));
+      } catch (e) {
+        console.log(c.red(`  Publishing failed: ${e.message}`));
+      }
+    }
+  } else console.log(c.green(`  ✓ ${REPO} exists.`));
 } else console.log(c.gold('  Install the GitHub CLI (https://cli.github.com) so the server can publish its address for the website.'));
 
 console.log(`\n${c.gold(c.bold('  All set!'))} Start the game with ${c.bold('Start Roleplay20.bat')} (or ${c.bold('npm start')}).\n`);
