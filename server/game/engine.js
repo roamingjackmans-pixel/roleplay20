@@ -10,7 +10,7 @@ import { saveCampaign, getCharacter, saveCharacter, partyCharacters, characterOw
 import { cachedCampaignContext, turnPrompt, safeDerive, partyBlock, npcBlock, questBlock, historyBlock, sceneBlock } from './context.js';
 import { generateTacticalMap, placeCreatures } from './mapgen.js';
 import { rollDice, rollD20, manualD20 } from '../../shared/dice.js';
-import { SKILL_NAMES, levelForXp } from '../../shared/rules.js';
+import { SKILL_NAMES, levelForXp, xpForLevel } from '../../shared/rules.js';
 import * as combat from './combat.js';
 import { buildView, logVisibleTo } from './views.js';
 
@@ -40,6 +40,36 @@ export function onlineUsers(c) {
 /** The players the table waits for: every member with a character. The game only moves when all of them are here. */
 export function requiredUsers(c) {
   return c.members.filter((m) => m.characterId).map((m) => m.userId);
+}
+
+/** Players whose character can still act (a fallen hero's player waits to retire them and make someone new). */
+export function actingUsers(c) {
+  return c.members.filter((m) => m.characterId && !getCharacter(m.characterId)?.dead).map((m) => m.userId);
+}
+
+/** Players who retired a character and are making a new one. A session can't begin until they've finished. */
+export function rebuildingUsers(c) {
+  return c.members.filter((m) => m.rebuilding && !m.characterId).map((m) => m.userId);
+}
+
+/**
+ * The level a new character starts at: the level most of the party has (ties go up), never below the campaign's
+ * starting level. `without`: leave one character out (the one about to retire).
+ */
+export function joinLevel(c, without = null) {
+  const levels = partyCharacters(c).filter((ch) => !ch.dead && ch.id !== without).map((ch) => Number(ch.level) || 1);
+  const start = Math.max(1, Number(c.settings?.startLevel) || 1);
+  if (!levels.length) return start;
+  const count = new Map();
+  for (const l of levels) count.set(l, (count.get(l) || 0) + 1);
+  const top = [...count.entries()].sort((a, b) => b[1] - a[1] || b[0] - a[0])[0][0];
+  return Math.max(start, Math.min(20, top));
+}
+
+/** Experience for a new character at that level: as much as the least experienced party member at that level. */
+export function joinXp(c, level) {
+  const same = partyCharacters(c).filter((ch) => !ch.dead && Number(ch.level) === level).map((ch) => Number(ch.xp) || 0);
+  return Math.max(xpForLevel(level), same.length ? Math.min(...same) : 0);
 }
 
 /** Players who aren't at the table right now. */
@@ -152,6 +182,16 @@ function findCharacter(c, ref) {
   if (!ref) return null;
   const r = String(ref).toLowerCase();
   return partyCharacters(c).find((p) => p.id === ref || p.name.toLowerCase() === r || p.name.split(' ')[0].toLowerCase() === r) || null;
+}
+
+/** A limited-use ability by key or name ("rage", "Second Wind", "channel divinity" -> its resource key). */
+function resourceKey(ch, ref) {
+  const norm = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  const r = norm(ref);
+  if (!r) return null;
+  const list = safeDerive(ch)?.resources || [];
+  const hit = list.find((x) => norm(x.key) === r || norm(x.name) === r) || list.find((x) => norm(x.name).startsWith(r) || r.startsWith(norm(x.key)));
+  return hit?.key || (ch.resources?.[ref] ? ref : null);
 }
 
 const clampNum = (v, lo, hi, d) => (Number.isFinite(+v) ? Math.min(hi, Math.max(lo, +v)) : d);
@@ -331,6 +371,7 @@ const CONDITIONS = ['blinded', 'charmed', 'deafened', 'frightened', 'grappled', 
 export function applyDamageToCharacter(c, ch, amount, { type = '', source = '', crit = false } = {}) {
   amount = Math.max(0, Math.round(amount));
   if (!amount) return { dropped: false };
+  const wasDead = !!ch.dead;
   const wasUp = ch.hp.current > 0;
   let rest = amount;
   if (ch.hp.temp) { const t = Math.min(ch.hp.temp, rest); ch.hp.temp -= t; rest -= t; }
@@ -356,6 +397,8 @@ export function applyDamageToCharacter(c, ch, amount, { type = '', source = '', 
   saveCharacter(ch);
   const dropped = wasUp && ch.hp.current === 0;
   if (dropped) system(c, ch.dead ? `💀 ${ch.name} is killed outright.` : `🩸 ${ch.name} falls unconscious!`, 'all', { tone: 'danger' });
+  else if (ch.dead && !wasDead) system(c, `💀 ${ch.name} has died.`, 'all', { tone: 'danger' });
+  if (ch.dead && !wasDead) deathNotice(c, ch);
   return { dropped };
 }
 
@@ -390,12 +433,66 @@ export function longRest(ch) {
   ch.exhaustion = Math.max(0, (ch.exhaustion || 0) - 1);
   for (const r of d?.resources || []) if (ch.resources?.[r.key]) ch.resources[r.key].used = 0;
   if (ch.spellcasting) { ch.spellcasting.slotsUsed = [0, 0, 0, 0, 0, 0, 0, 0, 0]; ch.spellcasting.pactUsed = 0; }
+  if (['prepared', 'spellbook'].includes(d?.spellcasting?.mode)) ch.mayPrepare = true;
   ch.concentration = null;
   saveCharacter(ch);
 }
 
+/** Spend Hit Dice during a short rest (the DM applies this when a player says they do). Returns HP regained. */
+export function spendHitDice(c, ch, n) {
+  n = Math.max(0, Math.min(Number(n) || 0, (ch.hitDice?.total || 0) - (ch.hitDice?.used || 0)));
+  if (!n || ch.dead) return { spent: 0, healed: 0 };
+  const con = Math.floor(((ch.abilities?.con || 10) - 10) / 2);
+  let rolled = 0;
+  for (let i = 0; i < n; i++) rolled += Math.max(1, rollDice(`1d${ch.hitDice.die}`).total + con);
+  ch.hitDice.used = (ch.hitDice.used || 0) + n;
+  const healed = healCharacter(c, ch, rolled);
+  if (!healed) saveCharacter(ch);
+  return { spent: n, healed };
+}
+
+// ---------------------------------------------------------------- coins
+
+const COIN_CP = { pp: 1000, gp: 100, ep: 50, sp: 10, cp: 1 };
+
+/** Total wealth in copper. */
+export function coinValue(cur = {}) {
+  return Object.entries(COIN_CP).reduce((s, [k, v]) => s + (Number(cur[k]) || 0) * v, 0);
+}
+
+/**
+ * Pay `cp` copper from a purse, using the coins that fit first and breaking a bigger coin for change if needed.
+ * Mutates and returns true, or returns false (purse untouched) when it can't afford it.
+ */
+export function payCoins(cur, cp) {
+  cp = Math.round(cp);
+  if (cp <= 0) return true;
+  if (coinValue(cur) < cp) return false;
+  for (const k of Object.keys(COIN_CP)) cur[k] = Number(cur[k]) || 0;
+  let left = cp;
+  for (const [k, v] of Object.entries(COIN_CP)) {
+    const n = Math.min(cur[k], Math.floor(left / v));
+    cur[k] -= n;
+    left -= n * v;
+  }
+  if (left > 0) {
+    // every coin still in the purse is worth more than what's left: break the smallest one and take change
+    const k = Object.keys(COIN_CP).reverse().find((x) => cur[x] > 0 && COIN_CP[x] > left);
+    cur[k] -= 1;
+    let change = COIN_CP[k] - left;
+    for (const x of ['gp', 'sp', 'cp']) {
+      const n = Math.floor(change / COIN_CP[x]);
+      cur[x] += n;
+      change -= n * COIN_CP[x];
+    }
+  }
+  return true;
+}
+
 export function awardXp(c, chars, amount, why = '') {
-  if (!amount || !chars.length) return;
+  chars = chars.filter((ch) => !ch.dead && !ch.retired);
+  amount = Math.round(Number(amount) || 0);
+  if (amount <= 0 || !chars.length) return;
   for (const ch of chars) {
     ch.xp = (ch.xp || 0) + amount;
     const lvl = levelForXp ? levelForXp(ch.xp) : ch.level;
@@ -405,6 +502,68 @@ export function awardXp(c, chars, amount, why = '') {
   system(c, `✨ ${chars.map((x) => x.name).join(', ')} gain${chars.length === 1 ? 's' : ''} ${amount} XP${why ? ` (${why})` : ''}.`);
   const ready = chars.filter((x) => x.pendingLevelUp);
   if (ready.length) system(c, `⬆️ ${ready.map((x) => x.name).join(', ')} can level up! Open the character sheet.`, 'all', { tone: 'good' });
+}
+
+// ---------------------------------------------------------------- retiring and joining
+
+/** A hero falls: tell their player privately what happens next. */
+export function deathNotice(c, ch) {
+  const uid = characterOwner(c, ch.id);
+  if (uid) system(c, `🕯 ${ch.name}'s story has ended. When you're ready, retire ${ch.name} at the bottom of your character sheet and make a new character; they'll join at level ${joinLevel(c)}.`, [uid], { tone: 'danger' });
+}
+
+/**
+ * Retire a character (or lay a fallen one to rest). They leave play for good: off the map, out of the party and the
+ * turn order, their sheet frozen. Their story stays: the log, the journal and the DM's memory keep them, and a living
+ * retired hero can still turn up in the world as someone the DM plays.
+ */
+export function retireCharacter(c, ch, userId, farewell = '') {
+  const m = member(c, userId);
+  if (!m || m.characterId !== ch.id) return { error: `${ch.name} isn't your character in this campaign.` };
+  if (ch.retired) return { error: `${ch.name} has already retired.` };
+  if (c.combat && !ch.dead) return { error: 'Finish the fight first. A hero can retire once the dust settles.' };
+  const died = !!ch.dead;
+  const player = getUser(userId)?.displayName || 'their player';
+  ch.retired = { at: Date.now(), reason: died ? 'died' : 'retired', session: c.sessionNumber, day: c.scene?.day || 1, location: c.scene?.location || '', farewell };
+  ch.concentration = null;
+  saveCharacter(ch);
+  m.characterId = null;
+  m.rebuilding = true;
+  m.pastCharacters = [...new Set([...(m.pastCharacters || []), ch.id])];
+
+  // off the board (a fallen hero's body stays put until the fight ends)
+  for (const t of Object.values(c.tokens || {})) {
+    if (t.characterId !== ch.id) continue;
+    if (c.combat) { t.dead = true; t.name = `${ch.name} (fallen)`; } else delete c.tokens[t.id];
+  }
+  // out of this round
+  delete c.round.actions?.[userId];
+  delete c.round.revise?.[userId];
+  if (c.round.rollRequests?.length) {
+    c.round.rollRequests = c.round.rollRequests.filter((r) => r.userId !== userId || r.status === 'done');
+    const turn = c.round.rollRequests.filter((r) => r.purpose === 'turn');
+    if (c.phase === 'rolls' && !c.thinking) {
+      if (turn.length && turn.every((r) => r.status === 'done')) resolveRolls(c);
+      else if (!turn.length) openActions(c);
+    }
+  }
+
+  const words = farewell ? ` "${farewell}"` : '';
+  addLog(c, { kind: 'system', text: died ? `🕯 ${ch.name} is laid to rest. Their story stays in the journal.${words}` : `📜 ${ch.name} retires from the party. Their story stays in the journal.${words}`, tone: died ? 'danger' : undefined });
+  (c.world.dmNotes ||= []).push(`${died ? 'DIED' : 'RETIRED'}: ${ch.name} (${ch.race} ${ch.class} ${ch.level}, played by ${player}) ${died ? 'died' : 'left the party'} on day ${ch.retired.day}${ch.retired.location ? ` at ${ch.retired.location}` : ''}${farewell ? `. The player's farewell: "${farewell}"` : ''}. ${ch.name} is no longer a player character${died ? '' : ', but still lives in the world and may reappear as an NPC you play'}. ${player} is making a new character who joins at level ${joinLevel(c)}.`);
+  if (c.world.dmNotes.length > 80) c.world.dmNotes.splice(0, c.world.dmNotes.length - 80);
+  pushViews(c);
+  maybeResolve(c);
+  return { ok: true };
+}
+
+/** A new character arrives: announce them and remind the DM to bring them into the story. */
+export function characterJoined(c, ch, userId) {
+  const player = getUser(userId)?.displayName || 'a player';
+  const past = (member(c, userId)?.pastCharacters || []).map((id) => getCharacter(id)?.name).filter(Boolean);
+  system(c, `🧙 ${ch.name} joins the party.`);
+  (c.world.dmNotes ||= []).push(`NEW PARTY MEMBER: ${ch.name}, a level ${ch.level} ${ch.race} ${ch.class} played by ${player}${past.length ? ` (who used to play ${past.join(', ')})` : ''}. Bring them into the story at the next natural moment with a reason to be with the party; give them a short private introduction of their own.`);
+  if (c.world.dmNotes.length > 80) c.world.dmNotes.splice(0, c.world.dmNotes.length - 80);
 }
 
 export function applyEffects(c, effects, source = 'dm') {
@@ -468,26 +627,47 @@ function applyEffect(c, e) {
       break;
     }
     case 'gold': {
+      // amount is in gp unless text names the coin ("sp", "cp", "ep", "pp"); negative = spend (pays with change)
+      const unit = ['cp', 'sp', 'ep', 'gp', 'pp'].includes(String(e.text || '').toLowerCase().trim()) ? String(e.text).toLowerCase().trim() : 'gp';
       const chars = targetChars();
+      if (!amount || !chars.length) break;
       if (String(e.target).toLowerCase() === 'party' && amount > 0) {
         const each = Math.floor(amount / Math.max(1, chars.length));
-        for (const ch of chars) { ch.currency.gp = (ch.currency.gp || 0) + each; saveCharacter(ch); }
-        system(c, `🪙 The party splits ${amount} gp (${each} gp each).`);
+        for (const ch of chars) { ch.currency[unit] = (ch.currency[unit] || 0) + each; saveCharacter(ch); }
+        system(c, `🪙 The party splits ${amount} ${unit} (${each} ${unit} each).`);
       } else for (const ch of chars) {
-        ch.currency.gp = Math.max(0, (ch.currency.gp || 0) + amount);
+        ch.currency ||= { cp: 0, sp: 0, ep: 0, gp: 0, pp: 0 };
+        const to = [userForCharacter(c, ch.id)].filter(Boolean);
+        if (amount > 0) {
+          ch.currency[unit] = (ch.currency[unit] || 0) + amount;
+          system(c, `🪙 ${ch.name} gains ${amount} ${unit}.`, to);
+        } else if (payCoins(ch.currency, -amount * COIN_CP[unit])) {
+          system(c, `🪙 ${ch.name} spends ${-amount} ${unit}.`, to);
+        } else {
+          system(c, `🪙 ${ch.name} can't afford ${-amount} ${unit}: nothing was spent.`, to, { tone: 'danger' });
+        }
         saveCharacter(ch);
-        system(c, `🪙 ${ch.name} ${amount >= 0 ? 'gains' : 'spends'} ${Math.abs(amount)} gp.`, [userForCharacter(c, ch.id)].filter(Boolean));
       }
       break;
     }
     case 'xp': awardXp(c, targetChars(), amount, e.text); break;
-    case 'level_up': for (const ch of targetChars()) { ch.pendingLevelUp = true; saveCharacter(ch); system(c, `⬆️ ${ch.name} can level up! Open the character sheet.`, 'all', { tone: 'good' }); } break;
-    case 'rest_short': for (const ch of targetChars()) shortRest(ch); system(c, '☕ Short rest: short-rest abilities recharge. You can spend Hit Dice from your sheet.'); break;
+    case 'level_up': {
+      // a milestone: experience jumps to the next level, so the XP bar and the level stay in step
+      const chars = targetChars().filter((ch) => !ch.dead && ch.level < 20);
+      for (const ch of chars) { ch.xp = Math.max(Number(ch.xp) || 0, xpForLevel(ch.level + 1)); ch.pendingLevelUp = true; saveCharacter(ch); }
+      if (chars.length) system(c, `⬆️ ${chars.map((x) => x.name).join(', ')} can level up! Open the character sheet.`, 'all', { tone: 'good' });
+      break;
+    }
+    case 'rest_short': for (const ch of targetChars()) shortRest(ch); system(c, '☕ Short rest: short-rest abilities and pact slots recharge. Tell the DM if you spend Hit Dice to heal.'); break;
+    case 'hit_dice': for (const ch of targetChars()) { const r = spendHitDice(c, ch, amount || 1); if (r.spent) system(c, `🎲 ${ch.name} spends ${r.spent} Hit ${r.spent === 1 ? 'Die' : 'Dice'} and regains ${r.healed} HP.`, 'all', { tone: 'good' }); } break;
     case 'rest_long': for (const ch of targetChars()) longRest(ch); system(c, '🌙 Long rest: hit points, spell slots and abilities are restored.'); break;
-    case 'inspiration': for (const ch of targetChars()) { ch.inspiration = true; saveCharacter(ch); system(c, `🌟 ${ch.name} gains Inspiration!`); } break;
+    case 'inspiration': for (const ch of targetChars()) {
+      if (amount < 0) { if (ch.inspiration) { ch.inspiration = false; saveCharacter(ch); system(c, `🌟 ${ch.name} uses their Inspiration.`); } }
+      else if (!ch.inspiration) { ch.inspiration = true; saveCharacter(ch); system(c, `🌟 ${ch.name} gains Inspiration!`); }
+    } break;
     case 'exhaustion': for (const ch of targetChars()) { ch.exhaustion = clampNum((ch.exhaustion || 0) + amount, 0, 6, 0); saveCharacter(ch); } break;
-    case 'spend_slot': for (const ch of targetChars()) if (ch.spellcasting && amount >= 1 && amount <= 9) { ch.spellcasting.slotsUsed[amount - 1] = (ch.spellcasting.slotsUsed[amount - 1] || 0) + 1; saveCharacter(ch); } break;
-    case 'spend_resource': for (const ch of targetChars()) { const k = e.text; if (k) { ch.resources[k] = { used: (ch.resources[k]?.used || 0) + Math.max(1, amount) }; saveCharacter(ch); } } break;
+    case 'spend_slot': for (const ch of targetChars()) if (ch.spellcasting && amount >= 1 && amount <= 9) { if (!combat.spendSlot(ch, amount)) system(c, `✨ ${ch.name} has no level ${amount} spell slot left.`, [userForCharacter(c, ch.id)].filter(Boolean)); saveCharacter(ch); } break;
+    case 'spend_resource': for (const ch of targetChars()) { const k = resourceKey(ch, e.text); if (k) { ch.resources ||= {}; ch.resources[k] = { used: (ch.resources[k]?.used || 0) + Math.max(1, amount) }; saveCharacter(ch); } } break;
     case 'give_map': giveMap(c, e.mapId, e.target || 'party'); break;
     case 'discover_location': discoverLocation(c, e.mapId, e.locationId, e.target || 'party'); break;
     case 'move_party': moveParty(c, e.mapId || c.scene.areaMapId, e.locationId); break;
@@ -590,7 +770,21 @@ export function applyTurnResult(c, data, input = {}) {
   }
 }
 
-function upsertQuest(c, q) {
+/** The standard reward for finishing a quest: a quarter of the way from the party's level to the next, per character. */
+export function standardQuestXp(c) {
+  const lvl = joinLevel(c);
+  return Math.max(25, Math.round(((xpForLevel(Math.min(20, lvl + 1)) - xpForLevel(lvl)) * 0.25) / 5) * 5);
+}
+
+/** Completing a quest earns experience for everyone still playing (the DM's per-character "xp", or the standard award). */
+function awardQuestXp(c, quest, xp) {
+  if (quest.xpAwarded) return;
+  const amount = Number(xp) > 0 ? Math.round(Number(xp)) : standardQuestXp(c);
+  quest.xpAwarded = amount;
+  awardXp(c, partyCharacters(c), amount, `quest: ${quest.title}`);
+}
+
+export function upsertQuest(c, q) {
   if (!q?.title) return;
   const id = q.id || `q_${slug(q.title)}`;
   let cur = c.quests.find((x) => x.id === id || x.title.toLowerCase() === q.title.toLowerCase());
@@ -598,10 +792,14 @@ function upsertQuest(c, q) {
     cur = { id, title: q.title, status: q.status || 'active', summary: q.summary || '', giver: q.giver || '', updates: [], createdAt: Date.now() };
     c.quests.push(cur);
     system(c, `📌 New quest: ${q.title}`, 'all', { tone: 'quest' });
+    if (cur.status === 'completed') awardQuestXp(c, cur, q.xp);
   } else {
     if (q.status && q.status !== cur.status) {
       cur.status = q.status;
-      if (q.status === 'completed') system(c, `🏆 Quest complete: ${cur.title}`, 'all', { tone: 'good' });
+      if (q.status === 'completed') {
+        system(c, `🏆 Quest complete: ${cur.title}`, 'all', { tone: 'good' });
+        awardQuestXp(c, cur, q.xp);
+      }
       if (q.status === 'failed') system(c, `✖ Quest failed: ${cur.title}`, 'all', { tone: 'danger' });
     }
     if (q.summary) cur.summary = q.summary;
@@ -615,6 +813,7 @@ export function openActions(c) {
   c.round.rollRequests = [];
   c.round.revise = {};
   c.round.revised = [];
+  c.round.casts = {};
 }
 
 // ---------------------------------------------------------------- the action round
@@ -622,6 +821,8 @@ export function openActions(c) {
 export function submitAction(c, userId, { text, private: priv }) {
   const m = member(c, userId);
   if (!m?.characterId) return { error: 'Create a character for this campaign first.' };
+  const me = getCharacter(m.characterId);
+  if (me?.dead) return { error: `${me.name} has died. Retire them at the bottom of your character sheet to make a new character.` };
   if (c.phase !== 'actions') return { error: c.phase === 'thinking' ? 'The DM is still narrating.' : 'Not the time for that right now.' };
   const t = String(text || '').trim().slice(0, 2000);
   if (!t) return { error: 'Describe what your character does.' };
@@ -642,7 +843,7 @@ export function withdrawAction(c, userId) {
 
 export function maybeResolve(c, force = false) {
   if (c.phase !== 'actions' || c.thinking) return;
-  const need = requiredUsers(c);
+  const need = actingUsers(c);
   const got = Object.keys(c.round.actions);
   if (!got.length) return;
   if (force || need.every((u) => got.includes(u))) resolveActions(c);
@@ -655,13 +856,18 @@ function resolveActions(c) {
     const m = member(c, uid);
     const ch = getCharacter(m?.characterId);
     if (!ch) continue;
-    acts.push({ name: ch.name, characterId: ch.id, text: a.text, private: a.private, userId: uid, revised: revised.includes(uid) });
+    const cast = c.round.casts?.[uid] || [];
+    const text = cast.length ? `${a.text}\n[Already cast through the app this round (any spell slot is already spent${cast.some((x) => x.heal) ? ', healing already applied' : ''}) - do not spend_slot for these: ${cast.map((x) => x.label).join(', ')}]` : a.text;
+    acts.push({ name: ch.name, characterId: ch.id, text, private: a.private, userId: uid, revised: revised.includes(uid) });
     // an action kept from a round that paused for someone else's question is already in the log
     if (!a.logged) addLog(c, { kind: 'action', userId: uid, characterId: ch.id, name: ch.name, text: a.text, private: a.private, to: [uid] });
   }
   const text = acts.map((a) => `${a.name} (${a.characterId})${a.private ? ' [PRIVATE - only this player knows]' : ''}${a.revised ? ' [REVISED after you asked them to fit it into one turn - do not ask them again]' : ''}: ${a.text}`).join('\n') +
     '\n\nResolve these actions together in one narration. Give each character their own perception. Ask for rolls where outcomes are uncertain. If any character declared more than their turn allows (and has not already revised), use "clarify" for them instead of resolving anything.';
   c.round.actions = {};
+  c.round.casts = {};
+  // prepared spells can change only in the round right after a long rest
+  for (const ch of partyCharacters(c)) if (ch.mayPrepare) { delete ch.mayPrepare; saveCharacter(ch); }
   runTurn(c, { kind: 'actions', actions: acts.map(({ name, text, private: p, userId, characterId }) => ({ name, text, private: p, userId, characterId })), revised, text });
 }
 
@@ -937,6 +1143,8 @@ export function startSession(c) {
   if (!partyCharacters(c).length) return { error: 'At least one player needs a character.' };
   const missing = missingPlayers(c);
   if (missing.length) return { error: `Everyone needs to be at the table first: waiting for ${listNames(missing.map((u) => playerLabel(c, u)))}.` };
+  const building = rebuildingUsers(c);
+  if (building.length) return { error: `Waiting for ${listNames(building.map((u) => getUser(u)?.displayName || 'a player'))} to finish making a new character.` };
   c.sessionActive = true;
   c.sessionNumber += 1;
   c.status = 'active';

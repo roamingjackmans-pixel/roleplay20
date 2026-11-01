@@ -58,14 +58,28 @@ export default function CharacterCreator({ campaignId }) {
   useEffect(() => { api(`campaigns/${campaignId}`).then(setCamp).catch(() => {}); }, [campaignId]);
   if (!srd || !camp) return <Splash text="Unrolling the character sheet…" />;
 
-  const level = camp.campaign ? Math.max(1, Math.min(5, Number(camp.startLevel || 1))) : 1;
-  const startLevel = Number(new URLSearchParams(location.hash.split('?')[1] || '').get('level')) || level;
+  // new characters join at the party's level (the server decides it)
+  const level = Math.max(1, Math.min(20, Number(camp.startLevel || 1)));
+  const current = camp.campaign?.members?.find((m) => m.userId === user.id)?.character;
+  if (current) {
+    return (
+      <>
+        <TopNav><button className="btn ghost sm" onClick={() => go(`#/c/${campaignId}`)}>← {camp.world?.title || camp.campaign.name}</button></TopNav>
+        <div className="page"><div className="page-inner"><div className="card" style={{ maxWidth: 560 }}>
+          <h2 className="section">You already play {current.name}</h2>
+          <p className="muted">To start someone new, open your character sheet at the table and choose <b>Retire</b> at the bottom. {current.name}'s story stays in the journal, and your new character joins at the party's level.</p>
+          <button className="btn primary" onClick={() => go(`#/c/${campaignId}/play`)}>Go to the table</button>
+        </div></div></div>
+      </>
+    );
+  }
+  const joining = (camp.campaign?.members || []).some((m) => m.character && m.userId !== user.id);
   return (
-    <CreatorBody {...{ srd, camp, ch, up, step, setStep, busy, setBusy, go, toast, campaignId, user, startLevel: camp.startLevel || startLevel }} />
+    <CreatorBody {...{ srd, camp, ch, up, step, setStep, busy, setBusy, go, toast, campaignId, user, startLevel: level, joining }} />
   );
 }
 
-function CreatorBody({ srd, camp, ch, up, step, setStep, busy, setBusy, go, toast, campaignId, user, startLevel }) {
+function CreatorBody({ srd, camp, ch, up, step, setStep, busy, setBusy, go, toast, campaignId, user, startLevel, joining }) {
   const cls = srd.by.classes.get(ch.class);
   const race = srd.by.races.get(ch.race);
   const sub = race?.subraces?.find((s) => s.index === ch.subrace) || race?.subraces?.[0] || null;
@@ -119,7 +133,7 @@ function CreatorBody({ srd, camp, ch, up, step, setStep, busy, setBusy, go, toas
           <div className="creator-head">
             <div>
               <h1 className="title" style={{ marginBottom: 2 }}>Create your character</h1>
-              <div className="muted">Level {level} · for <b>{camp.world?.title || camp.campaign.name}</b></div>
+              <div className="muted">Level {level} · for <b>{camp.world?.title || camp.campaign.name}</b>{joining && level > 1 ? ` · joining at level ${level} to match the party` : ''}</div>
             </div>
             <div className="stepper">
               {visibleSteps.map((s, i) => (

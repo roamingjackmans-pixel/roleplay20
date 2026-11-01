@@ -5,7 +5,7 @@ import { getCharacter, partyCharacters, characterOwner, member } from './campaig
 import { computeLight, computeVisibility, encodeCells } from './vision.js';
 import { safeDerive } from './context.js';
 import * as combat from './combat.js';
-import { onlineUsers, requiredUsers } from './engine.js';
+import { onlineUsers, requiredUsers, actingUsers, joinLevel } from './engine.js';
 import { aiStatus, PRICES } from '../ai/client.js';
 
 export function logVisibleTo(c, entry, userId) {
@@ -163,6 +163,19 @@ function partyView(c) {
   });
 }
 
+// Retired and fallen heroes: out of play, but their story stays.
+function formerPartyView(c) {
+  return c.members.flatMap((m) => (m.pastCharacters || []).map((id) => {
+    const ch = getCharacter(id);
+    if (!ch?.retired) return null;
+    return {
+      id: ch.id, userId: m.userId, playerName: getUser(m.userId)?.displayName || '?', name: ch.name, race: ch.race, subrace: ch.subrace, class: ch.class,
+      level: ch.level, portrait: ch.portrait, color: ch.color, reason: ch.retired.reason, day: ch.retired.day, session: ch.retired.session,
+      location: ch.retired.location, farewell: ch.retired.farewell || '', at: ch.retired.at,
+    };
+  })).filter(Boolean).sort((a, b) => a.at - b.at);
+}
+
 export function buildView(c, userId, cache = {}) {
   const m = member(c, userId);
   const isOwner = m?.role === 'owner';
@@ -182,13 +195,15 @@ export function buildView(c, userId, cache = {}) {
     },
     members: c.members.map((x) => {
       const u = getUser(x.userId);
-      return { userId: x.userId, role: x.role, displayName: u?.displayName || '?', color: u?.color, online: online.has(x.userId), characterId: x.characterId, away: !!x.away, submitted: !!c.round.actions[x.userId], required: need.includes(x.userId) };
+      return { userId: x.userId, role: x.role, displayName: u?.displayName || '?', color: u?.color, online: online.has(x.userId), characterId: x.characterId, away: !!x.away, submitted: !!c.round.actions[x.userId], required: need.includes(x.userId), rebuilding: !!(x.rebuilding && !x.characterId) };
     }),
     party: partyView(c),
+    formerParty: formerPartyView(c),
+    joinLevel: joinLevel(c, m?.characterId),   // the level your next character would start at
     myCharacter: m?.characterId ? getCharacter(m.characterId) : null,
     phase: c.phase,
     thinking: c.thinking || null,
-    round: { n: c.round.n, myAction: c.round.actions[userId] || null, myRevision: c.round.revise?.[userId] || null, submittedCount: Object.keys(c.round.actions).length, requiredCount: need.length },
+    round: { n: c.round.n, myAction: c.round.actions[userId] || null, myRevision: c.round.revise?.[userId] || null, submittedCount: Object.keys(c.round.actions).length, requiredCount: actingUsers(c).length },
     rolls: { mine: myRolls, waiting: waitingRolls },
     scene: { ...c.scene },
     tactical: tacticalView(c, userId, cache),

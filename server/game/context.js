@@ -1,10 +1,10 @@
 // Builds the text the Dungeon Master sees: a cached campaign block (world, secrets, arc) and a per-turn prompt
 // (party, NPCs, scene, recent history, this turn's input).
-import { deriveCharacter } from '../../shared/rules.js';
+import { deriveCharacter, xpForLevel } from '../../shared/rules.js';
 import { describeMapForAI } from './mapgen.js';
 import { srd } from '../srd.js';
 import { getUser } from '../auth.js';
-import { partyCharacters, characterOwner } from './campaign.js';
+import { partyCharacters, characterOwner, getCharacter } from './campaign.js';
 
 const clip = (s, n) => {
   s = String(s || '').trim();
@@ -47,6 +47,15 @@ function slotsLeft(ch, d) {
   return parts.join(', ');
 }
 
+function usesLeft(ch, d) {
+  return (d?.resources || []).filter((r) => r.max != null).map((r) => `${r.key} ${Math.max(0, r.max - (ch.resources?.[r.key]?.used || 0))}/${r.max}`).join(', ');
+}
+
+function coins(ch) {
+  const cur = ch.currency || {};
+  return ['pp', 'gp', 'ep', 'sp', 'cp'].filter((k) => cur[k]).map((k) => `${cur[k]} ${k}`).join(' ') || 'no coins';
+}
+
 export function partyBlock(c, online) {
   const lines = [];
   for (const ch of partyCharacters(c)) {
@@ -60,16 +69,23 @@ export function partyBlock(c, online) {
     const items = (ch.equipment || []).filter((i) => i.equipped || /potion|scroll|key|map|letter|wand|ring|amulet|rope|torch|kit/i.test(i.name)).map((i) => `${i.name}${i.qty > 1 ? ` x${i.qty}` : ''}`).join(', ');
     lines.push([
       `- id ${ch.id} | ${ch.name} (player: ${u?.displayName || '?'}) [${present}] - ${ch.race}${ch.subrace ? ` (${ch.subrace})` : ''} ${(ch.classes || [{ class: ch.class, level: ch.level }]).map((k) => `${k.class}${k.subclass ? `/${k.subclass}` : ''} ${k.level}`).join(' / ')}, ${ch.background || ''}`,
+      ch.dead ? '  DEAD - this character has died; their player must retire them and make a new one. Narrate nothing for them.' : '',
+      `  Level ${ch.level}, XP ${ch.xp || 0}${ch.level < 20 ? ` (next level at ${xpForLevel(ch.level + 1)})` : ''}${ch.pendingLevelUp ? ' - LEVEL-UP WAITING' : ''} | Inspiration: ${ch.inspiration ? 'yes' : 'no'} | Hit Dice ${(ch.hitDice?.total || 0) - (ch.hitDice?.used || 0)}/${ch.hitDice?.total || 0} d${ch.hitDice?.die || 8} | coins: ${coins(ch)}`,
+      usesLeft(ch, d) ? `  Limited uses left: ${usesLeft(ch, d)}` : '',
       `  HP ${ch.hp.current}/${ch.hp.max}${ch.hp.temp ? ` (+${ch.hp.temp} temp)` : ''} | AC ${d?.ac ?? '?'} | speed ${d?.speed ?? ch.speed} ft | darkvision ${ch.darkvision || 0} ft | passive Perception ${d?.passive?.perception ?? '?'}, Insight ${d?.passive?.insight ?? '?'}, Investigation ${d?.passive?.investigation ?? '?'}`,
       `  Conditions: ${[...(ch.conditions || []), ch.exhaustion ? `exhaustion ${ch.exhaustion}` : ''].filter(Boolean).join(', ') || 'none'}${ch.concentration ? ` | concentrating on ${ch.concentration}` : ''}${tok ? ` | token at ${tok.x},${tok.y}` : ''}`,
       skills ? `  Proficient skills: ${skills}` : '',
       `  Languages: ${(ch.otherProfs?.languages || []).join(', ') || 'Common'}`,
       spells ? `  Spells: ${spells}${slotsLeft(ch, d) ? ` | slots left: ${slotsLeft(ch, d)}` : ''}` : '',
-      items ? `  Notable gear: ${clip(items, 300)} | gold ${ch.currency?.gp ?? 0} gp` : '',
+      items ? `  Notable gear: ${clip(items, 300)}` : '',
       `  Personality: ${clip([ch.personality?.traits, ch.personality?.bonds && `Bond: ${ch.personality.bonds}`, ch.personality?.flaws && `Flaw: ${ch.personality.flaws}`].filter(Boolean).join(' | '), 360)}`,
       ch.backstory ? `  Backstory: ${clip(ch.backstory, 420)}` : '',
     ].filter(Boolean).join('\n'));
   }
+  const former = c.members.flatMap((m) => (m.pastCharacters || []).map((id) => ({ ch: getCharacter(id), uid: m.userId }))).filter((x) => x.ch?.retired);
+  if (former.length) lines.push(`Former party members (lore only, not player characters any more): ${former.map(({ ch, uid }) => `${ch.name} (${ch.race} ${ch.class} ${ch.level}, ${ch.retired.reason === 'died' ? 'died' : 'retired, still alive'}${ch.retired.day ? ` on day ${ch.retired.day}` : ''}; was played by ${getUser(uid)?.displayName || '?'})`).join('; ')}`);
+  const building = c.members.filter((m) => m.rebuilding && !m.characterId).map((m) => getUser(m.userId)?.displayName).filter(Boolean);
+  if (building.length) lines.push(`Making a new character right now (not in the scene yet): ${building.join(', ')}`);
   return lines.join('\n') || '(no characters yet)';
 }
 

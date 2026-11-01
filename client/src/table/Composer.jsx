@@ -40,10 +40,18 @@ function ActionBox() {
   useEffect(() => { if (rev) { setText(rev.text || ''); setPriv(!!rev.private); } }, [rev?.question]); // eslint-disable-line
   const isOwner = me.role === 'owner';
   const name = view.myCharacter?.name?.split(' ')[0] || 'your character';
-  const waitingOn = view.members.filter((m) => m.required && !m.submitted);
+  const waitingOn = view.members.filter((m) => m.required && !m.submitted && !view.party.find((p) => p.userId === m.userId)?.dead);
 
   const st = tableStatus(view);
-  if (!view.myCharacter) return <div className="composer-body muted small">Create a character to take part. You can still watch and chat.</div>;
+  if (!view.myCharacter) {
+    return (
+      <div className="composer-body muted small row wrap" style={{ gap: 10 }}>
+        <span>{view.me && view.members.find((m) => m.userId === view.me.userId)?.rebuilding ? 'Make your new character to join the story. You can still watch and chat.' : 'Create a character to take part. You can still watch and chat.'}</span>
+        <button className="btn primary sm" onClick={() => useStore.getState().go(`#/c/${view.campaign.id}/create`)}>✦ Make your character</button>
+      </div>
+    );
+  }
+  if (view.myCharacter.dead) return <div className="composer-body muted small">💀 {view.myCharacter.name} has died. Open your character sheet to lay them to rest and make a new character. You can still watch and chat.</div>;
   if (!view.campaign.sessionActive) return <div className="composer-body muted small">{st.allHere ? `Everyone is here. Press "▶ ${view.campaign.sessionNumber ? `Begin session ${view.campaign.sessionNumber + 1}` : 'Begin the adventure'}" (top right) to start.` : `The session begins when everyone is at the table. Waiting for ${st.names}.`}</div>;
   if (st.paused) return <div className="composer-body muted small">⏸ Waiting for {st.names} to join the table. Nobody can act until everyone is here.</div>;
   if (phase === 'thinking') return <div className="composer-body row muted"><span className="spinner" /> The Dungeon Master is narrating…</div>;

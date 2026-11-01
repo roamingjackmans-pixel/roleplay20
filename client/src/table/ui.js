@@ -37,11 +37,15 @@ export function tableStatus(view) {
     return ch ? `${m.displayName} (${ch.name.split(' ')[0]})` : m.displayName;
   };
   const missing = players.filter((m) => !m.online).map(label);
-  const names = missing.length <= 1 ? missing.join('') : `${missing.slice(0, -1).join(', ')} and ${missing[missing.length - 1]}`;
+  const list = (a) => (a.length <= 1 ? a.join('') : `${a.slice(0, -1).join(', ')} and ${a[a.length - 1]}`);
+  const names = list(missing);
+  const building = view.members.filter((m) => m.rebuilding).map((m) => m.displayName);
   return {
     players: players.map((m) => ({ label: label(m), online: m.online })),
     missing, names,
+    building, buildingNames: list(building),
     allHere: players.length > 0 && !missing.length,
+    ready: players.length > 0 && !missing.length && !building.length,
     paused: !!view.campaign.sessionActive && missing.length > 0,
     between: !view.campaign.sessionActive,
   };

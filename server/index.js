@@ -14,9 +14,10 @@ import { buildView, visibleLog } from './game/views.js';
 import { srd, srdFile } from './srd.js';
 import { aiStatus, MODELS } from './ai/client.js';
 import { startTunnel } from './tunnel.js';
-import { buildCharacter, applyLevelUp } from '../shared/charbuild.js';
+import { buildCharacter, applyLevelUp, levelUpPlan } from '../shared/charbuild.js';
+import { deriveCharacter, levelForXp, xpForLevel } from '../shared/rules.js';
 import { randomId } from './security.js';
-import { consumableError } from './sheetRules.js';
+import { sheetPatchError, applySheetPatch } from './sheetRules.js';
 
 const app = express();
 app.set('trust proxy', process.env.FLY_APP_NAME ? 1 : 'loopback'); // Fly.io: one edge proxy in front of us
@@ -128,7 +129,7 @@ api.post('/campaigns/join', (req, res) => {
 
 api.get('/campaigns/:id', (req, res) => {
   const c = campaignFor(req, res);
-  if (c) res.json({ campaign: C.campaignSummary(c, req.user.id), world: { bible: c.world.bible, characterPrompts: c.world.characterPrompts, title: c.world.title, tagline: c.world.tagline, openingHook: c.world.openingHook }, startLevel: c.settings.startLevel || 1, status: c.status, thinking: c.thinking, genesisError: c.genesisError || null });
+  if (c) res.json({ campaign: C.campaignSummary(c, req.user.id), world: { bible: c.world.bible, characterPrompts: c.world.characterPrompts, title: c.world.title, tagline: c.world.tagline, openingHook: c.world.openingHook }, startLevel: E.joinLevel(c), status: c.status, thinking: c.thinking, genesisError: c.genesisError || null });
 });
 
 api.patch('/campaigns/:id/settings', (req, res) => {
@@ -169,11 +170,6 @@ api.post('/campaigns/:id/leave', (req, res) => {
 
 api.get('/characters', (req, res) => res.json({ characters: C.charactersForUser(req.user.id) }));
 
-// Fields a player may change from their sheet. HP, spell slots, Inspiration and limited uses are spend-only
-// (see consumableError); death saves and hit dice only change through rolls and rests.
-const SHEET_FIELDS = ['name', 'alignment', 'hp', 'equipment', 'currency', 'conditions', 'exhaustion', 'inspiration', 'personality', 'appearance', 'backstory', 'portrait', 'color', 'light', 'acOverride', 'notes', 'concentration'];
-
-
 function sanitizeCharacter(ch, ownerId, campaignId) {
   const out = { ...ch };
   out.id = randomId('ch_', 6);
@@ -189,20 +185,30 @@ function sanitizeCharacter(ch, ownerId, campaignId) {
   out.currency ||= { cp: 0, sp: 0, ep: 0, gp: 0, pp: 0 };
   out.resources ||= {};
   out.xp ||= 0;
+  delete out.retired;
+  delete out.dead;
   return out;
 }
 
+// A new character joins at the party's level (with matching experience), so a replacement hero is never behind.
 api.post('/campaigns/:id/characters', (req, res) => {
   const c = campaignFor(req, res);
   if (!c) return;
+  const m = C.member(c, req.user.id);
+  const old = m?.characterId ? C.getCharacter(m.characterId) : null;
+  if (old && !old.retired) return res.status(409).json({ error: `You already play ${old.name}. To start someone new, retire ${old.name} at the bottom of the character sheet.` });
+  const level = E.joinLevel(c);
   let ch = req.body?.character;
   if (!ch && req.body?.choices) {
-    try { ch = buildCharacter(req.body.choices, srd()); } catch (e) { return res.status(400).json({ error: `Could not build that character: ${e.message}` }); }
+    try { ch = buildCharacter({ ...req.body.choices, level }, srd()); } catch (e) { return res.status(400).json({ error: `Could not build that character: ${e.message}` }); }
   }
   if (!ch || !ch.class || !ch.race) return res.status(400).json({ error: 'Incomplete character.' });
-  const saved = C.storeNewCharacter(sanitizeCharacter(ch, req.user.id, c.id));
-  const m = C.member(c, req.user.id);
+  const fresh = sanitizeCharacter(ch, req.user.id, c.id);
+  fresh.xp = Math.max(Number(fresh.xp) || 0, E.joinXp(c, fresh.level || 1));
+  fresh.pendingLevelUp = false;
+  const saved = C.storeNewCharacter(fresh);
   m.characterId = saved.id;
+  delete m.rebuilding;
   C.saveCampaign(c);
   // drop them into the current scene
   if (c.scene.tacticalMapId && !E.tokenForCharacter(c, saved.id)) {
@@ -211,27 +217,23 @@ api.post('/campaigns/:id/characters', (req, res) => {
     if (pos) E.addToken(c, { kind: 'pc', characterId: saved.id, name: saved.name, x: pos[0], y: pos[1], color: saved.color, img: saved.portrait, darkvision: saved.darkvision || 0 });
   }
   if (c.combat) K.addPcToCombat(c, saved);
-  E.system(c, `🧙 ${saved.name} joins the party.`);
+  E.characterJoined(c, saved, req.user.id);
   E.pushViews(c);
   res.json({ character: saved });
 });
 
+// The sheet can't add or restore anything: the DM, the rules engine and the level-up wizard change stats (sheetRules.js).
 api.put('/characters/:cid', (req, res) => {
   const ch = C.getCharacter(req.params.cid);
   if (!ch || ch.ownerId !== req.user.id) return res.status(404).json({ error: 'Character not found.' });
-  const patch = req.body || {};
-  const blocked = consumableError(ch, patch);
-  if (blocked) return res.status(403).json({ error: blocked });
-  for (const k of SHEET_FIELDS) if (patch[k] !== undefined) ch[k] = patch[k];
-  if (patch.resources && typeof patch.resources === 'object') {
-    ch.resources ||= {};
-    for (const [k, v] of Object.entries(patch.resources)) if (v && typeof v === 'object') ch.resources[k] = { ...(ch.resources[k] || {}), used: Math.max(0, Number(v.used) || 0) };
-  }
-  if (patch.spellcasting && ch.spellcasting) {
-    for (const k of ['slotsUsed', 'pactUsed', 'prepared']) if (patch.spellcasting[k] !== undefined) ch.spellcasting[k] = patch.spellcasting[k];
-  }
-  C.saveCharacter(ch);
   const c = C.getCampaign(ch.campaignId);
+  const patch = req.body || {};
+  let preparedMax = null;
+  try { preparedMax = deriveCharacter(ch, srd()).spellcasting?.preparedMax ?? null; } catch { /* rules data missing: no cap */ }
+  const blocked = sheetPatchError(ch, patch, { sessionError: c ? E.canAct(c)?.error || null : 'This character has no campaign.', inCombat: !!c?.combat, preparedMax });
+  if (blocked) return res.status(403).json({ error: blocked });
+  applySheetPatch(ch, patch);
+  C.saveCharacter(ch);
   if (c) {
     const tok = E.tokenForCharacter(c, ch.id);
     if (tok) { tok.name = ch.name; tok.img = ch.portrait; tok.color = ch.color; tok.light = ch.light && (ch.light.bright || ch.light.dim) ? ch.light : null; }
@@ -240,20 +242,45 @@ api.put('/characters/:cid', (req, res) => {
   res.json({ character: ch });
 });
 
+// Levels come from experience (combat, quests, milestones). Level up during a session, in any class you have or a new one.
 api.post('/characters/:cid/level-up', (req, res) => {
   const ch = C.getCharacter(req.params.cid);
   if (!ch || ch.ownerId !== req.user.id) return res.status(404).json({ error: 'Character not found.' });
+  const c = C.getCampaign(ch.campaignId);
+  if (ch.retired || ch.dead) return res.status(403).json({ error: `${ch.name} can't level up any more.` });
+  if (!(ch.pendingLevelUp || levelForXp(ch.xp) > ch.level)) return res.status(400).json({ error: 'No level-up is waiting. Levels come from the experience the DM awards.' });
+  const blocked = c ? E.canAct(c) : { error: 'This character has no campaign.' };
+  if (blocked) return res.status(403).json({ error: `Level up during a session. ${blocked.error}` });
+  if (c.combat) return res.status(403).json({ error: 'Level up after the fight.' });
   try {
+    const plan = levelUpPlan(ch, srd(), req.body?.class);
+    if (plan.maxed) return res.status(400).json({ error: `${ch.name} is already level 20.` });
+    if (plan.multiclass && !plan.prereqOk) return res.status(400).json({ error: `Can't multiclass yet: ${plan.prereqProblems.join('; ')}.` });
     const next = applyLevelUp(ch, req.body || {}, srd());
-    Object.assign(ch, next, { pendingLevelUp: false });
+    Object.assign(ch, next);
+    ch.xp = Math.max(Number(ch.xp) || 0, xpForLevel(ch.level));
+    ch.pendingLevelUp = levelForXp(ch.xp) > ch.level;
     C.saveCharacter(ch);
-    const c = C.getCampaign(ch.campaignId);
-    if (c) { E.system(c, `⬆️ ${ch.name} reaches level ${ch.level}!`, 'all', { tone: 'good' }); E.pushViews(c); }
+    E.system(c, `⬆️ ${ch.name} reaches level ${ch.level}${plan.multiclass ? ` and becomes a ${titleCase(plan.classKey)} too` : ''}!`, 'all', { tone: 'good' });
+    E.pushViews(c);
     res.json({ character: ch });
   } catch (e) {
     res.status(400).json({ error: e.message });
   }
 });
+
+// Retiring (or after death): the character leaves play for good, but their story stays in the journal and the world.
+api.post('/characters/:cid/retire', (req, res) => {
+  const ch = C.getCharacter(req.params.cid);
+  if (!ch || ch.ownerId !== req.user.id) return res.status(404).json({ error: 'Character not found.' });
+  const c = C.getCampaign(ch.campaignId);
+  if (!c) return res.status(404).json({ error: 'Campaign not found.' });
+  const r = E.retireCharacter(c, ch, req.user.id, String(req.body?.farewell || '').slice(0, 400));
+  if (r.error) return res.status(400).json(r);
+  res.json(r);
+});
+
+const titleCase = (k) => String(k || '').replace(/(^|[-_ ])(\w)/g, (_, s, ch) => `${s ? ' ' : ''}${ch.toUpperCase()}`);
 
 api.post('/campaigns/:id/character-assist', async (req, res) => {
   const c = campaignFor(req, res);
@@ -368,25 +395,7 @@ io.on('connection', (socket) => {
   socket.on('combat:skip', wrap(() => need(true) || K.skipTurn(c)));
   socket.on('combat:end', wrap((p) => need(true) || K.endCombatManual(c, p.outcome)));
 
-  socket.on('sheet:rest', wrap((p) => {
-    if (act()) return act();
-    if (c.combat) return { error: "You can't rest in the middle of a fight." };
-    const ch = C.getCharacter(C.member(c, userId)?.characterId);
-    if (!ch) return { error: 'No character.' };
-    if (p.kind === 'long') { E.longRest(ch); E.system(c, `🌙 ${ch.name} takes a long rest.`); }
-    else {
-      E.shortRest(ch);
-      const n = Math.max(0, Math.min(Number(p.hitDice) || 0, ch.hitDice.total - (ch.hitDice.used || 0)));
-      let healed = 0;
-      const con = Math.floor(((ch.abilities?.con || 10) - 10) / 2);
-      for (let i = 0; i < n; i++) { healed += Math.max(1, Math.ceil(Math.random() * ch.hitDice.die) + con); }
-      ch.hitDice.used = (ch.hitDice.used || 0) + n;
-      if (healed) E.healCharacter(c, ch, healed); else C.saveCharacter(ch);
-      E.system(c, `☕ ${ch.name} takes a short rest${n ? `, spending ${n} Hit ${n === 1 ? 'Die' : 'Dice'} to recover ${healed} HP` : ''}.`);
-    }
-    E.pushViews(c);
-    return { ok: true };
-  }));
+  // rests come from the DM (rest_short / rest_long effects), never from the sheet
 
   socket.on('session:start', wrap(() => {
     if (need()) return need();

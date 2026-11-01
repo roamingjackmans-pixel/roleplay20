@@ -481,7 +481,7 @@ export function onRollComplete(c, req) {
     const n = req.result.natural ?? req.result.total;
     if (n === 20) { E.healCharacter(c, ch, 1); E.system(c, `✨ ${ch.name} rolls a natural 20 and surges back to consciousness!`, 'all', { tone: 'good' }); }
     else if (n >= 10) { ch.deathSaves.success += 1; if (ch.deathSaves.success >= 3) { ch.stable = true; E.system(c, `${ch.name} is stable.`, 'all', { tone: 'good' }); } }
-    else { ch.deathSaves.fail += n === 1 ? 2 : 1; if (ch.deathSaves.fail >= 3) { ch.dead = true; E.system(c, `💀 ${ch.name} has died.`, 'all', { tone: 'danger' }); } }
+    else { ch.deathSaves.fail += n === 1 ? 2 : 1; if (ch.deathSaves.fail >= 3) { ch.dead = true; E.system(c, `💀 ${ch.name} has died.`, 'all', { tone: 'danger' }); E.deathNotice(c, ch); } }
     saveCharacter(ch);
     k.turnIndex++;
     beginTurn(c);
@@ -874,6 +874,9 @@ export async function castSpell(c, userId, p) {
   const lvl = spell.level || 0;
   const slotLevel = lvl === 0 ? 0 : Math.max(lvl, Math.min(9, p.slotLevel || lvl));
   const inCombat = !!c.combat;
+  if (ch.dead) return { error: `${ch.name} has died.` };
+  // out of a fight, a spell is part of what you do this round: cast it while actions are open
+  if (!inCombat && c.phase !== 'actions') return { error: 'Cast while actions are open, and say in your action what you do with the spell.' };
   let cb = null, k = null, eco = null;
   if (inCombat) {
     const r = requirePlayerTurn(c, userId);
@@ -906,10 +909,9 @@ export async function castSpell(c, userId, p) {
     } else {
       E.addLog(c, { kind: 'cast', name: ch.name, characterId: ch.id, text: `✨ ${ch.name} casts ${label}.`, spell: spell.index });
     }
-    if (c.phase === 'actions') {
-      const cur = c.round.actions[userId];
-      if (!cur) E.toast(c, [userId], `${spell.name} is cast. Describe what you do with it in your action.`, 'info');
-    }
+    // the DM is told this round's casts with the player's action, so it never spends the slot a second time
+    ((c.round.casts ||= {})[userId] ||= []).push({ label: `${label}${p.ritual && spell.ritual ? ' (as a ritual)' : ''}`, heal: !!(heal && p.targetCharacterId) });
+    if (!c.round.actions[userId]) E.toast(c, [userId], `${spell.name} is cast. Describe what you do with it in your action.`, 'info');
     E.pushViews(c);
     return { ok: true };
   }

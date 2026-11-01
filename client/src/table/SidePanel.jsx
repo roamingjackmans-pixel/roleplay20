@@ -201,14 +201,30 @@ function Party() {
               <b>{p.name}</b> <span className={`dot ${m?.online ? 'on' : ''}`} />
               <div className="tiny muted">L{p.level} {titleIndex(p.subrace || p.race)} {titleIndex(p.class)} · {p.playerName}{m && !m.online ? ' (not at the table)' : ''}</div>
               <div className="row small" style={{ gap: 8 }}><span>❤ {p.hp.current}/{p.hp.max}</span><span>🛡 {p.ac}</span><span>👁 {p.passivePerception}</span></div>
+              {p.dead && <span className="pill red">💀 fallen</span>}
               {p.conditions.length > 0 && <div className="row wrap" style={{ gap: 4 }}>{p.conditions.map((c) => <span key={c} className="pill red">{c}</span>)}</div>}
             </div>
           </div>
         );
       })}
+      {view.formerParty?.length > 0 && (
+        <>
+          <div className="sub-h">Former party members</div>
+          {view.formerParty.map((p) => (
+            <div key={p.id} className="party-card former">
+              <Avatar size="lg" name={p.name} color={p.color} img={p.portrait} />
+              <div className="grow">
+                <b>{p.name}</b> <span className="tiny muted">{p.reason === 'died' ? '🕯 fell' : '📜 retired'}{p.day ? ` on day ${p.day}` : ''}{p.session ? ` (session ${p.session})` : ''}</span>
+                <div className="tiny muted">L{p.level} {titleIndex(p.subrace || p.race)} {titleIndex(p.class)} · {p.playerName}</div>
+                {p.farewell && <div className="small former-words">“{p.farewell}”</div>}
+              </div>
+            </div>
+          ))}
+        </>
+      )}
       <div className="sub-h">Players</div>
       {view.members.map((m) => (
-        <div key={m.userId} className="row small"><span className={`dot ${m.online ? 'on' : ''}`} /> <b style={{ color: m.color }}>{m.displayName}</b> <span className="muted">{m.role === 'owner' ? 'host' : ''}{m.characterId ? '' : ' · no character'}</span></div>
+        <div key={m.userId} className="row small"><span className={`dot ${m.online ? 'on' : ''}`} /> <b style={{ color: m.color }}>{m.displayName}</b> <span className="muted">{m.role === 'owner' ? 'host' : ''}{m.characterId ? '' : m.rebuilding ? ' · making a new character' : ' · no character'}</span></div>
       ))}
       <div className="tiny muted" style={{ marginTop: 8 }}>Invite code: <b className="kbd">{view.campaign.inviteCode}</b></div>
     </div>

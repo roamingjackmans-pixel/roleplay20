@@ -144,3 +144,22 @@
 .portrait-pick.busy { opacity: .6; }
 .cast-level { display: flex; align-items: center; gap: 6px; justify-content: flex-start; text-align: left; }
 .pip:disabled { cursor: default; }
+
+/* sheet: stats are the DM's to change (read-only pips, coins, Inspiration), retire and level-up wizard */
+.pips i.pip { display: inline-block; cursor: default; }
+.pips i.pip:hover { transform: none; }
+.insp-badge { font-size: 20px; width: 38px; height: 38px; display: grid; place-items: center; border-radius: 50%; border: 1px solid var(--line); background: var(--panel-2); filter: grayscale(1); opacity: .45; flex: none; cursor: help; }
+.insp-badge.on { filter: none; opacity: 1; border-color: var(--gold); box-shadow: 0 0 12px rgba(217, 164, 65, .45); }
+.sheet-lock { margin-top: 8px; font-size: 12px; color: var(--muted); background: var(--panel-2); border: 1px dashed var(--line-2, var(--line)); border-radius: 8px; padding: 6px 10px; }
+.levelup-btn:disabled { animation: none; opacity: .6; }
+.center { text-align: center; }
+.fallen { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; background: var(--red-dim); border: 1px solid #7a3530; border-radius: 10px; padding: 10px 12px; margin-top: 8px; }
+.retire-zone { display: flex; gap: 12px; align-items: center; margin-top: 18px; padding: 10px 12px; border: 1px solid #5a2f2b; border-radius: 10px; background: rgba(90, 36, 32, .18); }
+.coin-n { font-family: var(--display); font-size: 18px; padding: 4px 0; }
+.lvl-class { gap: 4px; }
+.lvl-class:disabled { opacity: .5; cursor: default; transform: none; }
+.lvl-class .pill { margin-left: 6px; font-size: 10px; vertical-align: middle; }
+.lvl-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px; }
+.party-card.former { opacity: .8; }
+.party-card.former .avatar { filter: grayscale(.7); }
+.former-words { font-style: italic; color: var(--text-2); margin-top: 2px; }

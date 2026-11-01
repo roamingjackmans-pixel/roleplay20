@@ -91,7 +91,7 @@ function TopBar() {
       {(isOwner || view.me.characterId) && !view.campaign.sessionActive && (() => {
         const st = tableStatus(view);
         return (
-          <button className="btn primary sm" disabled={!st.allHere} title={st.allHere ? 'Everyone is here' : `Waiting for ${st.names}`} onClick={() => emit('session:start')}>
+          <button className="btn primary sm" disabled={!st.ready} title={st.ready ? 'Everyone is here' : !st.allHere ? `Waiting for ${st.names}` : `Waiting for ${st.buildingNames} to finish a new character`} onClick={() => emit('session:start')}>
             ▶ {view.campaign.sessionNumber ? `Begin session ${view.campaign.sessionNumber + 1}` : 'Begin the adventure'}
           </button>
         );
@@ -123,8 +123,8 @@ function TableStatus() {
   }
   return (
     <div className="table-status">
-      <b>{st.allHere ? '✨ Everyone is here.' : `Between sessions: waiting for ${st.names}.`}</b>
-      <span className="small">{st.allHere ? `Press ▶ ${view.campaign.sessionNumber ? `Begin session ${view.campaign.sessionNumber + 1}` : 'Begin the adventure'} (top right) when you're ready.` : 'Look around as much as you like: sheets, maps, handouts, the journal. The session can begin once every player is at the table.'}</span>
+      <b>{st.ready ? '✨ Everyone is here.' : !st.allHere ? `Between sessions: waiting for ${st.names}.` : `Between sessions: waiting for ${st.buildingNames} to finish making a new character.`}</b>
+      <span className="small">{st.ready ? `Press ▶ ${view.campaign.sessionNumber ? `Begin session ${view.campaign.sessionNumber + 1}` : 'Begin the adventure'} (top right) when you're ready.` : 'Look around as much as you like: sheets, maps, handouts, the journal. Sheets are read-only until the session begins.'}</span>
       {who}
     </div>
   );

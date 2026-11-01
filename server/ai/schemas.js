@@ -12,7 +12,7 @@ const obj = (properties) => ({ type: 'object', properties, required: Object.keys
 
 export const EFFECT_TYPES = [
   'damage', 'heal', 'temp_hp', 'condition_add', 'condition_remove', 'item_add', 'item_remove', 'gold',
-  'xp', 'level_up', 'rest_short', 'rest_long', 'inspiration', 'spend_slot', 'spend_resource',
+  'xp', 'level_up', 'rest_short', 'rest_long', 'hit_dice', 'inspiration', 'spend_slot', 'spend_resource',
   'give_map', 'discover_location', 'move_party', 'reveal_token', 'hide_token', 'remove_token',
   'door_open', 'door_close', 'door_lock', 'door_unlock', 'ambient', 'exhaustion', 'npc_join_party', 'npc_leave_party',
 ];
@@ -88,7 +88,8 @@ const combatStart = obj({
   surprise: B,         // party is surprised if they failed to notice the hidden enemies
 });
 
-const quest = obj({ id: S, title: S, status: en('active', 'completed', 'failed', 'rumor'), summary: S, giver: S, update: S });
+// xp: experience per character for completing it (0 = the standard award); only used when status becomes "completed"
+const quest = obj({ id: S, title: S, status: en('active', 'completed', 'failed', 'rumor'), summary: S, giver: S, update: S, xp: I });
 const handout = obj({ id: S, title: S, kind: en('letter', 'note', 'poster', 'book', 'map', 'item', 'other'), content: S, to: arr(S) });
 
 const scene = obj({ location: S, timeOfDay: S, weather: S, mood: S, areaMapId: S, areaLocationId: S });

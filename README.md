@@ -20,9 +20,23 @@ what their character can actually see, hear and notice.
   personality and backstory tied to the campaign world.
 - **Character sheet (two pages).** Page 1: abilities, saves, skills, attacks, HP, conditions, death saves - click
   anything to roll. Page 2: **Spells & Abilities** - spell slots and every limited-use class ability (Rage, Ki, Second
-  Wind, Channel Divinity…) as pips. Casting asks which slot level to use and spends that slot. HP, slots, Inspiration
-  and limited uses can only be spent from the sheet; they come back through rests, spells or the DM. Click your
-  picture to change it for this campaign. Short and long rests, level-up wizard.
+  Wind, Channel Divinity…). Casting asks which slot level to use and spends that slot.
+- **Only the DM changes stats.** Players can't edit hit points, spell slots, uses, Inspiration, coins, items,
+  conditions or experience. They say what they do ("I buy the rope", "I use my Inspiration", "we make camp") and the
+  DM applies it: it charges coins (paying with change), adds and removes items, heals and hurts, grants rests and Hit
+  Dice, and marks abilities used. Fights and spells cast from the sheet are handled by the rules engine. Between
+  sessions the sheet is read-only except for your picture (click it to change it any time). During a session you can
+  light a torch, end concentration, choose what you wear and wield (not mid-fight) and, right after a long rest,
+  change prepared spells.
+- **Experience and levels.** XP comes from defeated enemies, completed quests (a quarter of a level by default, more
+  for big story goals) and other wins the DM rewards: solved puzzles, discoveries, hard-won talks. The DM can also give
+  a milestone level. When a level is ready, the **level-up wizard** (during a session, not mid-fight) asks which class
+  gains it - one you have, or a new one if your ability scores allow multiclassing - then walks through hit points,
+  features, subclass, ability scores and spells, and repeats if more levels are waiting.
+- **Retiring and replacing heroes.** "Retire" at the bottom of the sheet takes a character out of play for good, with
+  an optional farewell. Their story stays: the journal, the logs and the DM remember them, and the Party panel lists
+  former members. A hero who dies must be laid to rest the same way. The new character is built at the party's level
+  (with matching XP), and the next session waits until they're ready.
 - **Private perception.** The DM writes separate narration for each character. The rogue who passed the Perception check
   hears the whisper; the others don't. Private actions stay private.
 - **Everyone acts, then the DM narrates.** Each player writes what they do and presses Ready. When everyone is

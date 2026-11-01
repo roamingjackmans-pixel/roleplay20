@@ -690,6 +690,54 @@ function meetsMulticlassPrereq(char, cls) {
   return mc.prereqMode === "any" ? mc.prereq.some(ok) : mc.prereq.every(ok);
 }
 
+const ABILITY_NAMES = { str: "Strength", dex: "Dexterity", con: "Constitution", int: "Intelligence", wis: "Wisdom", cha: "Charisma" };
+
+/** "Wisdom 13", "Strength 13 or Dexterity 13", "Dexterity 13 and Wisdom 13". */
+export function multiclassPrereqText(cls) {
+  const p = cls?.multiclass?.prereq || [];
+  return p.map((x) => `${ABILITY_NAMES[x.ability] || x.ability} ${x.min}`).join(cls?.multiclass?.prereqMode === "any" ? " or " : " and ");
+}
+
+/**
+ * 5e multiclassing needs the ability scores of the new class AND of every class you already have.
+ * Returns the unmet requirements as text ([] = allowed).
+ */
+export function multiclassProblems(char, srd, classKey) {
+  const classes = characterClasses(char);
+  if (classes.some((c) => c.class === classKey)) return [];
+  const out = [];
+  const cls = get(srd, "classes", classKey);
+  if (cls && !meetsMulticlassPrereq(char, cls)) out.push(`${cls.name} needs ${multiclassPrereqText(cls)}`);
+  for (const c of classes) {
+    const own = get(srd, "classes", c.class);
+    if (own && !meetsMulticlassPrereq(char, own)) out.push(`multiclassing out of ${own.name} needs ${multiclassPrereqText(own)}`);
+  }
+  return out;
+}
+
+/** Every class a character could take their next level in: the ones they have, then the rest (multiclass). */
+export function levelUpOptions(char, srd) {
+  const have = characterClasses(char);
+  const all = srd?.classes || [];
+  const order = [...have.map((c) => c.class), ...all.map((c) => c.index).filter((k) => !have.some((h) => h.class === k))];
+  return order.map((k) => {
+    const cls = get(srd, "classes", k);
+    if (!cls) return null;
+    const cur = have.find((h) => h.class === k);
+    const next = (cur?.level || 0) + 1;
+    const row = cls.levels?.[next - 1];
+    const sub = cls.subclasses?.find((s) => s.index === cur?.subclass);
+    const feats = [...(row?.features || []), ...((sub?.features || []).filter((f) => f.level === next))].map((f) => f.name);
+    const problems = multiclassProblems(char, srd, k);
+    return {
+      classKey: k, name: cls.name, current: cur?.level || 0, next, subclass: cur?.subclass || null, multiclass: !cur,
+      hitDie: cls.hitDie, features: uniq(feats).slice(0, 6), asi: asiLevelsFor(k).includes(next),
+      subclassAt: !cur?.subclass && next >= (cls.subclassLevel || 3) ? cls.subclassLevel || 3 : null,
+      prereqText: multiclassPrereqText(cls), allowed: !problems.length && next <= 20, problems,
+    };
+  }).filter(Boolean);
+}
+
 /**
  * What happens at the next level. classKey (optional) = class to gain a level in (multiclass); default the
  * character's first class.
@@ -736,7 +784,10 @@ export function levelUpPlan(char, srd, classKey) {
     classKey: target,
     classLevel,
     multiclass: !existing,
-    prereqOk: existing ? true : meetsMulticlassPrereq(char, cls),
+    prereqOk: existing ? true : !multiclassProblems(char, srd, target).length,
+    prereqProblems: existing ? [] : multiclassProblems(char, srd, target),
+    multiclassSkills: !existing && cls.multiclass?.skillChoices ? cls.multiclass.skillChoices : null,
+    multiclassProficiencies: !existing ? cls.multiclass?.proficiencies || null : null,
     hpDie: cls.hitDie,
     hpAverage: Math.floor(cls.hitDie / 2) + 1,
     conMod: abilityMod(char.abilities?.con ?? 10),
