@@ -104,6 +104,9 @@ export const TURN_SCHEMA = obj({
   combatStart: arr(combatStart),     // [] or one
   quests: arr(quest),
   handouts: arr(handout),
+  // [] normally. When a player declared more than their turn allows: one private note per such character saying the
+  // most they can do and asking which parts they want; everything else in the response is left empty.
+  clarify: arr(obj({ characterId: S, message: S })),
   ruling: S,                         // "Judgment call: ..." disclosure, or ""
   dmNotes: S,                        // private continuity notes to remember (secrets, puzzle answers, plans) or ""
   summary: S,                        // 1-3 factual sentences for the campaign log

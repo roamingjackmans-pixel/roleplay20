@@ -613,6 +613,8 @@ export function openActions(c) {
   c.phase = 'actions';
   c.round.actions = {};
   c.round.rollRequests = [];
+  c.round.revise = {};
+  c.round.revised = [];
 }
 
 // ---------------------------------------------------------------- the action round
@@ -623,7 +625,9 @@ export function submitAction(c, userId, { text, private: priv }) {
   if (c.phase !== 'actions') return { error: c.phase === 'thinking' ? 'The DM is still narrating.' : 'Not the time for that right now.' };
   const t = String(text || '').trim().slice(0, 2000);
   if (!t) return { error: 'Describe what your character does.' };
-  c.round.actions[userId] = { text: t, private: !!priv, at: Date.now() };
+  const revising = !!c.round.revise?.[userId];
+  if (revising) delete c.round.revise[userId];
+  c.round.actions[userId] = { text: t, private: !!priv, at: Date.now(), ...(revising ? { revised: true } : {}) };
   pushViews(c);
   maybeResolve(c);
   return { ok: true };
@@ -646,17 +650,63 @@ export function maybeResolve(c, force = false) {
 
 function resolveActions(c) {
   const acts = [];
+  const revised = c.round.revised || [];
   for (const [uid, a] of Object.entries(c.round.actions)) {
     const m = member(c, uid);
     const ch = getCharacter(m?.characterId);
     if (!ch) continue;
-    acts.push({ name: ch.name, characterId: ch.id, text: a.text, private: a.private, userId: uid });
-    addLog(c, { kind: 'action', userId: uid, characterId: ch.id, name: ch.name, text: a.text, private: a.private, to: [uid] });
+    acts.push({ name: ch.name, characterId: ch.id, text: a.text, private: a.private, userId: uid, revised: revised.includes(uid) });
+    // an action kept from a round that paused for someone else's question is already in the log
+    if (!a.logged) addLog(c, { kind: 'action', userId: uid, characterId: ch.id, name: ch.name, text: a.text, private: a.private, to: [uid] });
   }
-  const text = acts.map((a) => `${a.name} (${a.characterId})${a.private ? ' [PRIVATE - only this player knows]' : ''}: ${a.text}`).join('\n') +
-    '\n\nResolve these actions together in one narration. Give each character their own perception. Ask for rolls where outcomes are uncertain.';
+  const text = acts.map((a) => `${a.name} (${a.characterId})${a.private ? ' [PRIVATE - only this player knows]' : ''}${a.revised ? ' [REVISED after you asked them to fit it into one turn - do not ask them again]' : ''}: ${a.text}`).join('\n') +
+    '\n\nResolve these actions together in one narration. Give each character their own perception. Ask for rolls where outcomes are uncertain. If any character declared more than their turn allows (and has not already revised), use "clarify" for them instead of resolving anything.';
   c.round.actions = {};
-  runTurn(c, { kind: 'actions', actions: acts.map(({ name, text, private: p }) => ({ name, text, private: p })), text });
+  runTurn(c, { kind: 'actions', actions: acts.map(({ name, text, private: p, userId, characterId }) => ({ name, text, private: p, userId, characterId })), revised, text });
+}
+
+/**
+ * The DM asked one or more players to fit their action into what a turn allows. Returns the players to ask (skipping
+ * anyone who already revised this round), "retry" if the DM only asked people it may not ask again, or null.
+ */
+function clarifyTargets(c, data, input) {
+  if (input.noClarify || !['actions', 'combat_ask'].includes(input.kind)) return null;
+  const list = (data.clarify || []).filter((q) => q && String(q.message || '').trim());
+  if (!list.length) return null;
+  const already = new Set(input.revised || []);
+  const out = [];
+  for (const q of list) {
+    const ch = findCharacter(c, q.characterId);
+    const uid = ch && characterOwner(c, ch.id);
+    if (!uid || already.has(uid) || out.some((x) => x.uid === uid)) continue;
+    out.push({ uid, ch, message: String(q.message).trim().slice(0, 700) });
+  }
+  return out.length ? out : 'retry';
+}
+
+/** Pause the round: each asked player privately gets the DM's note and their action back to edit; everyone else's stands. */
+function askToRevise(c, targets, input) {
+  for (const t of targets) {
+    addLog(c, { kind: 'clarify', to: [t.uid], name: t.ch.name, text: t.message });
+    toast(c, [t.uid], 'The DM has a question about your action.', 'turn');
+  }
+  if (input.kind === 'combat_ask' && c.combat) {
+    const k = c.combat;
+    k.clarifiedTurn = `${k.round}:${k.turnIndex}`;
+    k.askId = null;
+    if (k.state === 'asking') k.state = 'turn';   // their turn carries on; nothing was spent
+    return;
+  }
+  const asked = new Set(targets.map((t) => t.uid));
+  c.phase = 'actions';
+  c.round.actions = {};
+  c.round.revise = {};
+  for (const a of input.actions || []) {
+    if (!a.userId) continue;
+    if (asked.has(a.userId)) c.round.revise[a.userId] = { question: targets.find((t) => t.uid === a.userId).message, text: a.text, private: !!a.private };
+    else c.round.actions[a.userId] = { text: a.text, private: !!a.private, at: Date.now(), logged: true };
+  }
+  c.round.revised = [...new Set([...(c.round.revised || []), ...asked])];
 }
 
 export async function runTurn(c, input) {
@@ -672,7 +722,14 @@ export async function runTurn(c, input) {
     trackUsage(c, res);
     c.thinking = null;
     c.pendingInput = null;
-    applyTurnResult(c, res.data, input);
+    const ask = clarifyTargets(c, res.data, input);
+    if (ask === 'retry') {
+      // the DM only asked players who already revised once: resolve now instead
+      runTurn(c, { ...input, noClarify: true, text: `${input.text}\n\nEveryone has already had a chance to revise. Do not use "clarify": resolve now, using the parts that fit each turn.` });
+      return;
+    }
+    if (ask) askToRevise(c, ask, input);
+    else applyTurnResult(c, res.data, input);
   } catch (e) {
     c.thinking = null;
     if (c.combat) {

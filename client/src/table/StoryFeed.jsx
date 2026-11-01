@@ -91,6 +91,15 @@ function Entry({ e, view, speaking }) {
           <div className="line">{e.text}</div>
         </div>
       );
+    case 'clarify':
+      return (
+        <div className="entry clarify fade-in private">
+          <div className="private-tag">only you</div>
+          <div className="speaker">🎲 The DM asks you</div>
+          <div className="line">{inline(e.text || '', 0)}</div>
+          <div className="tiny muted">{view.combat ? 'Your turn carries on: pick what you do, or ask again.' : 'Your action is open again below: change it and press Ready.'}</div>
+        </div>
+      );
     case 'chat':
       return <div className="entry chat fade-in"><b style={{ color: e.color }}>{e.name}</b> <span className="tiny faint">(table talk)</span> {e.text}</div>;
     case 'roll_request':

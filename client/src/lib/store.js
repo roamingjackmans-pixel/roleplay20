@@ -69,6 +69,7 @@ export const useStore = create((set, get) => ({
         sounds.dice();
       }
       if (entry.kind === 'narration') sounds.page();
+      if (entry.kind === 'clarify') sounds.request();
     });
     socket.on('toast', (t) => get().toast(t.text, t.tone));
     socket.on('ping', (p) => {

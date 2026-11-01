@@ -188,7 +188,7 @@ export function buildView(c, userId, cache = {}) {
     myCharacter: m?.characterId ? getCharacter(m.characterId) : null,
     phase: c.phase,
     thinking: c.thinking || null,
-    round: { n: c.round.n, myAction: c.round.actions[userId] || null, submittedCount: Object.keys(c.round.actions).length, requiredCount: need.length },
+    round: { n: c.round.n, myAction: c.round.actions[userId] || null, myRevision: c.round.revise?.[userId] || null, submittedCount: Object.keys(c.round.actions).length, requiredCount: need.length },
     rolls: { mine: myRolls, waiting: waitingRolls },
     scene: { ...c.scene },
     tactical: tacticalView(c, userId, cache),

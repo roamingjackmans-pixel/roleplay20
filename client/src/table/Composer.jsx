@@ -35,6 +35,9 @@ function ActionBox() {
   const me = view.me;
   const phase = view.phase;
   const mine = view.round.myAction;
+  // the DM asked this player to fit their action into one turn: bring their words back to edit
+  const rev = view.round.myRevision;
+  useEffect(() => { if (rev) { setText(rev.text || ''); setPriv(!!rev.private); } }, [rev?.question]); // eslint-disable-line
   const isOwner = me.role === 'owner';
   const name = view.myCharacter?.name?.split(' ')[0] || 'your character';
   const waitingOn = view.members.filter((m) => m.required && !m.submitted);
@@ -80,12 +83,19 @@ function ActionBox() {
   }
   return (
     <div className="composer-body col">
+      {rev && (
+        <div className="revise-note">
+          <b>🎲 The DM asks you <span className="tiny muted">(only you can see this)</span></b>
+          <div className="story">{rev.question}</div>
+          <span className="tiny muted">Change your action below and press Ready. Everyone else's actions are waiting for yours.</span>
+        </div>
+      )}
       <textarea className="textarea action-input" value={text} onChange={(e) => setText(e.target.value)} placeholder={`What does ${name} do? Say it, try it, ask it…`} onKeyDown={(e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) submit(); }} rows={3} />
       <div className="row">
         <label className="check small" title="Only the DM sees this action; other players see only what's outwardly visible"><input type="checkbox" checked={priv} onChange={(e) => setPriv(e.target.checked)} /> Private</label>
         <ReadyRow view={view} />
         <div className="spacer" />
-        <button className="btn primary" disabled={busy || !text.trim()} onClick={submit}>Ready ✓</button>
+        <button className="btn primary" disabled={busy || !text.trim()} onClick={submit}>{rev ? 'Send revised action ✓' : 'Ready ✓'}</button>
       </div>
     </div>
   );

@@ -24,7 +24,9 @@ what their character can actually see, hear and notice.
 - **Private perception.** The DM writes separate narration for each character. The rogue who passed the Perception check
   hears the whisper; the others don't. Private actions stay private.
 - **Everyone acts, then the DM narrates.** Each player writes what they do and presses Ready. When everyone is
-  ready, the DM resolves all actions together, asks for rolls where the outcome is uncertain, and narrates.
+  ready, the DM resolves all actions together, asks for rolls where the outcome is uncertain, and narrates. If someone
+  declares more than one turn holds (three attacks and a sprint), the DM doesn't pick for them: it privately tells that
+  player the most they can do, reopens their action to edit, and resolves the round once they've revised it.
 - **The whole table, or nobody.** A session begins only when every player is at the table and someone presses
   **Begin session**. If anyone drops off, the game pauses until they're back. Between sessions (or while paused)
   everyone can still read their sheet, maps, handouts and the journal, and chat.
