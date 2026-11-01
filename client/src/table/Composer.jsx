@@ -2,9 +2,30 @@ import React, { useEffect, useState } from 'react';
 import { useStore, emit } from '../lib/store.js';
 import { useUI, tableStatus } from './ui.js';
 import { Avatar } from '../lib/format.jsx';
+import { useDictation, appendWords } from '../lib/dictation.js';
+
+/** This campaign's unsent drafts (kept when you switch between "Your action" and "Table talk"). */
+function useDraft() {
+  const cid = useStore((s) => s.view?.campaign?.id);
+  const draft = useUI((s) => s.drafts[cid]) || {};
+  const setDraft = (patch) => useUI.getState().setDraft(cid, patch);
+  return [draft, setDraft];
+}
+
+/** Voice typing: press to talk, press again to stop. Spoken words are added to the box; nothing is sent. */
+function MicButton({ dict, small }) {
+  if (!dict.supported) return null;
+  return (
+    <button type="button" className={`btn ${small ? 'sm' : ''} mic-btn ${dict.listening ? 'listening' : ''}`} onClick={dict.toggle}
+      title={dict.listening ? 'Stop voice typing' : 'Voice typing: speak and your words appear in the box'} aria-pressed={dict.listening}>
+      {dict.listening ? '● Stop' : '🎤'}
+    </button>
+  );
+}
 
 export default function Composer() {
   const view = useStore((s) => s.view);
+  const [draft] = useDraft();
   const [tab, setTab] = useState('act');
   const myChar = view.myCharacter;
   const inCombat = !!view.combat;
@@ -13,8 +34,8 @@ export default function Composer() {
     <div className="composer">
       <RollRequests />
       <div className="composer-tabs">
-        <button className={tab === 'act' ? 'on' : ''} onClick={() => setTab('act')} disabled={!myChar}>{inCombat ? '⚔ Combat' : '✒ Your action'}</button>
-        <button className={tab === 'chat' ? 'on' : ''} onClick={() => setTab('chat')}>💬 Table talk</button>
+        <button className={tab === 'act' ? 'on' : ''} onClick={() => setTab('act')} disabled={!myChar}>{inCombat ? '⚔ Combat' : '✒ Your action'}{tab !== 'act' && !inCombat && draft.action?.trim() ? <i className="draft-dot" title="Unsent action" /> : null}</button>
+        <button className={tab === 'chat' ? 'on' : ''} onClick={() => setTab('chat')}>💬 Table talk{tab !== 'chat' && draft.chat?.trim() ? <i className="draft-dot" title="Unsent message" /> : null}</button>
       </div>
       {tab === 'act' ? (inCombat ? <CombatHint /> : <ActionBox />) : <ChatBox />}
     </div>
@@ -29,15 +50,19 @@ function CombatHint() {
 
 function ActionBox() {
   const view = useStore((s) => s.view);
-  const [text, setText] = useState('');
-  const [priv, setPriv] = useState(false);
+  const [draft, setDraft] = useDraft();
+  const text = draft.action || '';
+  const priv = !!draft.priv;
+  const setText = (v) => setDraft({ action: v });
+  const setPriv = (v) => setDraft({ priv: v });
   const [busy, setBusy] = useState(false);
+  const dict = useDictation((words) => setDraft({ action: appendWords(useUI.getState().drafts[view.campaign.id]?.action, words) }));
   const me = view.me;
   const phase = view.phase;
   const mine = view.round.myAction;
   // the DM asked this player to fit their action into one turn: bring their words back to edit
   const rev = view.round.myRevision;
-  useEffect(() => { if (rev) { setText(rev.text || ''); setPriv(!!rev.private); } }, [rev?.question]); // eslint-disable-line
+  useEffect(() => { if (rev) setDraft({ action: rev.text || '', priv: !!rev.private }); }, [rev?.question]); // eslint-disable-line
   const isOwner = me.role === 'owner';
   const name = view.myCharacter?.name?.split(' ')[0] || 'your character';
   const waitingOn = view.members.filter((m) => m.required && !m.submitted && !view.party.find((p) => p.userId === m.userId)?.dead);
@@ -75,7 +100,7 @@ function ActionBox() {
         <div className="row">
           <ReadyRow view={view} />
           <div className="spacer" />
-          <button className="btn xs ghost" onClick={() => { setText(mine.text); setPriv(mine.private); emit('action:withdraw'); }}>Change</button>
+          <button className="btn xs ghost" onClick={() => { setDraft({ action: mine.text, priv: !!mine.private }); emit('action:withdraw'); }}>Change</button>
         </div>
         {waitingOn.length > 0 && isOwner && <button className="btn xs ghost" onClick={() => emit('force')}>Continue without {waitingOn.map((m) => m.displayName).join(', ')}</button>}
       </div>
@@ -84,9 +109,10 @@ function ActionBox() {
 
   async function submit() {
     if (!text.trim()) return;
+    dict.stop();
     setBusy(true);
     const r = await emit('action', { text, private: priv });
-    if (r.ok) setText('');
+    if (r.ok) setDraft({ action: '', priv: false });
     setBusy(false);
   }
   return (
@@ -98,9 +124,11 @@ function ActionBox() {
           <span className="tiny muted">Change your action below and press Ready. Everyone else's actions are waiting for yours.</span>
         </div>
       )}
-      <textarea className="textarea action-input" value={text} onChange={(e) => setText(e.target.value)} placeholder={`What does ${name} do? Say it, try it, ask it…`} onKeyDown={(e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) submit(); }} rows={3} />
+      <textarea className="textarea action-input" value={text} onChange={(e) => setText(e.target.value)} placeholder={`What does ${name} do? Say it, try it, ask it…${dict.supported ? ' (or press 🎤 and speak)' : ''}`} onKeyDown={(e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) submit(); }} rows={3} />
+      {dict.listening && <div className="dictating small">🎤 Listening… {dict.interim ? <i>{dict.interim}</i> : <span className="muted">speak now</span>}</div>}
       <div className="row">
-        <label className="check small" title="Only the DM sees this action; other players see only what's outwardly visible"><input type="checkbox" checked={priv} onChange={(e) => setPriv(e.target.checked)} /> Private</label>
+        <MicButton dict={dict} small />
+        <label className="check small" title="Only you and the DM see this action. Use it for things your character can do unnoticed; everyone else sees what's outwardly visible."><input type="checkbox" checked={priv} onChange={(e) => setPriv(e.target.checked)} /> Private</label>
         <ReadyRow view={view} />
         <div className="spacer" />
         <button className="btn primary" disabled={busy || !text.trim()} onClick={submit}>{rev ? 'Send revised action ✓' : 'Ready ✓'}</button>
@@ -123,12 +151,19 @@ function ReadyRow({ view }) {
 }
 
 function ChatBox() {
-  const [t, setT] = useState('');
-  const send = () => { if (t.trim()) { emit('chat', { text: t }); setT(''); } };
+  const view = useStore((s) => s.view);
+  const [draft, setDraft] = useDraft();
+  const t = draft.chat || '';
+  const dict = useDictation((words) => setDraft({ chat: appendWords(useUI.getState().drafts[view.campaign.id]?.chat, words) }));
+  const send = () => { if (t.trim()) { dict.stop(); emit('chat', { text: t }); setDraft({ chat: '' }); } };
   return (
-    <div className="composer-body row">
-      <input className="input" value={t} onChange={(e) => setT(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && send()} placeholder="Out-of-character chat (the DM ignores this)" />
-      <button className="btn sm" onClick={send}>Send</button>
+    <div className="composer-body col" style={{ gap: 6 }}>
+      <div className="row">
+        <input className="input" value={t} onChange={(e) => setDraft({ chat: e.target.value })} onKeyDown={(e) => e.key === 'Enter' && send()} placeholder="Out-of-character chat (the DM ignores this)" />
+        <MicButton dict={dict} small />
+        <button className="btn sm" disabled={!t.trim()} onClick={send}>Send</button>
+      </div>
+      {dict.listening && <div className="dictating small">🎤 Listening… {dict.interim ? <i>{dict.interim}</i> : <span className="muted">speak now</span>}</div>}
     </div>
   );
 }

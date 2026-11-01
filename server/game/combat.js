@@ -8,7 +8,7 @@ import { getCharacter, saveCharacter, partyCharacters, characterOwner, member } 
 import { cachedCampaignContext, safeDerive, partyBlock, npcBlock } from './context.js';
 import { generateTacticalMap, placeCreatures, describeMapForAI } from './mapgen.js';
 import { computeLight, computeVisibility } from './vision.js';
-import { findPath, distanceFeet } from './pathing.js';
+import { findPath, distanceFeet, cellCost } from './pathing.js';
 import { templateCells } from '../../shared/templates.js';
 import { rollDice, rollD20, manualD20 } from '../../shared/dice.js';
 import { abilityMod, spellDamage, spellHealing, monsterSaveBonus } from '../../shared/rules.js';
@@ -564,6 +564,109 @@ export function moveOutOfCombat(c, tok, x, y) {
   updateReveals(c);
   E.pushViews(c);
   return { ok: true, feet: res.feet };
+}
+
+// ---------------------------------------------------------------- the DM moves tokens to match the story
+
+const norm = (s) => String(s || '').toLowerCase().replace(/^the\s+/, '').replace(/[^a-z0-9 ]/g, '').trim();
+
+/** A token by id, character / NPC / combatant id, or name (full or first word). */
+export function findToken(c, ref) {
+  if (!ref) return null;
+  if (c.tokens[ref]) return c.tokens[ref];
+  const toks = Object.values(c.tokens).filter((t) => !t.dead);
+  const byId = toks.find((t) => t.characterId === ref || t.npcId === ref || t.combatantId === ref);
+  if (byId) return byId;
+  const r = norm(ref);
+  if (!r) return null;
+  const ch = partyCharacters(c).find((p) => norm(p.name) === r || norm(p.name).split(' ')[0] === r);
+  if (ch) return toks.find((t) => t.characterId === ch.id) || null;
+  const npc = Object.values(c.npcs || {}).find((n) => norm(n.name) === r || n.id === ref);
+  if (npc) return toks.find((t) => t.npcId === npc.id) || null;
+  return toks.find((t) => norm(t.name) === r) || toks.find((t) => norm(t.name).split(' ')[0] === r) || toks.find((t) => norm(t.name).includes(r)) || null;
+}
+
+/** Where "text" points: "x,y", or the name of a token or prop on the map. */
+function destination(c, map, text, mover) {
+  const m = /^\s*\(?\s*(-?\d+)\s*,\s*(-?\d+)\s*\)?\s*$/.exec(String(text || ''));
+  if (m) return { x: Number(m[1]), y: Number(m[2]) };
+  const r = norm(String(text || '').replace(/^(next to|near|beside|by|to|at)\s+/i, ''));
+  if (!r) return null;
+  const tok = findToken(c, r);
+  if (tok && tok !== mover) return { x: tok.x, y: tok.y, near: true };
+  const o = (map.objects || []).find((x) => norm(x.label).startsWith(r) || norm(x.label).includes(r) || norm(x.kind.replace(/_/g, ' ')) === r);
+  if (o) return { x: o.x + Math.floor(((o.w || 1) - 1) / 2), y: o.y + Math.floor(((o.h || 1) - 1) / 2), near: true };
+  return null;
+}
+
+/** The open cell nearest to (x, y) that a creature of this size can stand in. */
+function nearestOpen(c, map, x, y, tok, { avoidExact = false } = {}) {
+  const size = tok?.size || 1;
+  const fits = (cx, cy) => {
+    for (let dx = 0; dx < size; dx++) for (let dy = 0; dy < size; dy++) {
+      if (!Number.isFinite(cellCost(map, cx + dx, cy + dy))) return false;
+      if (occupiedBy(c, cx + dx, cy + dy, tok?.id)) return false;
+    }
+    return true;
+  };
+  for (let r = avoidExact ? 1 : 0; r <= Math.max(map.w, map.h); r++) {
+    const ring = [];
+    for (let dx = -r; dx <= r; dx++) for (let dy = -r; dy <= r; dy++) {
+      if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
+      ring.push([x + dx, y + dy]);
+    }
+    ring.sort((a, b) => Math.hypot(a[0] - x, a[1] - y) - Math.hypot(b[0] - x, b[1] - y));
+    const hit = ring.find(([cx, cy]) => fits(cx, cy));
+    if (hit) return { x: hit[0], y: hit[1] };
+  }
+  return null;
+}
+
+function placeToken(c, map, tok, dest) {
+  const spot = nearestOpen(c, map, dest.x, dest.y, tok, { avoidExact: !!dest.near });
+  if (!spot) return null;
+  const res = findPath(map, { x: tok.x, y: tok.y }, spot, { size: tok.size || 1 });
+  if (res) openDoorsOnPath(map, res.path);
+  tok.x = spot.x;
+  tok.y = spot.y;
+  return spot;
+}
+
+/**
+ * The DM's move_token effect: put a character, NPC or enemy where the story says (target "party" moves every player
+ * character together). An NPC without a token is placed on the map. Returns the moves made.
+ */
+export function dmMoveToken(c, ref, text) {
+  const map = c.maps.tactical[c.combat?.mapId || c.scene.tacticalMapId];
+  if (!map) return [];
+  const isParty = /^(party|all|everyone|the party)$/i.test(String(ref || '').trim());
+  let toks = isParty ? Object.values(c.tokens).filter((t) => t.kind === 'pc' && !t.dead) : [findToken(c, ref)].filter(Boolean);
+  if (!toks.length && !isParty) {
+    const npc = c.npcs?.[ref] || Object.values(c.npcs || {}).find((n) => norm(n.name) === norm(ref));
+    if (npc && npc.status !== 'dead') {
+      const start = destination(c, map, text, null) || { x: Math.floor(map.w / 2), y: Math.floor(map.h / 2) };
+      const spot = nearestOpen(c, map, start.x, start.y, null, { avoidExact: !!start.near });
+      if (!spot) return [];
+      const t = E.addToken(c, { kind: npc.ally ? 'ally' : 'npc', name: npc.name, npcId: npc.id, color: npc.color, x: spot.x, y: spot.y });
+      updateReveals(c);
+      return [{ name: t.name, x: t.x, y: t.y, placed: true }];
+    }
+    return [];
+  }
+  const dest = destination(c, map, text, toks.length === 1 ? toks[0] : null);
+  if (!dest) return [];
+  // closest first, so a group arrives in a sensible cluster
+  toks = toks.sort((a, b) => Math.hypot(a.x - dest.x, a.y - dest.y) - Math.hypot(b.x - dest.x, b.y - dest.y));
+  const moved = [];
+  for (const t of toks) {
+    const spot = placeToken(c, map, t, dest);
+    if (spot) {
+      moved.push({ name: t.name, x: spot.x, y: spot.y });
+      if (c.combat) c.combat.events.push(`${t.name} is moved to (${spot.x},${spot.y}).`);
+    }
+  }
+  if (moved.length) updateReveals(c);
+  return moved;
 }
 
 export function moveInCombat(c, userId, tok, x, y) {

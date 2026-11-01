@@ -9,11 +9,15 @@ import { onlineUsers, requiredUsers, actingUsers, joinLevel } from './engine.js'
 import { aiStatus, PRICES } from '../ai/client.js';
 
 export function logVisibleTo(c, entry, userId) {
-  // a player's declared action is theirs alone: the others hear about it at the table, or through the DM's narration
+  // declared actions are shared with the whole table when the round resolves; a Private one stays with its player
+  // (and the DM). Actions logged before that change were addressed to their player only, and stay that way.
   if (entry.kind === 'action') {
     if (entry.userId === userId) return true;
-    const m = member(c, userId);
-    return m?.role === 'owner' && !!c.settings.dmView;
+    if (entry.private || entry.to !== 'all') {
+      const m = member(c, userId);
+      return m?.role === 'owner' && !!c.settings.dmView;
+    }
+    return true;
   }
   if (entry.to === 'all' || !entry.to) return true;
   if (Array.isArray(entry.to)) {

@@ -671,6 +671,7 @@ function applyEffect(c, e) {
     case 'give_map': giveMap(c, e.mapId, e.target || 'party'); break;
     case 'discover_location': discoverLocation(c, e.mapId, e.locationId, e.target || 'party'); break;
     case 'move_party': moveParty(c, e.mapId || c.scene.areaMapId, e.locationId); break;
+    case 'move_token': combat.dmMoveToken(c, e.target, e.text); break;
     case 'reveal_token': case 'hide_token': case 'remove_token': {
       const t = c.tokens[e.target] || Object.values(c.tokens).find((x) => x.combatantId === e.target || x.npcId === e.target || x.name.toLowerCase() === String(e.target).toLowerCase());
       if (!t) break;
@@ -860,10 +861,10 @@ function resolveActions(c) {
     const text = cast.length ? `${a.text}\n[Already cast through the app this round (any spell slot is already spent${cast.some((x) => x.heal) ? ', healing already applied' : ''}) - do not spend_slot for these: ${cast.map((x) => x.label).join(', ')}]` : a.text;
     acts.push({ name: ch.name, characterId: ch.id, text, private: a.private, userId: uid, revised: revised.includes(uid) });
     // an action kept from a round that paused for someone else's question is already in the log
-    if (!a.logged) addLog(c, { kind: 'action', userId: uid, characterId: ch.id, name: ch.name, text: a.text, private: a.private, to: [uid] });
+    if (!a.logged) addLog(c, { kind: 'action', userId: uid, characterId: ch.id, name: ch.name, text: a.text, private: a.private, to: a.private ? [uid] : 'all' });
   }
   const text = acts.map((a) => `${a.name} (${a.characterId})${a.private ? ' [PRIVATE - only this player knows]' : ''}${a.revised ? ' [REVISED after you asked them to fit it into one turn - do not ask them again]' : ''}: ${a.text}`).join('\n') +
-    '\n\nResolve these actions together in one narration. Give each character their own perception. Ask for rolls where outcomes are uncertain. If any character declared more than their turn allows (and has not already revised), use "clarify" for them instead of resolving anything.';
+    '\n\nResolve these actions together as one shared narration for the whole table (private segments only where something truly cannot be shared; a PRIVATE action that could not logically go unnoticed happens in the open). Move tokens on the battle map to match where people go. Ask for rolls where outcomes are uncertain. If any character declared more than their turn allows (and has not already revised), use "clarify" for them instead of resolving anything.';
   c.round.actions = {};
   c.round.casts = {};
   // prepared spells can change only in the round right after a long rest
@@ -1094,7 +1095,7 @@ function resolveRolls(c) {
   const reqs = c.round.rollRequests.filter((x) => x.purpose === 'turn');
   const lines = reqs.map((r) => `${r.characterName} (${r.characterId}) ${rollLabel(r)}${r.reason ? ` [${r.reason}]` : ''}: total ${r.result.total}${r.result.natural ? ` (natural ${r.result.natural})` : ''}${r.dc ? ` vs DC ${r.dc} -> ${r.success ? 'SUCCESS' : 'FAILURE'}` : ''}${r.result.manual ? ' (rolled at the table)' : ''}`);
   c.round.rollRequests = [];
-  runTurn(c, { kind: 'rolls', rollsText: lines, text: `Roll results for the checks you asked for:\n${lines.join('\n')}\n\nNarrate the outcomes (each character's own perception), then move the scene on.` });
+  runTurn(c, { kind: 'rolls', rollsText: lines, text: `Roll results for the checks you asked for:\n${lines.join('\n')}\n\nNarrate the outcomes for the whole table (privately only for secret rolls or things only that character could perceive), then move the scene on.` });
 }
 
 /** A roll a player makes from their sheet. If it matches a pending request, it answers the request. */
@@ -1169,7 +1170,7 @@ export function startSession(c) {
     }
     runTurn(c, {
       kind: 'opening',
-      text: `This is the very first session. Open the campaign: set the scene at the starting location (${c.scene.location || 'see world bible'}) with the opening hook ("${c.world.openingHook}"). Introduce each PRESENT character in their own segment with a personal, sensory moment that ties to their backstory, then bring them together and end on a hook that invites action. Lay the scene out on a battle map ("sceneMap") if positions could matter. Mention which local maps exist only through the fiction (e.g. a cartographer's stall), don't hand them out.`,
+      text: `This is the very first session. Open the campaign: set the scene at the starting location (${c.scene.location || 'see world bible'}) with the opening hook ("${c.world.openingHook}"). Introduce each PRESENT character in the shared narration with a personal, sensory moment that ties to their backstory (everyone hears everyone's introduction), then bring them together and end on a hook that invites action. Lay the scene out on a battle map ("sceneMap") if positions could matter. Mention which local maps exist only through the fiction (e.g. a cartographer's stall), don't hand them out.`,
     });
   } else {
     const last = c.sessions[c.sessions.length - 2];

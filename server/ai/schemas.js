@@ -13,7 +13,7 @@ const obj = (properties) => ({ type: 'object', properties, required: Object.keys
 export const EFFECT_TYPES = [
   'damage', 'heal', 'temp_hp', 'condition_add', 'condition_remove', 'item_add', 'item_remove', 'gold',
   'xp', 'level_up', 'rest_short', 'rest_long', 'hit_dice', 'inspiration', 'spend_slot', 'spend_resource',
-  'give_map', 'discover_location', 'move_party', 'reveal_token', 'hide_token', 'remove_token',
+  'give_map', 'discover_location', 'move_party', 'move_token', 'reveal_token', 'hide_token', 'remove_token',
   'door_open', 'door_close', 'door_lock', 'door_unlock', 'ambient', 'exhaustion', 'npc_join_party', 'npc_leave_party',
 ];
 

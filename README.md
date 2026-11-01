@@ -1,8 +1,8 @@
 # 🎲 Roleplay20
 
 A private virtual tabletop for Dungeons & Dragons 5e where **Claude is the Dungeon Master**. Think Roll20, but the DM
-builds the world, voices every NPC, runs the monsters and narrates a different, private story to each player based on
-what their character can actually see, hear and notice.
+builds the world, voices every NPC, runs the monsters and narrates one shared story for the whole table, keeping a
+moment private only when it really is (a secret roll, a whisper, a character off on their own).
 
 **Play:** https://josephjackman.com/roleplay20 (password protected; the game server runs around the clock on Fly.io)
 
@@ -37,8 +37,10 @@ what their character can actually see, hear and notice.
   an optional farewell. Their story stays: the journal, the logs and the DM remember them, and the Party panel lists
   former members. A hero who dies must be laid to rest the same way. The new character is built at the party's level
   (with matching XP), and the next session waits until they're ready.
-- **Private perception.** The DM writes separate narration for each character. The rogue who passed the Perception check
-  hears the whisper; the others don't. Private actions stay private.
+- **One shared story.** Everyone sees what everyone declares and what happens, addressed by name in one narration.
+  The DM writes a private line only when it makes sense: a secret roll, a language only one character speaks, someone
+  in another room, or an action a player marks Private that their character could actually do unnoticed. A "private"
+  shout or sword swing still happens in plain view.
 - **Everyone acts, then the DM narrates.** Each player writes what they do and presses Ready. When everyone is
   ready, the DM resolves all actions together, asks for rolls where the outcome is uncertain, and narrates. If someone
   declares more than one turn holds (three attacks and a sprint), the DM doesn't pick for them: it privately tells that
@@ -47,6 +49,9 @@ what their character can actually see, hear and notice.
   **Begin session**. If anyone drops off, the game pauses until they're back. Between sessions (or while paused)
   everyone can still read their sheet, maps, handouts and the journal, and chat.
 - **Your dice or ours.** Every roll request has "Roll for me" or a box to type what your real d20 showed.
+- **Type or talk.** Your action and table talk each have a 🎤 button for voice typing (Chrome, Edge and Safari): speak
+  and your words appear in the box, ready to edit. Switching between the two keeps both drafts, and each box only sends
+  its own text.
 - **Voices.** The story is read aloud with the browser's built-in voices. Every NPC keeps their own voice (gender, age,
   accent, pitch, speed) for the whole campaign - the old lady always sounds like the old lady. Best in Microsoft Edge.
 - **Maps.** Town and region maps appear as you discover places; the full map must be found, bought or given in the story.
@@ -54,7 +59,8 @@ what their character can actually see, hear and notice.
   away so the story can use the whole screen.
   Battle maps are generated for scenes and fights with **dynamic lighting and fog of war**: each player sees only what
   their character can see (darkvision, torches, walls, doors). Hidden enemies stay invisible to a player until that
-  character notices them - one player may see the goblin while another doesn't.
+  character notices them - one player may see the goblin while another doesn't. When the story moves people (the party
+  climbs to the balcony, an NPC walks in, an enemy creeps out of the dark), the DM moves their tokens to match.
 - **Clean combat.** Initiative, turn order, movement limited by speed and terrain, attacks and spells against real AC and
   saving throws, area templates (cones, spheres, lines) that hit everyone inside - friends too - concentration, death
   saves, advantage from conditions and lighting, Sneak Attack, Divine Smite, Rage. Claude plays the monsters with tactics
@@ -101,7 +107,7 @@ The gate page asks the address in `server.json` first, so the server can move (a
 changing the website. `TUNNEL=auto npm start` still hosts from a PC through a free Cloudflare tunnel for testing, but
 it publishes that PC's address, so the website stops using the cloud server until `npm run cloud-setup` runs again.
 
-Players only ever see their own declared actions; everyone else learns what you did from the table or the DM's narration.
+Everyone sees each declared action when the round resolves, except actions marked Private (only that player and the DM).
 
 ### Why an API key and not the Claude subscription
 

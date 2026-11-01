@@ -270,3 +270,10 @@
 .read-aloud { white-space: nowrap; }
 .read-aloud.active { color: var(--gold-2, #e8c06a); border-color: var(--gold, #d9a441); }
 span.read-aloud { display: inline-flex; align-items: center; cursor: pointer; }
+
+/* composer: voice typing and unsent-draft markers */
+.mic-btn { flex: none; min-width: 38px; }
+.mic-btn.listening { background: var(--red-dim, #5a2420); border-color: #b8524a; color: #ffd9d4; animation: glowPulse 1.4s infinite; }
+.dictating { color: var(--text-2, #ddd); padding: 2px 4px; }
+.dictating i { color: var(--gold-2, #f2c76e); }
+.draft-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--gold, #d9a441); margin-left: 6px; vertical-align: middle; }

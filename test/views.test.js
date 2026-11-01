@@ -11,10 +11,17 @@ const { logVisibleTo } = await import('../server/game/views.js');
 
 const c = { members: [{ userId: 'host', role: 'owner' }, { userId: 'p2', role: 'player' }], settings: { dmView: false } };
 
-test("a player's declared action is visible only to that player", () => {
+test('declared actions are shared with the whole table', () => {
   const e = { kind: 'action', userId: 'p2', to: 'all', text: 'I drink the water' };
   assert.equal(logVisibleTo(c, e, 'p2'), true);
-  assert.equal(logVisibleTo(c, e, 'host'), false);
+  assert.equal(logVisibleTo(c, e, 'host'), true);
+});
+
+test('a Private action stays with its player (and older actions keep their audience)', () => {
+  const priv = { kind: 'action', userId: 'p2', to: ['p2'], private: true, text: 'I pocket the disc' };
+  assert.equal(logVisibleTo(c, priv, 'p2'), true);
+  assert.equal(logVisibleTo(c, priv, 'host'), false);
+  assert.equal(logVisibleTo(c, { kind: 'action', userId: 'p2', to: ['p2'], text: 'from before' }, 'host'), false);
 });
 
 test('the host sees everything only in spoiler god view', () => {

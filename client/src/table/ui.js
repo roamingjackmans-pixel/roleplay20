@@ -16,6 +16,14 @@ export const useUI = create((set, get) => ({
   rollMode: (() => { try { return localStorage.getItem('rp20.rollMode') || 'auto'; } catch { return 'auto'; } })(),
   damagePrompt: null,
   dmOpen: false,
+  // unsent text per campaign: { [campaignId]: { action, priv, chat } }. Switching between "Your action" and
+  // "Table talk" keeps both; each box only sends its own text. Kept for this tab across reloads.
+  drafts: (() => { try { return JSON.parse(sessionStorage.getItem('rp20.drafts') || '{}'); } catch { return {}; } })(),
+  setDraft: (cid, patch) => set((s) => {
+    const drafts = { ...s.drafts, [cid]: { ...(s.drafts[cid] || {}), ...patch } };
+    try { sessionStorage.setItem('rp20.drafts', JSON.stringify(drafts)); } catch { /* private mode */ }
+    return { drafts };
+  }),
   setPanel: (tab) => set((s) => ({ panelTab: tab, panelOpen: s.panelTab === tab ? !s.panelOpen || true : true })),
   togglePanel: () => set((s) => ({ panelOpen: !s.panelOpen })),
   set: (patch) => set(patch),
