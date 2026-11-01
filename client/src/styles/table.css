@@ -286,3 +286,8 @@ span.read-aloud { display: inline-flex; align-items: center; cursor: pointer; }
 .map-tools-overlay .btn.icon { width: 36px; height: 36px; }
 .rp-map-area.pinging svg, .rp-map-area.pinging .rp-map-area-loc { cursor: crosshair; }
 @media (max-width: 700px) { .map-tools-overlay { top: 6px; right: 6px; gap: 3px; padding: 3px; } .map-tools-overlay .btn.icon { width: 32px; height: 32px; } }
+.map-tools-overlay .map-hide { font-size: 22px; font-weight: 700; line-height: 1; margin-left: 6px; }
+.map-picker { gap: 8px; overflow: visible; }
+.map-picker-icon { font-size: 16px; flex: none; }
+.map-select { width: auto; max-width: min(420px, 100%); min-width: 0; flex: 0 1 auto; padding-top: 5px; padding-bottom: 5px; font-weight: 600; }
+.map-picker-note { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }

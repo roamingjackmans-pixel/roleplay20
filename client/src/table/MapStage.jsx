@@ -81,17 +81,29 @@ export default function MapStage() {
     );
   }
 
+  const hideBtn = <button className="btn icon map-hide" title="Hide map" aria-label="Hide map" onClick={() => ui.setMapCollapsed(true)}>−</button>;
+
   return (
     <div className="map-stage">
-      <div className="map-tabs">
-        <button className="btn sm ghost map-hide" onClick={() => ui.setMapCollapsed(true)} title="Minimize the map so the story can use the whole screen">— Hide map</button>
-        {tac && <button className={`btn sm ${tab === 'tactical' ? 'active' : ''}`} onClick={() => ui.set({ mapTab: 'tactical' })}>⚔ {tac.map.name}</button>}
-        {areas.map((a) => (
-          <button key={a.map.id} className={`btn sm ${tab === 'area' && area?.map.id === a.map.id ? 'active' : ''}`} onClick={() => ui.set({ mapTab: 'area', areaMapId: a.map.id })} title={a.knowledge.owned ? 'You have this map' : 'You only know the places you have found'}>
-            🗺 {a.map.name}{!a.knowledge.owned ? ' (sketch)' : ''}
-          </button>
-        ))}
-      </div>
+      {(tac || areas.length > 0) && (
+        // one dropdown for every map, so fifty maps fit as easily as two
+        <div className="map-tabs map-picker">
+          <select className="select map-select" aria-label="Choose a map" value={tab === 'tactical' ? 'tactical' : `area:${area?.map.id}`}
+            onChange={(e) => (e.target.value === 'tactical' ? ui.set({ mapTab: 'tactical' }) : ui.set({ mapTab: 'area', areaMapId: e.target.value.slice(5) }))}>
+            {tac && <optgroup label="Battle map"><option value="tactical">⚔ {tac.map.name}</option></optgroup>}
+            {areas.length > 0 && (
+              <optgroup label={`Maps (${areas.length})`}>
+                {[...areas].sort((a, b) => a.map.name.localeCompare(b.map.name)).map((a) => (
+                  <option key={a.map.id} value={`area:${a.map.id}`}>
+                    🗺 {a.map.name}{a.map.id === view.scene.areaMapId ? ' · you are here' : ''}{!a.knowledge.owned ? ' (sketch)' : ''}
+                  </option>
+                ))}
+              </optgroup>
+            )}
+          </select>
+          {tab === 'area' && area && <span className="tiny muted map-picker-note">{area.knowledge.owned ? 'you have this map' : 'only the places you have found'}</span>}
+        </div>
+      )}
       {t && (
         <div className="targeting-banner">
           <span>🎯 {t.kind === 'attack' ? `Click an enemy to attack with ${t.attackName}` : template ? `Aim ${t.spell.name} (${templateLabel(template)}) - click to cast` : `Click a target for ${t.spell.name}`}</span>
@@ -107,6 +119,7 @@ export default function MapStage() {
             ))}
             {myTok && <button className="btn icon" title="Find my token" onClick={() => mapRef.current?.centerOn?.(myTok.id)}>◎</button>}
             <button className="btn icon" title="Fit the whole map" onClick={() => mapRef.current?.fit?.()}>⤢</button>
+            {hideBtn}
           </div>
         )}
         {tab === 'area' && area && (
@@ -116,6 +129,7 @@ export default function MapStage() {
             {area.knowledge.current && <button className="btn icon" title="Find where you are" onClick={() => areaRef.current?.centerOnCurrent?.()}>◎</button>}
             <button className="btn icon" title="Fit the whole map" onClick={() => areaRef.current?.fit?.()}>⤢</button>
             <button className="btn icon" title="Open this map full screen" onClick={() => ui.set({ viewMapId: area.map.id })}>⛶</button>
+            {hideBtn}
           </div>
         )}
         {tab === 'tactical' && tac && (
@@ -147,6 +161,7 @@ export default function MapStage() {
             {!area.knowledge.owned && <div className="area-note">You don't have a map of {area.map.name} - only the places you've found. Ask around town, buy one, or keep exploring.</div>}
           </div>
         )}
+        {!tac && !areas.length && <div className="map-tools-overlay">{hideBtn}</div>}
         {!tac && !areas.length && <EmptyStage />}
       </div>
     </div>
