@@ -1340,9 +1340,8 @@ async function runEnemyPhase(c, stretch) {
   if (c.settings.enemyTactics !== 'quick') {
     E.setThinking(c, 'combat', 'The enemies are deciding what to do…');
     try {
-      const res = await askClaude({ task: 'combat', system: COMBAT_CORE, cachedContext: cachedCampaignContext(c), prompt: combatPrompt(c, stretch), schema: COMBAT_SCHEMA, model: c.settings.model, effort: 'low', campaignId: c.id });
-      c.usage.calls += 1;
-      c.usage.costUsd = Math.round((c.usage.costUsd + (res.costUsd || 0)) * 1e6) / 1e6;
+      const res = await askClaude({ task: 'combat', system: COMBAT_CORE, cachedContext: cachedCampaignContext(c), prompt: combatPrompt(c, stretch), schema: COMBAT_SCHEMA, ...E.dmBrain(c), campaignId: c.id });
+      E.trackUsage(c, res);
       plan = res.data;
     } catch (e) {
       if (!(e instanceof NoAIError)) console.error('[combat ai]', e.message);

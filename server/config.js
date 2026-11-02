@@ -45,7 +45,7 @@ export const config = {
   // or "off" (no AI: the campaign owner narrates by hand from the DM screen).
   aiProvider: env.AI_PROVIDER || (env.ANTHROPIC_API_KEY ? 'api' : 'off'),
   anthropicKey: env.ANTHROPIC_API_KEY || '',
-  defaultModel: env.DM_MODEL || 'claude-fable-5-1',
+  defaultModel: env.DM_MODEL || 'claude-opus-5-5',
   defaultEffort: env.DM_EFFORT || 'medium',
   // Fable is slower than Opus or Sonnet; world building at high effort can take several minutes.
   aiTimeoutMs: num(env.AI_TIMEOUT_SECONDS, 360) * 1000,

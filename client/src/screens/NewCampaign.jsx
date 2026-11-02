@@ -16,7 +16,7 @@ export default function NewCampaign() {
   const go = useStore((s) => s.go);
   const [f, setF] = useState({
     name: '', tone: ['heroic', 'mystery'], inspiration: '', premise: '', magicLevel: 'in between', lethality: 'balanced', shape: 'short season',
-    startLevel: 1, pacing: 'balanced', lines: '', veils: '', model: 'claude-fable-5-1',
+    startLevel: 1, pacing: 'balanced', lines: '', veils: '', model: 'claude-opus-5-5',
   });
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
@@ -66,8 +66,8 @@ export default function NewCampaign() {
               </label>
               <label className="field grow" style={{ minWidth: 260 }}><span>Dungeon Master brain</span>
                 <select className="select" value={f.model} onChange={(e) => set('model', e.target.value)}>
-                  <option value="claude-fable-5-1">Claude Fable 5.1 - deepest storytelling (default)</option>
-                  <option value="claude-opus-5-5">Claude Opus 5.5 - rich storytelling, under half the cost</option>
+                  <option value="claude-opus-5-5">Claude Opus 5.5 - rich storytelling (recommended)</option>
+                  <option value="claude-fable-5-1">Claude Fable 5.1 - deepest storytelling, slowest, 2.5x the cost</option>
                   <option value="claude-sonnet-5-5">Claude Sonnet 5.5 - faster, a fifth of the cost</option>
                   <option value="claude-haiku-5-5">Claude Haiku 5.5 - quickest and cheapest</option>
                 </select>

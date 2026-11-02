@@ -3,7 +3,8 @@
 import { randomId } from '../security.js';
 import { getUser } from '../auth.js';
 import { srd } from '../srd.js';
-import { askClaude, NoAIError, aiStatus } from '../ai/client.js';
+import { askClaude, NoAIError, aiStatus, MODELS, EFFORTS } from '../ai/client.js';
+import { config } from '../config.js';
 import { DM_CORE, GENESIS_CORE, SESSION_END_CORE, CHARACTER_ASSIST_CORE } from '../ai/prompts.js';
 import { TURN_SCHEMA, GENESIS_SCHEMA, SESSION_END_SCHEMA, CHARACTER_ASSIST_SCHEMA } from '../ai/schemas.js';
 import { saveCampaign, getCharacter, saveCharacter, partyCharacters, characterOwner, member } from './campaign.js';
@@ -342,7 +343,32 @@ function resourceKey(ch, ref) {
 const clampNum = (v, lo, hi, d) => (Number.isFinite(+v) ? Math.min(hi, Math.max(lo, +v)) : d);
 const slug = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '').slice(0, 40);
 
-function trackUsage(c, res) {
+/**
+ * The campaign's DM brain: the model and thinking effort the host picked in the DM Screen (or the server's defaults).
+ * Every AI call for the campaign uses it: story turns, enemy turns, session write-ups, world building, character help.
+ */
+export function dmBrain(c) {
+  return {
+    model: MODELS.includes(c?.settings?.model) ? c.settings.model : config.defaultModel,
+    effort: EFFORTS.includes(c?.settings?.effort) ? c.settings.effort : config.defaultEffort,
+  };
+}
+
+/** The host changes the brain in the DM Screen; it applies from the very next AI reply. */
+export function setDmBrain(c, { model, effort } = {}) {
+  if (model !== undefined && !MODELS.includes(model)) return { error: 'That brain is not available.' };
+  if (effort !== undefined && !EFFORTS.includes(effort)) return { error: 'Thinking effort is low, medium or high.' };
+  if (model !== undefined) c.settings.model = model;
+  if (effort !== undefined) c.settings.effort = effort;
+  return { ok: true, brain: dmBrain(c) };
+}
+
+export function trackUsage(c, res) {
+  // which model actually answered (a refusal fallback can hand a reply to another model) and for what
+  c.usage.lastModel = res.model || res.modelUsed || null;
+  c.usage.lastAsked = res.modelUsed || null;
+  c.usage.lastTask = res.task || null;
+  c.usage.lastAt = Date.now();
   c.usage.calls += 1;
   c.usage.costUsd = Math.round((c.usage.costUsd + (res.costUsd || 0)) * 1e6) / 1e6;
   c.usage.inputTokens += (res.usage?.input_tokens || 0) + (res.usage?.cache_creation_input_tokens || 0);
@@ -1163,7 +1189,7 @@ export async function runTurn(c, input) {
   try {
     const res = await askClaude({
       task: 'turn', system: DM_CORE, cachedContext: cachedCampaignContext(c), prompt: turnPrompt(c, input, onlineUsers(c)),
-      schema: TURN_SCHEMA, model: c.settings.model, effort: c.settings.effort, campaignId: c.id,
+      schema: TURN_SCHEMA, ...dmBrain(c), campaignId: c.id,
     });
     trackUsage(c, res);
     c.thinking = null;
@@ -1494,7 +1520,7 @@ export async function endSession(c) {
       `# CURRENT STORY-SO-FAR RECAP (rewrite it to include this session)\n${c.world.storySoFar || '(none yet)'}`,
       historyBlock({ ...c, chronicle: { summary: c.chronicle.summary, turns: c.chronicle.turns.filter((t) => t.at >= sess.startedAt) } }),
     ].join('\n\n');
-    const res = await askClaude({ task: 'session_end', system: SESSION_END_CORE, cachedContext: cachedCampaignContext(c), prompt, schema: SESSION_END_SCHEMA, model: c.settings.model, effort: 'medium', campaignId: c.id });
+    const res = await askClaude({ task: 'session_end', system: SESSION_END_CORE, cachedContext: cachedCampaignContext(c), prompt, schema: SESSION_END_SCHEMA, ...dmBrain(c), campaignId: c.id });
     trackUsage(c, res);
     const d = res.data;
     sess.logEntry = d.campaignLogEntry || '';
@@ -1539,7 +1565,7 @@ export async function runGenesis(c) {
     `Number of players expected: ${Math.max(1, c.members.length)}-${Math.max(4, c.members.length)}`,
   ].join('\n');
   try {
-    const res = await askClaude({ task: 'genesis', system: GENESIS_CORE, prompt: `# THE GROUP'S BRIEF\n${brief}`, schema: GENESIS_SCHEMA, model: c.settings.model, effort: 'high', maxTokens: 32000, campaignId: c.id });
+    const res = await askClaude({ task: 'genesis', system: GENESIS_CORE, prompt: `# THE GROUP'S BRIEF\n${brief}`, schema: GENESIS_SCHEMA, ...dmBrain(c), maxTokens: 32000, campaignId: c.id });
     trackUsage(c, res);
     applyGenesis(c, res.data);
   } catch (e) {
@@ -1581,7 +1607,7 @@ export async function characterAssist(c, userId, p) {
     `# THE PLAYER'S CHOICES SO FAR\n${JSON.stringify(p, null, 1).slice(0, 3000)}`,
     `# OTHER CHARACTERS IN THE PARTY\n${partyCharacters(c).map((ch) => `- ${ch.name}, ${ch.race} ${ch.class}: ${String(ch.backstory || '').slice(0, 200)}`).join('\n') || '(none yet)'}`,
   ].filter(Boolean).join('\n\n');
-  const res = await askClaude({ task: 'character', system: CHARACTER_ASSIST_CORE, cachedContext: c.world.secrets ? `# DM SECRETS (use only to plant a hook, never reveal)\n${c.world.secrets}` : '', prompt, schema: CHARACTER_ASSIST_SCHEMA, model: c.settings.model, effort: 'low', campaignId: c.id });
+  const res = await askClaude({ task: 'character', system: CHARACTER_ASSIST_CORE, cachedContext: c.world.secrets ? `# DM SECRETS (use only to plant a hook, never reveal)\n${c.world.secrets}` : '', prompt, schema: CHARACTER_ASSIST_SCHEMA, ...dmBrain(c), campaignId: c.id });
   trackUsage(c, res);
   if (res.data.secretHook) c.world.dmNotes.push(`Character hook (${p.name || 'new character'}): ${res.data.secretHook}`);
   saveCampaign(c);

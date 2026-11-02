@@ -5,7 +5,7 @@ import { getCharacter, partyCharacters, characterOwner, member } from './campaig
 import { computeLight, computeVisibility, encodeCells } from './vision.js';
 import { safeDerive } from './context.js';
 import * as combat from './combat.js';
-import { onlineUsers, requiredUsers, roundNeeds, joinLevel, partyWhereabouts } from './engine.js';
+import { onlineUsers, requiredUsers, roundNeeds, joinLevel, partyWhereabouts, dmBrain } from './engine.js';
 import { aiStatus, PRICES } from '../ai/client.js';
 
 export function logVisibleTo(c, entry, userId) {
@@ -233,7 +233,7 @@ export function buildView(c, userId, cache = {}) {
     },
     notes: c.notes[userId] || '',
     notesAt: c.notesAt?.[userId] || 0,
-    ai: { ...aiStatus(), usage: isOwner ? { ...c.usage } : null, models: Object.entries(PRICES).map(([id, p]) => ({ id, label: p.label })) },
+    ai: { ...aiStatus(), brain: dmBrain(c), usage: isOwner ? { ...c.usage } : null, models: Object.entries(PRICES).map(([id, p]) => ({ id, label: p.label })) },
     canRetry: c.phase === 'failed' || c.combat?.state === 'enemy_failed',
   };
   if (isOwner && c.settings.dmView) {

@@ -15,6 +15,13 @@ export default function DMScreen() {
   const u = view.ai.usage || {};
   const set = (patch) => emit('dm:settings', patch);
   const close = () => ui.set({ dmOpen: false });
+  // the brain every AI call in this campaign uses, as the server sees it
+  const brain = view.ai.brain || { model: s.model, effort: s.effort };
+  const modelName = (id) => (view.ai.models.find((m) => m.id === id)?.label || id || '').replace(/\s*\(.*\)\s*$/, '');
+  const setBrain = async (patch) => {
+    const r = await emit('dm:settings', patch);
+    if (r?.ok && r.brain) useStore.getState().toast(`The DM now uses ${modelName(r.brain.model)} at ${r.brain.effort} effort, from the very next reply.`, 'good');
+  };
   return (
     <Modal title="🎭 Dungeon Master's Screen" onClose={close} wide>
       <div className="dm-grid">
@@ -24,11 +31,21 @@ export default function DMScreen() {
             {view.ai.configured ? <>● Connected ({view.ai.provider})</> : <>○ Not connected. Add <code>ANTHROPIC_API_KEY</code> to the server's <code>.env</code> and restart it.</>}
           </div>
           <label className="field"><span>Brain</span>
-            <select className="select" value={s.model} onChange={(e) => set({ model: e.target.value })}>{view.ai.models.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}</select>
+            <select className="select" value={brain.model} onChange={(e) => setBrain({ model: e.target.value })}>{view.ai.models.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}</select>
           </label>
           <label className="field"><span>Thinking effort</span>
-            <div className="tabs">{['low', 'medium', 'high'].map((e) => <button key={e} className={s.effort === e ? 'on' : ''} onClick={() => set({ effort: e })}>{e}</button>)}</div>
+            <div className="tabs">{['low', 'medium', 'high'].map((e) => <button key={e} className={brain.effort === e ? 'on' : ''} onClick={() => setBrain({ effort: e })}>{e}</button>)}</div>
           </label>
+          <div className="tiny muted">Every AI call in this campaign uses this brain: the story, enemy turns, session write-ups and character help.</div>
+          {u.lastModel && (
+            <div className="tiny brain-last">
+              Last reply came from <b>{modelName(u.lastModel)}</b>
+              {u.lastTask ? ` (${{ turn: 'the story', combat: 'enemy turns', session_end: 'session write-up', genesis: 'world building', character: 'character help' }[u.lastTask] || u.lastTask})` : ''}
+              {u.lastAt ? `, ${new Date(u.lastAt).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}` : ''}
+              {u.lastAsked && u.lastAsked !== u.lastModel ? `, after ${modelName(u.lastAsked)} declined that request` : ''}
+              {u.lastModel !== brain.model && (!u.lastAsked || u.lastAsked === u.lastModel) ? `. That was before the switch to ${modelName(brain.model)}.` : '.'}
+            </div>
+          )}
           <label className="field"><span>Enemy tactics in combat</span>
             <div className="tabs"><button className={s.enemyTactics === 'ai' ? 'on' : ''} onClick={() => set({ enemyTactics: 'ai' })}>Claude plays them</button><button className={s.enemyTactics === 'quick' ? 'on' : ''} onClick={() => set({ enemyTactics: 'quick' })}>Quick (instant)</button></div>
           </label>

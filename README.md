@@ -169,12 +169,15 @@ turns) costs about:
 
 | DM model | per session | notes |
 |---|---|---|
-| Claude Fable 5.1 (default, medium effort) | ~$8 to $15 | deepest narration and NPCs, slowest replies |
-| Claude Opus 5.5 | ~$3 to $6 | rich narration and NPCs |
+| Claude Opus 5.5 (default, medium effort) | ~$3 to $6 | rich narration and NPCs |
+| Claude Fable 5.1 | ~$8 to $15 | deepest narration and NPCs, slowest replies |
 | Claude Sonnet 5.5 | ~$1.50 to $3 | faster replies, very good storytelling |
 | Claude Haiku 5.5 | ~$0.10 to $0.30 | quickest and cheapest, simpler prose |
 
-Building a new world is a one-off ~$0.30 on Opus (~$0.75 on Fable). Switch models any time on the DM Screen; it shows the running cost.
+Building a new world is a one-off ~$0.30 on Opus (~$0.75 on Fable). Each campaign's **Brain** and **Thinking effort** on
+the DM Screen are what every AI call for that campaign uses (the story, enemy turns, session write-ups, world building and
+character help), from the very next reply. The screen also shows which model answered last and the running cost.
+`DM_MODEL` / `DM_EFFORT` only set the starting brain for new campaigns.
 
 ## Development
 

@@ -145,8 +145,9 @@ api.patch('/campaigns/:id/settings', (req, res) => {
   if (!c) return;
   const b = req.body || {};
   if (b.name) c.name = String(b.name).slice(0, 80);
-  for (const k of ['enemyTactics', 'autoReadAloud', 'dmView', 'effort', 'lines', 'veils', 'pacing']) if (b[k] !== undefined) c.settings[k] = b[k];
-  if (b.model && MODELS.includes(b.model)) c.settings.model = b.model;
+  const brain = E.setDmBrain(c, { model: b.model, effort: b.effort });
+  if (brain.error) return res.status(400).json(brain);
+  for (const k of ['enemyTactics', 'autoReadAloud', 'dmView', 'lines', 'veils', 'pacing']) if (b[k] !== undefined) c.settings[k] = b[k];
   if (typeof b.worldBible === 'string') c.world.bible = b.worldBible;
   E.pushViews(c);
   res.json({ ok: true, settings: c.settings });
@@ -426,10 +427,11 @@ io.on('connection', (socket) => {
   socket.on('dm:narrate', wrap((p) => need(true) || E.manualNarration(c, p)));
   socket.on('dm:settings', wrap((p) => {
     if (need(true)) return need(true);
-    for (const k of ['enemyTactics', 'autoReadAloud', 'dmView', 'effort']) if (p[k] !== undefined) c.settings[k] = p[k];
-    if (p.model && MODELS.includes(p.model)) c.settings.model = p.model;
+    const brain = E.setDmBrain(c, { model: p.model, effort: p.effort });
+    if (brain.error) return brain;
+    for (const k of ['enemyTactics', 'autoReadAloud', 'dmView']) if (p[k] !== undefined) c.settings[k] = p[k];
     E.pushViews(c);
-    return { ok: true };
+    return { ok: true, brain: brain.brain };
   }));
 });
 
