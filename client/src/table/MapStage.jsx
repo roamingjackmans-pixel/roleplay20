@@ -18,6 +18,7 @@ export default function MapStage() {
   const tab = ui.mapTab === 'area' || !tac ? (areas.length ? 'area' : 'tactical') : 'tactical';
   const area = areas.find((a) => a.map.id === ui.areaMapId) || areas.find((a) => a.map.id === view.scene.areaMapId) || areas[0];
   const myTok = tac?.tokens.find((t) => t.isMine);
+  const partyOnBattleMap = !!tac?.tokens.some((t) => t.kind === 'pc');
   const combat = view.combat;
 
   // follow the party: a freshly laid battle map, or a move onto another area map, comes to the front
@@ -100,12 +101,13 @@ export default function MapStage() {
         <div className="map-tabs map-picker">
           <select className="select map-select" aria-label="Choose a map" value={tab === 'tactical' ? 'tactical' : `area:${area?.map.id}`}
             onChange={(e) => (e.target.value === 'tactical' ? ui.set({ mapTab: 'tactical' }) : ui.set({ mapTab: 'area', areaMapId: e.target.value.slice(5) }))}>
-            {tac && <optgroup label="Battle map"><option value="tactical">⚔ {tac.map.name}</option></optgroup>}
+            {/* a green dot on every map the party is on: the battle map they stand on, the town, the region around it */}
+            {tac && <optgroup label="Battle map"><option value="tactical">{partyOnBattleMap ? '🟢 ' : ''}⚔ {tac.map.name}</option></optgroup>}
             {areas.length > 0 && (
               <optgroup label={`Maps (${areas.length})`}>
                 {[...areas].sort((a, b) => a.map.name.localeCompare(b.map.name)).map((a) => (
                   <option key={a.map.id} value={`area:${a.map.id}`}>
-                    🗺 {a.map.name}{a.map.id === view.scene.areaMapId ? ' · you are here' : ''}{!a.knowledge.owned ? ' (sketch)' : ''}
+                    {a.knowledge.current ? '🟢 ' : ''}🗺 {a.map.name}{a.map.id === view.scene.areaMapId ? ' · you are here' : ''}{!a.knowledge.owned ? ' (sketch)' : ''}
                   </option>
                 ))}
               </optgroup>

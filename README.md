@@ -79,7 +79,8 @@ moment private only when it really is (a secret roll, a whisper, a character off
 - **Maps.** Town and region maps appear as you discover places; the full map must be found, bought or given in the story.
   Everyone sees the same drawing of a place; only the fog and which places are named depend on what you've found.
   Switch maps with the dropdown above the map (the battle map first, then every town and region map in alphabetical
-  order, however many there are). Open any map full screen from the Maps & handouts panel and pick a place to light it
+  order, however many there are). A green dot marks every map the party is on right now: the battle map they stand on,
+  the town they are in and the region around it. Open any map full screen from the Maps & handouts panel and pick a place to light it
   up. The "−" at the end of the map's corner tools (Hide map) folds the map
   away so the story can use the whole screen. Each map has its tools in its top corner: battle maps get select/move,
   measure, ping, find my token and fit; town and region maps get ping, find where you are, fit and full screen.
