@@ -73,10 +73,153 @@ export function joinXp(c, level) {
   return Math.max(xpForLevel(level), same.length ? Math.min(...same) : 0);
 }
 
-/** Players who aren't at the table right now. */
+/** Players who aren't at the table right now and that the host hasn't carried on without. The table waits for them. */
 export function missingPlayers(c) {
   const on = onlineUsers(c);
-  return requiredUsers(c).filter((u) => !on.has(u));
+  return requiredUsers(c).filter((u) => !on.has(u) && !member(c, u)?.away);
+}
+
+/**
+ * What happens with a player the host carried on without, while they're gone: { mode: 'out', reason } (the character
+ * sits the session out for the reason the host gave) or { mode: 'npc' } (the DM plays them like an NPC companion).
+ * null for anyone at the table.
+ */
+export function awayOf(c, userId) {
+  const m = member(c, userId);
+  return m?.away && !onlineUsers(c).has(userId) ? m.away : null;
+}
+export const awayMode = (c, userId) => awayOf(c, userId)?.mode || null;
+
+/** Players who are away right now (optionally only one mode). */
+export function awayUsers(c, mode = null) {
+  return requiredUsers(c).filter((u) => { const a = awayOf(c, u); return a && (!mode || a.mode === mode); });
+}
+
+/** The characters in the scene: the party minus anyone sitting this session out. */
+export function sceneParty(c) {
+  const out = new Set(awayUsers(c, 'out').map((u) => member(c, u)?.characterId));
+  return partyCharacters(c).filter((ch) => !out.has(ch.id));
+}
+
+const cleanReason = (s) => String(s || '').replace(/\s+/g, ' ').trim().slice(0, 200);
+function normalizeChoice(v) {
+  if (v === 'npc' || v?.mode === 'npc') return { mode: 'npc' };
+  if (v?.mode === 'out' && cleanReason(v.reason)) return { mode: 'out', reason: cleanReason(v.reason) };
+  return null;
+}
+
+/** Every missing player needs the host's choice (and a reason for anyone sitting out). Returns an error or the picks. */
+function awayChoices(c, choices) {
+  const picks = {};
+  for (const u of missingPlayers(c)) {
+    const raw = choices?.[u];
+    const pick = normalizeChoice(raw);
+    if (!pick) {
+      return { error: raw?.mode === 'out' ? `Say why ${awayCharName(c, u)} is sitting this one out.` : `Choose what happens with ${playerLabel(c, u)}: they sit this one out, or the DM plays them.` };
+    }
+    picks[u] = pick;
+  }
+  return { picks };
+}
+const awayCharName = (c, u) => getCharacter(member(c, u)?.characterId)?.name || getUser(u)?.displayName || 'them';
+
+function applyAway(c, picks, byUserId) {
+  const ids = Object.keys(picks);
+  if (!ids.length) return;
+  for (const u of ids) {
+    const m = member(c, u);
+    m.away = { ...picks[u], at: Date.now() };
+    (c.awayNews ||= []).push({ userId: u, ...picks[u] });
+    const ch = getCharacter(m.characterId);
+    if (picks[u].mode === 'out' && ch) takeOutOfScene(c, ch);
+  }
+  const host = getUser(byUserId)?.displayName || 'The host';
+  const what = ids.map((u) => (picks[u].mode === 'out' ? `${awayCharName(c, u)} sits this one out (${picks[u].reason})` : `the DM plays ${awayCharName(c, u)} until ${getUser(u)?.displayName || 'their player'} is back`));
+  system(c, `${host} carries on without ${listNames(ids.map((u) => getUser(u)?.displayName || 'a player'))}: ${listNames(what)}.`, 'all', { tone: 'info' });
+}
+
+/** A character sitting out leaves the scene: their chip comes off the battle map and they step out of any fight. */
+function takeOutOfScene(c, ch) {
+  const tok = tokenForCharacter(c, ch.id);
+  if (tok) delete c.tokens[tok.id];
+  const cb = c.combat && Object.values(c.combat.combatants).find((x) => x.characterId === ch.id);
+  if (cb) { cb.withdrawn = true; cb.tokenId = null; }
+}
+
+/** Put a party member on the current battle map near the party (a player coming back, a new character arriving). */
+export function placePartyToken(c, ch) {
+  const map = c.maps.tactical[c.scene.tacticalMapId];
+  if (!map || tokenForCharacter(c, ch.id)) return null;
+  const occupied = new Set(Object.values(c.tokens).map((t) => `${t.x},${t.y}`));
+  const pos = placeCreatures(map, [{ key: 'p', count: 1, size: 1, zone: 'party' }], { occupied }).p?.[0];
+  if (!pos) return null;
+  return addToken(c, { kind: 'pc', characterId: ch.id, name: ch.name, x: pos[0], y: pos[1], color: ch.color, img: ch.portrait, darkvision: ch.darkvision || 0, light: ch.light });
+}
+
+/** Mid-session, the host carries on without players who dropped off (the same choice as when beginning without them). */
+export function carryOnWithout(c, choices, byUserId) {
+  if (!c.sessionActive) return { error: 'No session is running.' };
+  if (!missingPlayers(c).length) return { error: 'Everyone is here.' };
+  const { picks, error } = awayChoices(c, choices);
+  if (error) return { error };
+  applyAway(c, picks, byUserId);
+  combat.onAwayChanged(c);
+  maybeResolve(c);
+  pushViews(c);
+  return { ok: true };
+}
+
+/** A player the host carried on without joins again: they take their character back (into the scene, if they sat out). */
+export function playerReturned(c, userId) {
+  const m = member(c, userId);
+  const was = m?.away;
+  if (!was) return;
+  m.away = null;
+  if (!c.sessionActive) return;
+  const ch = getCharacter(m.characterId);
+  if (!ch) return;
+  if (was.mode === 'out') {
+    const cb = c.combat && Object.values(c.combat.combatants).find((x) => x.characterId === ch.id);
+    const tok = placePartyToken(c, ch);
+    if (cb) { cb.withdrawn = false; if (tok) { cb.tokenId = tok.id; tok.combatantId = cb.id; } }
+  }
+  (c.awayNews ||= []).push({ userId, mode: 'back', wasOut: was.mode === 'out' });
+  system(c, `${getUser(userId)?.displayName || 'A player'} is back and plays ${ch.name} again.`, 'all', { tone: 'good' });
+}
+
+/** What the DM needs to know about players who left or came back since its last turn. */
+function awayNewsText(c, news) {
+  const lines = news.map((n) => {
+    const ch = getCharacter(member(c, n.userId)?.characterId);
+    const who = getUser(n.userId)?.displayName || 'Their player';
+    if (!ch) return null;
+    if (n.mode === 'out') return `- ${who} can't make it, so ${ch.name} (${ch.id}) sits this out. The host's reason: "${n.reason}". Work that reason into this narration in a line or two, in the story's own terms, then keep ${ch.name} out of the scene (no actions, lines, rolls or battle-map chip) until their player is back.`;
+    if (n.mode === 'npc') return `- ${who} can't make it, so YOU play ${ch.name} (${ch.id}) like an NPC companion until they're back: they stay with the party and act in character, but never make big choices for them (no spending their money, no deals or promises, no splitting from the party). The table does not wait for them.`;
+    if (n.mode === 'back') return `- ${who} is back and plays ${ch.name} (${ch.id}) again.${n.wasOut ? ` Bring ${ch.name} back into the story in a line or two (they catch up with the party).` : ''}`;
+    return null;
+  }).filter(Boolean);
+  return lines.length ? `PLAYERS WHO LEFT OR CAME BACK:\n${lines.join('\n')}` : '';
+}
+
+const awayRollTimers = new Map();
+/** Rolls asked of a character the DM is playing (or one sitting out) roll themselves after a moment. */
+function scheduleAwayRolls(c) {
+  if (awayRollTimers.has(c.id) || !c.sessionActive) return;
+  const pools = [c.round?.rollRequests || [], c.combat?.rollRequests || []];
+  if (!pools.some((p) => p.some((r) => r.status === 'pending' && member(c, r.userId)?.away))) return;
+  awayRollTimers.set(c.id, setTimeout(() => { awayRollTimers.delete(c.id); rollForAway(c); }, 600));
+}
+export function rollForAway(c) {
+  if (!c.sessionActive) return;
+  const away = new Set(awayUsers(c));
+  if (!away.size) return;
+  for (const pool of [c.round?.rollRequests || [], c.combat?.rollRequests || []]) {
+    for (const req of [...pool]) {
+      if (req.status !== 'pending' || !away.has(req.userId)) continue;
+      const ch = getCharacter(req.characterId);
+      if (ch) completeRoll(c, req, performRoll(ch, { kind: req.kind, key: req.key, advantage: req.advantage, expr: req.expr }), { auto: true });
+    }
+  }
 }
 
 function playerLabel(c, userId) {
@@ -95,9 +238,9 @@ function listNames(names) {
  * the table. Looking at sheets, maps, handouts and the journal, table talk and private notes are always allowed.
  */
 export function canAct(c) {
-  if (!c.sessionActive) return { error: "The session hasn't started yet. When everyone is at the table, press Begin session." };
+  if (!c.sessionActive) return { error: "The session hasn't started yet. When everyone is at the table, press Begin session (or the host can begin without someone)." };
   const missing = missingPlayers(c);
-  if (missing.length) return { error: `Paused until everyone is here: waiting for ${listNames(missing.map((u) => playerLabel(c, u)))}.` };
+  if (missing.length) return { error: `Paused until everyone is here: waiting for ${listNames(missing.map((u) => playerLabel(c, u)))}. The host can carry on without them.` };
   return null;
 }
 
@@ -105,6 +248,7 @@ export function canAct(c) {
 
 const viewTimers = new Map();
 export function pushViews(c, now = false) {
+  scheduleAwayRolls(c);
   if (!io) return;
   saveCampaign(c);
   const send = () => {
@@ -378,7 +522,7 @@ export function setSceneMap(c, spec, { keepTokens = false } = {}) {
   c.scene.tacticalMapId = map.id;
   map.at = { areaMapId: c.scene.areaMapId || '', areaLocationId: c.scene.areaLocationId || '', location: c.scene.location || '' };
   if (!keepTokens) c.tokens = {};
-  const party = partyCharacters(c);
+  const party = sceneParty(c);
   const interior = ['tavern', 'temple', 'castle', 'ship'].includes(map.theme);
   const zone = spec.partyPlacement === 'center' ? 'center' : spec.partyPlacement === 'near_npcs' ? 'npc' : spec.partyPlacement === 'entrance' ? 'party' : interior ? 'center' : 'party';
   const placed = placeCreatures(map, [{ key: 'party', count: party.length, size: 1, zone }], { occupied: new Set() });
@@ -850,7 +994,8 @@ export function waitForUsers(c, refs) {
 
 /** Who this round waits for: just the player(s) the DM asked, or everyone who can act. */
 export function roundNeeds(c) {
-  const acting = actingUsers(c);
+  const away = new Set(awayUsers(c));
+  const acting = actingUsers(c).filter((u) => !away.has(u));
   const asked = (c.round.waitFor || []).filter((u) => acting.includes(u));
   return asked.length ? asked : acting;
 }
@@ -949,8 +1094,10 @@ function resolveActions(c) {
     if (!a.logged) addLog(c, { kind: 'action', userId: uid, characterId: ch.id, name: ch.name, text: a.text, private: a.private, to: a.private ? [uid] : 'all' });
   }
   const asked = (c.round.waitFor || []).map((u) => getCharacter(member(c, u)?.characterId)?.name).filter(Boolean);
+  const played = awayUsers(c, 'npc').map((u) => getCharacter(member(c, u)?.characterId)).filter((ch) => ch && !ch.dead);
+  const playedText = played.length ? `\n\nYou play ${played.map((ch) => `${ch.name} (${ch.id})`).join(' and ')} this round: their player${played.length > 1 ? 's are' : ' is'} away and the table did not wait. Decide what ${played.length > 1 ? 'each does' : 'they do'}, in character and alongside the party, and include it in the narration. Keep it modest: no big choices for them, no spending their money, no deals or promises. If you had asked one of them something, answer for them in character.` : '';
   const text = acts.map((a) => `${a.name} (${a.characterId})${a.private ? ' [PRIVATE - only this player knows]' : ''}${a.revised ? ' [REVISED after you asked them a question - do not ask them again]' : ''}: ${a.text}`).join('\n') +
-    (asked.length ? `\n\n(This round waited only for ${asked.join(' and ')} to answer; anyone else listed chimed in on their own. Everyone else is watching and listening.)` : '') +
+    (asked.length ? `\n\n(This round waited only for ${asked.join(' and ')} to answer; anyone else listed chimed in on their own. Everyone else is watching and listening.)` : '') + playedText +
     '\n\nResolve these actions together as one shared narration for the whole table (private segments only where something truly cannot be shared; a PRIVATE action that could not logically go unnoticed happens in the open). Move tokens on the battle map to match where people go. Ask for a roll wherever an action gives a chance to (this table loves dice; several characters can roll at once). If any character declared more than their turn allows, or wrote something so unclear you would have to guess what they mean (which item, which person, which door), and has not already revised, use "clarify" to ask them instead of resolving anything.';
   c.round.actions = {};
   c.round.casts = {};
@@ -972,7 +1119,7 @@ function clarifyTargets(c, data, input) {
   for (const q of list) {
     const ch = findCharacter(c, q.characterId);
     const uid = ch && characterOwner(c, ch.id);
-    if (!uid || already.has(uid) || out.some((x) => x.uid === uid)) continue;
+    if (!uid || already.has(uid) || awayOf(c, uid) || out.some((x) => x.uid === uid)) continue;
     out.push({ uid, ch, message: String(q.message).trim().slice(0, 700) });
   }
   return out.length ? out : 'retry';
@@ -1005,6 +1152,11 @@ function askToRevise(c, targets, input) {
 
 export async function runTurn(c, input) {
   if (c.thinking) return;
+  if (c.awayNews?.length) {
+    const news = awayNewsText(c, c.awayNews);
+    c.awayNews = [];
+    if (news) input = { ...input, text: `${input.text}\n\n${news}` };
+  }
   if (!c.combat) c.phase = 'thinking';
   c.pendingInput = input;
   setThinking(c, 'turn');
@@ -1026,7 +1178,12 @@ export async function runTurn(c, input) {
     else applyTurnResult(c, res.data, input);
   } catch (e) {
     c.thinking = null;
-    if (c.combat) {
+    if (c.combat?.awayTurn) {
+      c.combat.state = 'turn';
+      const cb = combat.currentCombatant(c);
+      system(c, `The DM couldn't play ${cb?.name || 'that'} turn, so they hold back this round.`, 'all', { tone: 'warn' });
+      combat.finishAwayTurn(c);
+    } else if (c.combat) {
       if (['asking', 'waiting'].includes(c.combat.state)) c.combat.state = 'turn';
       system(c, e instanceof NoAIError ? 'No AI DM is connected, so creative actions need the campaign owner to narrate them (DM Screen).' : `The DM couldn't resolve that (${String(e.message || e).slice(0, 140)}). Carry on with your turn.`, 'all', { tone: 'warn' });
       if (input.kind === 'combat_end') openActions(c);
@@ -1254,19 +1411,36 @@ export function chat(c, userId, text) {
 
 // ---------------------------------------------------------------- sessions
 
-export function startSession(c) {
+/**
+ * Begin a session. Normally everyone is at the table; the host may begin without someone (`without`: for each missing
+ * player, { mode: 'out', reason } to sit the session out or { mode: 'npc' } for the DM to play them).
+ */
+export function startSession(c, { without = null, byUserId = null, isHost = false } = {}) {
   if (c.sessionActive) return { error: 'A session is already running.' };
   if (c.status === 'genesis') return { error: 'The world is still being built.' };
   if (!partyCharacters(c).length) return { error: 'At least one player needs a character.' };
+  // old choices from last time don't carry over
+  for (const m of c.members) m.away = null;
+  c.awayNews = [];
   const missing = missingPlayers(c);
-  if (missing.length) return { error: `Everyone needs to be at the table first: waiting for ${listNames(missing.map((u) => playerLabel(c, u)))}.` };
   const building = rebuildingUsers(c);
-  if (building.length) return { error: `Waiting for ${listNames(building.map((u) => getUser(u)?.displayName || 'a player'))} to finish making a new character.` };
+  let picks = {};
+  if ((missing.length || building.length) && !without) {
+    return { error: missing.length ? `Everyone needs to be at the table first: waiting for ${listNames(missing.map((u) => playerLabel(c, u)))}. The host can begin without them.` : `Waiting for ${listNames(building.map((u) => getUser(u)?.displayName || 'a player'))} to finish making a new character. The host can begin without them.` };
+  }
+  if (without) {
+    if (!isHost) return { error: 'Only the host can begin without everyone.' };
+    const r = awayChoices(c, without);
+    if (r.error) return r;
+    picks = r.picks;
+  }
   c.sessionActive = true;
   c.sessionNumber += 1;
   c.status = 'active';
   c.sessions.push({ n: c.sessionNumber, startedAt: Date.now(), endedAt: null, recap: '', logEntry: '' });
   addLog(c, { kind: 'session', text: `Session ${c.sessionNumber}`, n: c.sessionNumber });
+  applyAway(c, picks, byUserId);
+  if (building.length) system(c, `${listNames(building.map((u) => getUser(u)?.displayName || 'a player'))} joins as soon as their new character is ready.`, 'all', { tone: 'info' });
   if (c.nextOpening) {
     // a prepared opening (for example a campaign carried over from another table): post it instead of an AI recap
     const o = c.nextOpening;
@@ -1303,6 +1477,8 @@ export async function endSession(c) {
   if (c.combat) return { error: 'Finish or end the fight first.' };
   c.sessionActive = false;
   c.phase = 'idle';
+  for (const m of c.members) m.away = null;
+  c.awayNews = [];
   const sess = c.sessions[c.sessions.length - 1];
   sess.endedAt = Date.now();
   addLog(c, { kind: 'session_end', text: `End of session ${c.sessionNumber}`, n: c.sessionNumber });

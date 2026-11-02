@@ -370,8 +370,8 @@ io.on('connection', (socket) => {
     c = camp;
     socket.join(`c:${c.id}`);
     E.setOnline(c, userId, socket.id, true);
-    const m = C.member(c, userId);
-    if (m) m.away = false;
+    // a player the host carried on without takes their character back
+    if (C.member(c, userId)?.away) E.playerReturned(c, userId);
     E.pushViews(c);
     return { ok: true, view: buildView(c, userId), log: visibleLog(c, userId) };
   }));
@@ -386,7 +386,8 @@ io.on('connection', (socket) => {
   socket.on('action', wrap((p) => act() || E.submitAction(c, userId, p)));
   socket.on('action:withdraw', wrap(() => act() || E.withdrawAction(c, userId)));
   socket.on('force', wrap(() => act(true) || (E.maybeResolve(c, true), { ok: true })));
-  socket.on('away', wrap(({ away }) => { if (need()) return need(); const m = C.member(c, userId); m.away = !!away; E.pushViews(c); E.maybeResolve(c); return { ok: true }; }));
+  // the host carries on without players who dropped off: each sits out (with the host's reason) or the DM plays them
+  socket.on('session:without', wrap((p) => need(true) || E.carryOnWithout(c, p?.without, userId)));
   socket.on('roll:respond', wrap((p) => act() || E.respondRoll(c, userId, p.requestId, p)));
   socket.on('roll:free', wrap((p) => act() || E.freeRoll(c, userId, p)));
   socket.on('token:move', wrap((p) => act() || E.moveTokenFree(c, userId, p.tokenId, p.x | 0, p.y | 0)));
@@ -415,10 +416,10 @@ io.on('connection', (socket) => {
 
   // rests come from the DM (rest_short / rest_long effects), never from the sheet
 
-  socket.on('session:start', wrap(() => {
+  socket.on('session:start', wrap((p) => {
     if (need()) return need();
     if (!isOwner() && !C.member(c, userId)?.characterId) return { error: 'Only players at the table can begin the session.' };
-    return E.startSession(c);
+    return E.startSession(c, { without: p?.without || null, byUserId: userId, isHost: isOwner() });
   }));
   socket.on('session:end', wrap(() => need(true) || E.endSession(c)));
   socket.on('dm:retry', wrap(() => act() || E.retryTurn(c)));

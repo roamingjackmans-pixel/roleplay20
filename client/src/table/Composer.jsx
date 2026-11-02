@@ -80,8 +80,9 @@ function ActionBox() {
     );
   }
   if (view.myCharacter.dead) return <div className="composer-body muted small">💀 {view.myCharacter.name} has died. Open your character sheet to lay them to rest and make a new character. You can still watch and chat.</div>;
-  if (!view.campaign.sessionActive) return <div className="composer-body muted small">{st.allHere ? `Everyone is here. Press "▶ ${view.campaign.sessionNumber ? `Begin session ${view.campaign.sessionNumber + 1}` : 'Begin the adventure'}" (top right) to start.` : `The session begins when everyone is at the table. Waiting for ${st.names}.`}</div>;
-  if (st.paused) return <div className="composer-body muted small">⏸ Waiting for {st.names} to join the table. Nobody can act until everyone is here.</div>;
+  const host = view.me.role === 'owner';
+  if (!view.campaign.sessionActive) return <div className="composer-body muted small">{st.allHere ? `Everyone is here. Press "▶ ${view.campaign.sessionNumber ? `Begin session ${view.campaign.sessionNumber + 1}` : 'Begin the adventure'}" (top right) to start.` : `The session begins when everyone is at the table. Waiting for ${st.names}.${host ? ' As the host you can begin without them.' : ' The host can also begin without them.'}`}</div>;
+  if (st.paused) return <div className="composer-body muted small">⏸ Waiting for {st.names} to join the table. Nobody can act until everyone is here{host ? ', or you carry on without them (above the story).' : ', or the host carries on without them.'}</div>;
   if (phase === 'thinking') return <div className="composer-body row muted"><span className="spinner" /> The Dungeon Master is narrating…</div>;
   if (phase === 'rolls') return <div className="composer-body muted small">🎲 Waiting for dice: {view.rolls.waiting.map((w) => w.characterName).join(', ')}{isOwner ? <button className="btn xs ghost" onClick={() => emit('force')}>skip</button> : null}</div>;
   if (phase === 'manual' || phase === 'failed') {

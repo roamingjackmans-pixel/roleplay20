@@ -65,6 +65,10 @@ moment private only when it really is (a secret roll, a whisper, a character off
 - **The whole table, or nobody.** A session begins only when every player is at the table and someone presses
   **Begin session**. If anyone drops off, the game pauses until they're back. Between sessions (or while paused)
   everyone can still read their sheet, maps, handouts and the journal, and chat.
+  The host can begin (or carry on) without someone after confirming, choosing for each missing player: they **sit this
+  one out** for a reason the host writes (the DM works it into the story and keeps them out of the scene), or **the DM
+  plays them** like an NPC companion (their rolls roll themselves and the DM takes their turns in fights). Nobody waits
+  for them, and they take their character back as soon as they join.
 - **Lots of dice.** The DM asks for a roll whenever an action could go more than one way, including knowledge, Insight and
   Perception checks, and often has several players roll at once. Every roll request has "Roll for me" or a box to type
   what your real d20 showed. You see the number you rolled but not the DC or whether it passed: the story shows what

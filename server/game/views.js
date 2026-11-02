@@ -199,7 +199,7 @@ export function buildView(c, userId, cache = {}) {
   const waitingRolls = rollPool.filter((r) => r.status === 'pending').map((r) => ({ characterName: r.characterName, userId: r.userId, label: r.secret ? 'a secret roll' : r.reason?.slice(0, 60) }));
   const view = {
     at: Date.now(),
-    me: { userId, role: m?.role || null, characterId: m?.characterId || null, away: !!m?.away },
+    me: { userId, role: m?.role || null, characterId: m?.characterId || null },
     campaign: {
       id: c.id, name: c.name, status: c.status, ownerId: c.ownerId, inviteCode: c.inviteCode,
       title: c.world.title, tagline: c.world.tagline, characterPrompts: c.world.characterPrompts, openingHook: c.world.openingHook,
@@ -208,7 +208,7 @@ export function buildView(c, userId, cache = {}) {
     },
     members: c.members.map((x) => {
       const u = getUser(x.userId);
-      return { userId: x.userId, role: x.role, displayName: u?.displayName || '?', color: u?.color, online: online.has(x.userId), characterId: x.characterId, away: !!x.away, submitted: !!c.round.actions[x.userId], required: need.includes(x.userId), rebuilding: !!(x.rebuilding && !x.characterId) };
+      return { userId: x.userId, role: x.role, displayName: u?.displayName || '?', color: u?.color, online: online.has(x.userId), characterId: x.characterId, away: x.away && !online.has(x.userId) ? { mode: x.away.mode, reason: x.away.reason || '' } : null, submitted: !!c.round.actions[x.userId], required: need.includes(x.userId), rebuilding: !!(x.rebuilding && !x.characterId) };
     }),
     party: partyView(c),
     formerParty: formerPartyView(c),

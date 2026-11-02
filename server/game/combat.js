@@ -31,7 +31,7 @@ function conditionsOf(cb) {
 
 function alive(cb) {
   if (!cb) return false;
-  if (isPc(cb)) { const ch = charOf(cb); return !!ch && !ch.dead; }
+  if (isPc(cb)) { const ch = charOf(cb); return !!ch && !ch.dead && !cb.withdrawn; } // withdrawn: sitting the session out
   return !cb.dead && !cb.fled && !cb.surrendered;
 }
 
@@ -188,7 +188,7 @@ function revealToWatchers(c, tok) {
 // ---------------------------------------------------------------- start / end
 
 export function startCombat(c, spec) {
-  const party = partyCharacters(c);
+  const party = E.sceneParty(c);
   let map = c.maps.tactical[c.scene.tacticalMapId];
   if ((spec.map && !spec.useCurrentMap) || !map) {
     map = E.setSceneMap(c, spec.map || { theme: 'field', size: 'medium' });
@@ -401,9 +401,12 @@ function beginTurn(c) {
       const cond = conditionsOf(cb);
       const inc = INCAPACITATING.find((x) => cond.has(x));
       if (inc) { E.system(c, `${ch.name} is ${inc} and loses the turn.`); k.turnIndex++; continue; }
+      const owner = characterOwner(c, ch.id);
+      const away = E.awayMode(c, owner);
+      if (away === 'out') { k.turnIndex++; continue; }
       k.state = 'turn';
       E.addLog(c, { kind: 'turn', text: `🎯 ${ch.name}'s turn`, characterId: ch.id, tone: 'turn' });
-      const owner = characterOwner(c, ch.id);
+      if (away === 'npc') { playAwayTurn(c, cb, ch); E.pushViews(c); return; }
       E.toast(c, [owner], "It's your turn! Move your token, attack or cast from your sheet, then End Turn.", 'turn');
       // If this player has dropped off, the table simply pauses until they're back (no actions without everyone).
       E.pushViews(c);
@@ -1251,6 +1254,45 @@ export function afterAsk(c, data) {
     if (eco && !eco.action) { eco.action = true; eco.attacksLeft = 0; }
   }
   if (data.combatStart?.length || (data.effects || []).some((e) => e.type === 'damage')) checkVictory(c);
+  // the DM just played an away player's turn: once nothing is left to roll, that turn is over
+  if (c.combat === k && k.awayTurn && k.state === 'turn') finishAwayTurn(c);
+}
+
+
+/** The DM plays the turn of a character whose player is away (the host chose "the DM plays them"). */
+function playAwayTurn(c, cb, ch) {
+  const k = c.combat;
+  k.awayTurn = `${k.round}:${k.turnIndex}`;
+  k.state = 'asking';
+  k.askId = randomId('ask_', 3);
+  const eco = movementInfo(c, cb);
+  E.runTurn(c, {
+    kind: 'combat_ask',
+    noClarify: true,
+    text: `COMBAT IS ONGOING (round ${k.round}). It is ${ch.name}'s turn (${ch.id}). Their player is away, so YOU play ${ch.name} this turn, like an NPC companion fighting with the party.\n\nWhat ${ch.name} has: action available; ${eco.left} ft of movement; ${eco.maxAttacks} attack${eco.maxAttacks === 1 ? '' : 's'} per Attack action. Their sheet is in PARTY above.\n\nCombatants: ${Object.values(k.combatants).map((x) => `${x.id} ${x.name} (${x.kind}${isPc(x) ? '' : `, HP ${x.hp.cur}/${x.hp.max}, AC ${x.stat.ac}`}) at ${tokenOf(c, x)?.x},${tokenOf(c, x)?.y}${alive(x) ? '' : ' DOWN'}`).join('; ')}\n\nChoose the one sensible thing ${ch.name} would do now, true to who they are: attack the nearest threat with their best weapon or cantrip, help or stabilise a downed ally, or take cover and Dodge when badly hurt. Don't spend their limited resources (spell slots above cantrips, potions, scrolls) unless an ally is dying. Move them first with move_token if they need to close in or pull back. If the outcome is uncertain, request ONE roll for ${ch.id} (it is rolled for them automatically) and stop. Otherwise narrate in 1-3 sentences and apply it with effects (damage/condition_add on combatant ids). Do not start combat, do not set sceneMap.`,
+  });
+}
+
+/** An away player's turn is done (played, or the DM couldn't): move on. */
+export function finishAwayTurn(c) {
+  const k = c.combat;
+  if (!k || !k.awayTurn) return;
+  k.awayTurn = null;
+  const cb = current(c);
+  if (cb) E.addLog(c, { kind: 'combat', text: `${cb.name} ends their turn.`, tone: 'muted' });
+  k.turnIndex++;
+  beginTurn(c);
+}
+
+/** The host just carried on without someone: if the fight was waiting on their turn, play it or pass it. */
+export function onAwayChanged(c) {
+  const k = c.combat;
+  if (!k || k.state !== 'turn' || k.awayTurn) return;
+  const cb = current(c);
+  if (!isPc(cb)) return;
+  const away = E.awayMode(c, characterOwner(c, cb.characterId));
+  if (away === 'npc') playAwayTurn(c, cb, charOf(cb));
+  else if (away === 'out' || cb.withdrawn) { k.turnIndex++; beginTurn(c); }
 }
 
 export function endCombatManual(c, outcome = 'victory') {

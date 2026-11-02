@@ -44,13 +44,17 @@ export function tableStatus(view) {
     const ch = view.party.find((p) => p.userId === m.userId);
     return ch ? `${m.displayName} (${ch.name.split(' ')[0]})` : m.displayName;
   };
-  const missing = players.filter((m) => !m.online).map(label);
+  // away: the host carried on without them (they sit out, or the DM plays them); the table doesn't wait for them
+  const absent = players.filter((m) => !m.online && !m.away);
+  const missing = absent.map(label);
   const list = (a) => (a.length <= 1 ? a.join('') : `${a.slice(0, -1).join(', ')} and ${a[a.length - 1]}`);
   const names = list(missing);
   const building = view.members.filter((m) => m.rebuilding).map((m) => m.displayName);
+  const charName = (m) => view.party.find((p) => p.userId === m.userId)?.name.split(' ')[0] || m.displayName;
   return {
-    players: players.map((m) => ({ label: label(m), online: m.online })),
+    players: players.map((m) => ({ label: label(m), online: m.online, away: m.away })),
     missing, names,
+    missingPlayers: absent.map((m) => ({ userId: m.userId, label: label(m), char: charName(m), player: m.displayName })),
     building, buildingNames: list(building),
     allHere: players.length > 0 && !missing.length,
     ready: players.length > 0 && !missing.length && !building.length,

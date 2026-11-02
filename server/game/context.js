@@ -63,7 +63,8 @@ export function partyBlock(c, online) {
     const d = safeDerive(ch);
     const owner = characterOwner(c, ch.id);
     const u = getUser(owner);
-    const present = online.has(owner) ? 'PRESENT' : 'ABSENT';
+    const away = online.has(owner) ? null : c.members.find((x) => x.userId === owner)?.away;
+    const present = online.has(owner) ? 'PRESENT' : away?.mode === 'npc' ? 'PLAYER AWAY - YOU PLAY THEM' : away?.mode === 'out' ? `SITTING THIS SESSION OUT (${away.reason}) - not in the scene` : 'ABSENT';
     const tok = Object.values(c.tokens || {}).find((t) => t.characterId === ch.id);
     const skills = d ? Object.entries(ch.skillProfs || {}).map(([k]) => `${k} ${d.skills[k] >= 0 ? '+' : ''}${d.skills[k]}`).join(', ') : '';
     const spells = ch.spellcasting ? [...(ch.spellcasting.cantrips || []), ...(ch.spellcasting.prepared?.length ? ch.spellcasting.prepared : ch.spellcasting.known || [])].join(', ') : '';

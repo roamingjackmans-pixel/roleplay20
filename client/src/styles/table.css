@@ -291,3 +291,19 @@ span.read-aloud { display: inline-flex; align-items: center; cursor: pointer; }
 .map-picker-icon { font-size: 16px; flex: none; }
 .map-select { width: auto; max-width: min(420px, 100%); min-width: 0; flex: 0 1 auto; padding-top: 5px; padding-bottom: 5px; font-weight: 600; }
 .map-picker-note { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+
+/* the host carries on without someone: choose per player */
+.away-pick { border: 1px solid var(--line, #3a2e22); border-radius: 12px; padding: 10px 12px; margin: 10px 0; display: flex; flex-direction: column; gap: 8px; }
+.away-who b { font-size: 15px; }
+.away-options { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+@media (max-width: 560px) { .away-options { grid-template-columns: 1fr; } }
+.away-opt { display: flex; gap: 10px; align-items: flex-start; text-align: left; padding: 10px; border-radius: 10px; border: 1px solid var(--line, #3a2e22); background: rgba(255, 255, 255, .03); color: inherit; cursor: pointer; font: inherit; }
+.away-opt:hover { border-color: #8a6a3a; }
+.away-opt.active { border-color: var(--gold, #d9a441); background: rgba(217, 164, 65, .12); box-shadow: 0 0 0 1px var(--gold, #d9a441) inset; }
+.away-ic { font-size: 22px; line-height: 1; }
+.away-txt { display: flex; flex-direction: column; gap: 3px; }
+.away-reason { display: flex; flex-direction: column; gap: 6px; }
+.away-quick { display: flex; flex-wrap: wrap; gap: 6px; }
+.away-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
+.pp-away { font-size: 12px; line-height: 1; }
+.party-pill.away-out { opacity: .6; }
