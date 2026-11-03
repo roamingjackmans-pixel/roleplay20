@@ -57,7 +57,7 @@ export const config = {
   resendKey: env.RESEND_API_KEY || '',
   emailFrom: env.EMAIL_FROM || '',
   // Where password-reset links point (the public password page, never an address taken from a request).
-  siteUrl: env.SITE_URL || 'https://josephjackman.com/roleplay20/',
+  siteUrl: env.SITE_URL || 'https://josephjackman.com/games/roleplay20/',
 
   // Public URL discovery for the GitHub Pages shell. The game runs on Fly.io at a fixed address, so the PC tunnel is
   // off unless TUNNEL=auto is set (it would publish this PC's address and pull the website away from the cloud server).

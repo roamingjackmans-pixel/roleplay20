@@ -1,4 +1,4 @@
-// Makes this PC reachable from josephjackman.com/roleplay20 without opening router ports:
+// Makes this PC reachable from josephjackman.com/games/roleplay20 without opening router ports:
 // runs a free Cloudflare quick tunnel (no account needed) and publishes its address to the `live` branch of the
 // GitHub repo, where the public gate page looks it up.
 //
@@ -46,7 +46,7 @@ function gh(args, input) {
   });
 }
 
-/** Point josephjackman.com/roleplay20 at a server: writes server.json on the `live` branch. */
+/** Point josephjackman.com/games/roleplay20 at a server: writes server.json on the `live` branch. */
 export async function publishToGitHub(url) {
   const repo = config.publishRepo;
   const branch = config.publishBranch;
@@ -75,7 +75,7 @@ async function publish(url) {
   console.log(`  🌐 Public address: ${url}`);
   try {
     const r = await publishToGitHub(url);
-    console.log(r === 'unchanged' ? '  📡 Same address as before - players reconnect on their own.' : '  📡 Published to GitHub - josephjackman.com/roleplay20 will find this server.');
+    console.log(r === 'unchanged' ? '  📡 Same address as before - players reconnect on their own.' : '  📡 Published to GitHub - josephjackman.com/games/roleplay20 will find this server.');
   } catch (e) {
     console.warn(`  📡 Could not publish the address to GitHub (${e.message}). Players can still use ?server=${url}`);
   }

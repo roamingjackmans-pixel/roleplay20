@@ -4,7 +4,7 @@ A private virtual tabletop for Dungeons & Dragons 5e where **Claude is the Dunge
 builds the world, voices every NPC, runs the monsters and narrates one shared story for the whole table, keeping a
 moment private only when it really is (a secret roll, a whisper, a character off on their own).
 
-**Play:** https://josephjackman.com/roleplay20 (password protected; the game server runs around the clock on Fly.io)
+**Play:** https://josephjackman.com/games/roleplay20 (password protected; the game server runs around the clock on Fly.io)
 
 ## What it does
 
@@ -117,7 +117,7 @@ moment private only when it really is (a secret roll, a whisper, a character off
 
 ## Joining a game (players)
 
-1. Open https://josephjackman.com/roleplay20 and type the site password the host gave you.
+1. Open https://josephjackman.com/games/roleplay20 and type the site password the host gave you.
 2. Create an account, then paste the 6-letter **invite code** from the host and press Join.
 3. Make your character (the "Draft for me" button helps), then **Enter the table**.
 4. Each round: read your narration (the cards marked *only you* are yours alone), write what you do, press **Ready**.
@@ -134,8 +134,8 @@ volume for accounts, campaigns and characters. Nothing has to run on your own PC
 (`gh`, signed in) and an Anthropic API key on the PC you set it up from.
 
 1. `npm run setup` - sets the site password, stores your API key in `.env` (never committed), picks the DM model and
-   builds the app. It also (once) creates the public `roleplay20` GitHub repo and turns on GitHub Pages so the gate
-   appears at josephjackman.com/roleplay20.
+   builds the app. It also (once) creates the public `roleplay20` GitHub repo. The gate page (`site/`) appears at
+   josephjackman.com/games/roleplay20: the `games` repo publishes it from this repo's `ready` branch.
 2. `npm run cloud-setup` - installs the Fly.io tool, opens a browser so you can sign in (add a card under Billing),
    creates the app and its volume, copies the settings from `.env` as Fly secrets (values never shown), deploys,
    moves saved games from `data/` once, and writes the cloud address to `server.json` on the `live` branch, where the
@@ -197,7 +197,7 @@ server/        Express + Socket.IO server: gate, accounts, campaigns, game engin
   ai/          Claude client (Messages API, structured outputs, prompt caching), prompts, JSON schemas
 shared/        rules engine, dice, character builder, spell templates, compiled SRD data (used by server and client)
 client/        React app: lobby, character creator, character sheet, game table, map renderers
-site/          the public password gate (GitHub Pages)
+site/          the public password gate (published at josephjackman.com/games/roleplay20)
 docs/          CONTRACTS.md - shared data formats
 ```
 

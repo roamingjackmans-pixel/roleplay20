@@ -94,7 +94,7 @@ test('forgot password emails a one-time link that resets it and signs out everyw
   assert.equal(unknown.message, known.message, "the answer doesn't reveal which accounts exist");
   const link = lastTo('rc@example.com').text.match(/https:\/\/\S+token=(\S+)/);
   assert.ok(link, 'the email has a reset link');
-  assert.match(link[0], /^https:\/\/josephjackman\.com\/roleplay20\/#\/reset\?token=/);
+  assert.match(link[0], /^https:\/\/josephjackman\.com\/games\/roleplay20\/#\/reset\?token=/);
   const token = decodeURIComponent(link[1]);
   const r = await sec.resetPassword(req(), { token, password: 'brandnew1', device: 'dev-R' });
   assert.ok(r.token);

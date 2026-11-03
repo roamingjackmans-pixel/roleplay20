@@ -110,7 +110,7 @@ if (env.GATE_PASSWORD_HASH) {
   if (/^y/i.test(a)) env.GATE_PASSWORD_HASH = '';
 }
 while (!env.GATE_PASSWORD_HASH) {
-  const pw = await ask('New site password (everyone types this at josephjackman.com/roleplay20): ', { hidden: true });
+  const pw = await ask('New site password (everyone types this at josephjackman.com/games/roleplay20): ', { hidden: true });
   if (pw.length < 4) { console.log(c.red('  Too short.')); continue; }
   const again = await ask('Type it again: ', { hidden: true });
   if (pw !== again) { console.log(c.red('  They did not match.')); continue; }
@@ -151,15 +151,13 @@ if (has('gh')) {
   console.log(r.status === 0 ? c.green('  ✓ GitHub CLI is signed in, so the website can be pointed at the cloud server.') : c.gold('  Run `gh auth login` so the website can be pointed at the cloud server.'));
   const exists = spawnSync('gh', ['repo', 'view', REPO, '--json', 'name'], { encoding: 'utf8' }).status === 0;
   if (!exists) {
-    console.log(`\n  The website josephjackman.com/roleplay20 needs a ${c.bold('public')} GitHub repo named ${c.bold('roleplay20')} (like lieage and horserace).`);
-    console.log(c.dim('  Only the password gate page is published by GitHub Pages; the repo holds the source code. .env and saved games are never committed.'));
-    const a = await ask(`  Create ${REPO}, push the code and turn on GitHub Pages now? ${c.dim('(y/N)')} `);
+    console.log(`\n  The website josephjackman.com/games/roleplay20 needs a ${c.bold('public')} GitHub repo named ${c.bold('roleplay20')} (like lieage and horserace).`);
+    console.log(c.dim('  Only the password gate page (site/) is published, by the games repo; this repo holds the source code. .env and saved games are never committed.'));
+    const a = await ask(`  Create ${REPO}, and push the code now? ${c.dim('(y/N)')} `);
     if (/^y/i.test(a)) {
       try {
         execSync(`gh repo create ${REPO} --public --description "Roleplay20: an AI Dungeon Master and virtual tabletop for D&D 5e" --source . --remote origin --push`, { cwd: ROOT, stdio: 'inherit' });
-        execSync(`gh api -X POST repos/${REPO}/pages -f build_type=workflow`, { cwd: ROOT, stdio: 'inherit' });
-        execSync(`gh workflow run pages.yml -R ${REPO}`, { cwd: ROOT, stdio: 'inherit' });
-        console.log(c.green('  ✓ Published. In a minute or two the gate will be live at https://josephjackman.com/roleplay20/'));
+        console.log(c.green('  ✓ Published. Within about 10 minutes the gate will be live at https://josephjackman.com/games/roleplay20/'));
       } catch (e) {
         console.log(c.red(`  Publishing failed: ${e.message}`));
       }

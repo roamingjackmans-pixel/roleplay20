@@ -1,7 +1,7 @@
 // Moves Roleplay20 to the cloud so nothing has to run on this PC:
 // installs the Fly.io tool, signs you in, creates the always-on server and its saved-game disk, copies your settings
 // from .env as Fly secrets (values are never shown), deploys, moves your saved games once and points
-// josephjackman.com/roleplay20 at the new server. Safe to run again.
+// josephjackman.com/games/roleplay20 at the new server. Safe to run again.
 //   npm run cloud-setup     first time, or after changing .env (new API key, new site password)
 //   npm run deploy          push code changes to the cloud server
 import fs from 'node:fs';
@@ -164,12 +164,12 @@ if (!DEPLOY_ONLY) {
     fs.writeFileSync(MARKER, JSON.stringify({ app, at: new Date().toISOString(), files: count }));
   } else ok('Saved games were already moved earlier (kept the cloud copy).');
 
-  // 8. point josephjackman.com/roleplay20 at the cloud server, and end any old PC tunnel
+  // 8. point josephjackman.com/games/roleplay20 at the cloud server, and end any old PC tunnel
   const { publishToGitHub, stopTunnel } = await import('../server/tunnel.js');
-  try { await publishToGitHub(url); ok('josephjackman.com/roleplay20 now points at the cloud server.'); }
+  try { await publishToGitHub(url); ok('josephjackman.com/games/roleplay20 now points at the cloud server.'); }
   catch (e) { console.log(c.red(`  ✗ Could not update the website's server address (${e.message}). Run \`gh auth login\`, then run this again.`)); }
   if (stopTunnel()) ok('Stopped the old tunnel on this PC.');
 }
 
 console.log(`\n${c.gold(c.bold('  All set!'))} Roleplay20 runs in the cloud now; nothing needs to stay on in this PC.`);
-console.log(c.dim(`  Play: https://josephjackman.com/roleplay20   Logs: fly logs -a ${app}   Billing: https://fly.io/dashboard\n`));
+console.log(c.dim(`  Play: https://josephjackman.com/games/roleplay20   Logs: fly logs -a ${app}   Billing: https://fly.io/dashboard\n`));

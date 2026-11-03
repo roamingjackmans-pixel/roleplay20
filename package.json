@@ -1,7 +1,7 @@
 {
   "name": "roleplay20",
   "version": "1.0.0",
-  "description": "Roleplay20: an AI Dungeon Master and virtual tabletop for D&D 5e. Plays at josephjackman.com/roleplay20",
+  "description": "Roleplay20: an AI Dungeon Master and virtual tabletop for D&D 5e. Plays at josephjackman.com/games/roleplay20",
   "private": true,
   "type": "module",
   "scripts": {
