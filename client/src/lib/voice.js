@@ -7,7 +7,7 @@
 // read-aloud voice, which is why mics go quiet during story time (and why this device mutes its own mic while it reads
 // anything private to you aloud, so it never reaches the others).
 import { create } from 'zustand';
-import { onEntryDone, onSpeaking, setSkipLock } from './tts.js';
+import { onEntryDone, onSpeaking, setSkipLock, currentlySpeaking } from './tts.js';
 
 export const useVoice = create(() => ({
   joined: false,
@@ -20,7 +20,8 @@ export const useVoice = create(() => ({
   peers: {},              // userId -> 'connecting' | 'connected' | 'failed'
   talking: {},            // userId (or 'me') -> true while their voice is coming through
   volumes: (() => { try { return JSON.parse(localStorage.getItem('rp20.voiceVolumes') || '{}'); } catch { return {}; } })(),
-  privateReading: false,  // this device is reading something private to you
+  reading: false,         // this device is reading something aloud right now
+  ducked: false,          // the others are silent here while you use voice typing
 }));
 const set = (patch) => useVoice.setState(patch);
 const get = () => useVoice.getState();
@@ -68,8 +69,39 @@ export function voiceReadDone(entryId) {
 }
 
 onEntryDone((id) => voiceReadDone(id));
-onSpeaking((u) => { const p = !!u?.private; if (p !== get().privateReading) { set({ privateReading: p }); applyMic(); } });
 setSkipLock(() => get().joined && get().hush.on && !allowSkip());
+
+// Whenever this device reads anything aloud (the story, a replayed line, something private, a journal page), every mic
+// in the call stays off until every device is quiet again. This mic goes quiet at once; the others when the server
+// hears. "Quiet" waits a moment, so the pause between two sentences never lets the mics back on.
+let quietTimer = null;
+let reportedSpeaking = false;
+onSpeaking((u) => {
+  const reading = !!u;
+  if (reading !== get().reading) { set({ reading }); applyMic(); }
+  if (reading) {
+    clearTimeout(quietTimer);
+    quietTimer = null;
+    reportSpeaking(true); // every sentence renews the claim
+  } else if (!quietTimer) {
+    quietTimer = setTimeout(() => { quietTimer = null; reportSpeaking(false); }, 700);
+  }
+});
+
+function reportSpeaking(on) {
+  if (!get().joined || !socket?.connected) { reportedSpeaking = false; return; }
+  if (!on && !reportedSpeaking) return;
+  reportedSpeaking = on;
+  socket.emit('voice:speaking', { on });
+}
+
+/** While you use voice typing, the other players' voices are silent on this device (so it only hears you). */
+let ducked = false;
+export function duckCall(on) {
+  ducked = !!on;
+  for (const p of peers.values()) if (p.audio) p.audio.muted = ducked;
+  set({ ducked });
+}
 
 function ask(event, payload = {}) {
   return new Promise((resolve) => {
@@ -111,6 +143,7 @@ async function connect() {
   set({ joined: true, joining: false, members: r.members || [], hush: r.hush || { on: false, waiting: [] } });
   applyMic();
   startMeters();
+  if (currentlySpeaking()) reportSpeaking(true); // joined mid-sentence: the others' mics wait for this device too
   for (const uid of r.peers || []) makePeer(uid, true); // the newcomer calls everyone already here
 }
 
@@ -120,7 +153,8 @@ export function leaveVoice({ quiet = false } = {}) {
   stopLocal();
   clearInterval(meterTimer);
   meterTimer = null;
-  set({ joined: false, joining: false, members: [], hush: { on: false, waiting: [] }, peers: {}, talking: {}, privateReading: false });
+  reportedSpeaking = false;
+  set({ joined: false, joining: false, members: [], hush: { on: false, waiting: [] }, peers: {}, talking: {} });
 }
 
 export function setMuted(muted) {
@@ -137,9 +171,9 @@ export function setVolume(userId, v) {
   if (p?.audio) p.audio.volume = volumes[userId];
 }
 
-/** Whether your voice goes out right now: you're in, not muted, not story time, not reading something private. */
+/** Whether your voice goes out right now: you're in, not muted, not story time, and this device isn't reading aloud. */
 export function micLive(s = get()) {
-  return s.joined && !s.listenOnly && !s.muted && !s.hush.on && !s.privateReading;
+  return s.joined && !s.listenOnly && !s.muted && !s.hush.on && !s.reading;
 }
 
 function applyMic() {
@@ -186,6 +220,7 @@ function makePeer(uid, initiator, remoteSid = null) {
     if (!p.audio) { p.audio = new Audio(); p.audio.autoplay = true; }
     p.audio.srcObject = stream;
     p.audio.volume = get().volumes[uid] ?? 1;
+    p.audio.muted = ducked;
     p.audio.play().catch(() => {});
     p.meter = meterFor(stream);
   };

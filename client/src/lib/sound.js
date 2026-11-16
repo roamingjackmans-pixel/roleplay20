@@ -3,8 +3,12 @@ let ctx = null;
 let enabled = true;
 try { enabled = JSON.parse(localStorage.getItem('rp20.prefs') || '{}').sounds !== false; } catch { /* default on */ }
 export function setSoundsEnabled(v) { enabled = v; }
+// silent while you use voice typing, so the mic doesn't hear dice and chimes
+let ducked = false;
+export function setSoundsDucked(v) { ducked = !!v; }
 
 function ac() {
+  if (ducked) return null;
   if (!ctx) {
     const A = window.AudioContext || window.webkitAudioContext;
     if (!A) return null;

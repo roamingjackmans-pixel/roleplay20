@@ -1,10 +1,15 @@
 // Voice chat at the table. Browsers talk to each other directly (WebRTC, one connection per pair of players); the
 // server only keeps track of who is in the call, passes their connection setup messages along, and runs "story time":
-// while narration the whole table shares is being read aloud, every mic in the call is muted, until that narration has
-// finished on every device in the call. Nothing here is saved: a restart simply drops the call and everyone rejoins.
+// while anyone in the call is still listening to the read-aloud voice, every mic in the call is muted. That covers
+// shared narration from the moment it is posted until it has finished on every device, and anything else a device
+// reads aloud (a replayed line, a private moment, a journal page). Nothing here is saved: a restart simply drops the
+// call and everyone rejoins.
 
-const calls = new Map(); // campaignId -> { members: Map<userId, { socketId, muted, joinedAt }>, hush: Map<entryId, { waiting: Set<userId>, timer }> }
+const calls = new Map(); // campaignId -> { members: Map<userId, { socketId, muted, joinedAt, speakingUntil, speakTimer }>, hush: Map<entryId, { waiting: Set<userId>, timer }> }
 let send = () => {};     // (socketId, event, payload) - set by the server
+// A device says "reading aloud" at the start of every sentence; the claim lapses if it goes quiet without saying so
+// (a closed laptop, a stuck speech engine), so nobody's mic is held forever.
+export const SPEAKING_CLAIM_MS = 60000;
 
 /** The server tells the voice room how to reach a socket. */
 export function configureVoice({ toSocket }) { send = toSocket; }
@@ -29,12 +34,31 @@ export function roster(c) {
   return [...v.members].map(([userId, m]) => ({ userId, muted: !!m.muted }));
 }
 
-/** Story time: on while any shared narration is still being read on a device in the call. */
-export function hushState(c) {
+/**
+ * Story time: on while shared narration is still waiting to be read on a device in the call, or while any device in
+ * the call is reading anything aloud. `waiting` is who it's waiting for.
+ */
+export function hushState(c, now = Date.now()) {
   const v = calls.get(c.id);
   const waiting = new Set();
   for (const h of v?.hush.values() || []) for (const u of h.waiting) waiting.add(u);
+  for (const [uid, m] of v?.members || []) if (m.speakingUntil > now) waiting.add(uid);
   return { on: waiting.size > 0, waiting: [...waiting] };
+}
+
+/** This device started reading something aloud (on), or has gone quiet (off). */
+export function setSpeaking(c, userId, on) {
+  const m = calls.get(c.id)?.members.get(userId);
+  if (!m) return { ok: true };
+  const was = m.speakingUntil > Date.now();
+  clearTimeout(m.speakTimer);
+  m.speakingUntil = on ? Date.now() + SPEAKING_CLAIM_MS : 0;
+  if (on) {
+    m.speakTimer = setTimeout(() => { m.speakingUntil = 0; pushState(c); }, SPEAKING_CLAIM_MS + 50);
+    m.speakTimer.unref?.();
+  }
+  if (was !== !!on) pushState(c);
+  return { ok: true };
 }
 
 function pushState(c) {
@@ -48,7 +72,8 @@ function pushState(c) {
 export function join(c, userId, socketId) {
   const v = call(c);
   const was = v.members.get(userId);
-  v.members.set(userId, { socketId, muted: was?.muted || false, joinedAt: Date.now() });
+  if (was) clearTimeout(was.speakTimer);
+  v.members.set(userId, { socketId, muted: was?.muted || false, joinedAt: Date.now(), speakingUntil: 0, speakTimer: null });
   pushState(c);
   return { ok: true, peers: others(v, userId), hush: hushState(c), members: roster(c) };
 }
@@ -58,6 +83,7 @@ export function leave(c, userId, socketId = null) {
   const v = calls.get(c.id);
   const m = v?.members.get(userId);
   if (!m || (socketId && m.socketId !== socketId)) return { ok: true };
+  clearTimeout(m.speakTimer);
   v.members.delete(userId);
   for (const [entryId, h] of v.hush) { h.waiting.delete(userId); if (!h.waiting.size) endHush(c, entryId); }
   broadcast(c, 'voice:left', { userId });
@@ -141,4 +167,10 @@ export async function iceServers(config, fetchImpl = globalThis.fetch) {
 }
 
 /** For tests. */
-export function _reset() { for (const v of calls.values()) for (const h of v.hush.values()) clearTimeout(h.timer); calls.clear(); }
+export function _reset() {
+  for (const v of calls.values()) {
+    for (const h of v.hush.values()) clearTimeout(h.timer);
+    for (const m of v.members.values()) clearTimeout(m.speakTimer);
+  }
+  calls.clear();
+}

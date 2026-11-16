@@ -142,3 +142,15 @@ test('with sound effects switched off, nothing plays (the animation still shows)
   assert.equal(played.length, 0);
   setSoundsEnabled(true);
 });
+
+test('while you use voice typing, sound effects stay quiet so the mic only hears you', async () => {
+  const { setSoundsDucked } = await import('../client/src/lib/sound.js');
+  setSoundsDucked(true);
+  played.length = 0;
+  sounds.nat20();
+  sounds.dice();
+  assert.equal(played.length, 0);
+  setSoundsDucked(false);
+  sounds.nat20();
+  assert.ok(played.length > 0, 'back afterwards');
+});

@@ -75,8 +75,14 @@ function clean(text) {
   return String(text || '').replace(/\*+/g, '').replace(/_+/g, '').replace(/\s+/g, ' ').trim();
 }
 
+// While you use voice typing nothing new starts reading aloud (so the mic hears only you); it carries on afterwards.
+let held = false;
+export function holdSpeech(on) { held = !!on; if (!held) play(); }
+export function currentlySpeaking() { return !!currentUtter; }
+
 function play() {
   if (!synth || speaking) return;
+  if (held && queue.length) { emit(); return; }
   const next = queue.shift();
   if (!next) { emit(); return; }
   speaking = true;

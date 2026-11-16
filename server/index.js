@@ -409,6 +409,7 @@ io.on('connection', (socket) => {
   socket.on('voice:leave', wrap(() => need() || (V.leave(c, userId, socket.id), E.pushViews(c), { ok: true })));
   socket.on('voice:signal', wrap((p) => need() || (p && typeof p.data === 'object' ? V.relay(c, userId, String(p.to || ''), p.data) : { error: 'Bad signal.' })));
   socket.on('voice:mute', wrap((p) => need() || V.setMuted(c, userId, !!p.muted)));
+  socket.on('voice:speaking', wrap((p) => need() || V.setSpeaking(c, userId, !!p.on)));
   socket.on('voice:done', wrap((p) => need() || V.readDone(c, userId, String(p.entryId || ''))));
 
   socket.on('action', wrap((p) => act() || E.submitAction(c, userId, p)));

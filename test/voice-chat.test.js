@@ -79,6 +79,38 @@ test('someone leaving (or dropping off) mid-story is not waited for', () => {
   assert.deepEqual(V.roster(c).map((m) => m.userId), ['u_a']);
 });
 
+test('while anyone in the call is still listening to the read-aloud voice, every mic stays muted', () => {
+  V.join(c, 'u_a', 's_a');
+  V.join(c, 'u_b', 's_b');
+  V.onNarration(c, narration('l_1'));
+  V.setSpeaking(c, 'u_a', true);
+  V.setSpeaking(c, 'u_b', true);
+  V.readDone(c, 'u_a', 'l_1');
+  V.readDone(c, 'u_b', 'l_1');
+  V.setSpeaking(c, 'u_a', false);
+  assert.deepEqual(V.hushState(c), { on: true, waiting: ['u_b'] }, 'Bram\'s device is still reading (its queue ran late)');
+  V.setSpeaking(c, 'u_b', false);
+  assert.equal(V.hushState(c).on, false);
+  assert.equal(lastState('s_a').hush.on, false);
+  // a replayed line, a private moment or a journal page read on one device mutes everyone too
+  V.setSpeaking(c, 'u_a', true);
+  assert.deepEqual(lastState('s_b').hush, { on: true, waiting: ['u_a'] });
+  V.leave(c, 'u_a', 's_a');
+  assert.equal(V.hushState(c).on, false, 'leaving the call never holds the others');
+});
+
+test('a "reading aloud" claim lapses if the device goes quiet without saying so', () => {
+  V.join(c, 'u_a', 's_a');
+  const real = globalThis.setTimeout;
+  let fire = null;
+  globalThis.setTimeout = (fn) => { fire = fn; return 0; };
+  try { V.setSpeaking(c, 'u_a', true); } finally { globalThis.setTimeout = real; }
+  assert.equal(V.hushState(c).on, true);
+  assert.equal(V.hushState(c, Date.now() + V.SPEAKING_CLAIM_MS + 1).on, false, 'after a minute without news it no longer counts');
+  fire();
+  assert.equal(lastState('s_a').hush.on, false, 'and everyone is told');
+});
+
 test('a device that never reports back cannot hold the table forever', async () => {
   assert.ok(V.readingAllowanceMs(narration('x', 'a'.repeat(400))) >= 40000, 'long enough to read 400 characters slowly');
   assert.ok(V.readingAllowanceMs(narration('x', 'a'.repeat(100000))) <= 240000, 'never more than four minutes');
@@ -155,4 +187,25 @@ test('during story time the table\'s narration cannot be stopped unless forced (
   assert.equal(T.stopSpeaking(), true);
   T.setSkipLock(null);
   off();
+});
+
+test('voice typing: nothing new is read aloud and the other players are silent here until you stop', async () => {
+  const { beginQuiet, endQuiet, isQuiet } = await import('../client/src/lib/quiet.js');
+  const { useVoice } = await import('../client/src/lib/voice.js');
+  T.stopSpeaking({ force: true });
+  spoken.length = 0;
+  beginQuiet();
+  beginQuiet(); // the chat box and the action box can overlap
+  assert.equal(isQuiet(), true);
+  assert.equal(useVoice.getState().ducked, true, "the others' voices are muted on this device");
+  T.speakEntry(narration('l_q', 'The door creaks open.'));
+  assert.equal(spoken.length, 0, 'held while you speak');
+  endQuiet();
+  assert.equal(spoken.length, 0, 'still one box listening');
+  endQuiet();
+  assert.equal(isQuiet(), false);
+  assert.equal(useVoice.getState().ducked, false);
+  assert.equal(spoken.length, 1, 'the narration carries on afterwards');
+  assert.equal(spoken[0].text, 'The door creaks open.');
+  T.stopSpeaking({ force: true });
 });

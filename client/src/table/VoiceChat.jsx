@@ -45,7 +45,7 @@ export default function VoiceChat() {
       <button className={`btn sm icon mic ${live ? 'live' : ''} ${v.talking.me ? 'talking' : ''}`} disabled={v.listenOnly}
         title={v.listenOnly ? 'No microphone: you can listen, but the others cannot hear you' : v.muted ? 'You are muted: click to talk' : v.hush.on ? 'Your mic is off for story time' : 'Click to mute yourself'}
         onClick={() => setMuted(!v.muted)}>
-        {v.listenOnly ? '🎧' : v.muted || v.hush.on || v.privateReading ? '🔇' : '🎙'}
+        {v.listenOnly ? '🎧' : v.muted || v.hush.on || v.reading ? '🔇' : '🎙'}
       </button>
       <button className="voice-people" onClick={() => setOpen(!open)} title="Who is in the voice chat (click for volumes)">
         {others.length === 0 && <span className="tiny muted">just you</span>}

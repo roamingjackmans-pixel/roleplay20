@@ -17,7 +17,7 @@ function MicButton({ dict, small }) {
   if (!dict.supported) return null;
   return (
     <button type="button" className={`btn ${small ? 'sm' : ''} mic-btn ${dict.listening ? 'listening' : ''}`} onClick={dict.toggle}
-      title={dict.listening ? 'Stop voice typing' : 'Voice typing: speak and your words appear in the box'} aria-pressed={dict.listening}>
+      title={dict.listening ? 'Stop voice typing (everything else on this device is silent until you do)' : 'Voice typing: speak and your words appear in the box. While you speak, the read-aloud voice, the other players and sound effects go quiet on this device.'} aria-pressed={dict.listening}>
       {dict.listening ? '● Stop' : '🎤'}
     </button>
   );

@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { stopSpeaking } from './tts.js';
 import { useStore } from './store.js';
+import { beginQuiet, endQuiet } from './quiet.js';
 
 const Recognition = typeof window !== 'undefined' ? (window.SpeechRecognition || window.webkitSpeechRecognition) : null;
 export const dictationSupported = !!Recognition;
@@ -14,12 +15,17 @@ export function useDictation(onWords) {
   const rec = useRef(null);
   const cb = useRef(onWords);
   cb.current = onWords;
-  useEffect(() => () => { try { rec.current?.abort(); } catch { /* already stopped */ } }, []);
+  const release = useRef(null);
+  useEffect(() => () => { try { rec.current?.abort(); } catch { /* already stopped */ } release.current?.(); }, []);
 
   function start() {
     if (!Recognition || rec.current) return;
     // don't let the read-aloud voice end up in your text (and during story time, wait for the story to finish)
     if (!stopSpeaking()) { useStore.getState().toast('Story time: voice typing can start once the narration has finished.', 'info'); return; }
+    // and while you speak, everything else on this device is silent: other players' voices, new narration, sounds
+    beginQuiet();
+    let quiet = true;
+    release.current = () => { if (quiet) { quiet = false; endQuiet(); } };
     const r = new Recognition();
     r.lang = navigator.language || 'en-US';
     r.continuous = true;
@@ -39,9 +45,9 @@ export function useDictation(onWords) {
       else if (e.error === 'no-speech') useStore.getState().toast("Didn't hear anything. Press the mic and speak.", 'info');
       else if (e.error !== 'aborted') useStore.getState().toast(`Voice typing stopped (${e.error}).`, 'bad');
     };
-    r.onend = () => { rec.current = null; setListening(false); setInterim(''); };
+    r.onend = () => { rec.current = null; setListening(false); setInterim(''); release.current?.(); };
     rec.current = r;
-    try { r.start(); setListening(true); } catch { rec.current = null; }
+    try { r.start(); setListening(true); } catch { rec.current = null; release.current?.(); }
   }
   function stop() { try { rec.current?.stop(); } catch { /* already stopped */ } }
   return { supported: dictationSupported, listening, interim, start, stop, toggle: () => (rec.current ? stop() : start()) };
