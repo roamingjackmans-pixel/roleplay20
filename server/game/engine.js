@@ -894,6 +894,7 @@ function applyEffect(c, e) {
     case 'exhaustion': for (const ch of targetChars()) { ch.exhaustion = clampNum((ch.exhaustion || 0) + amount, 0, 6, 0); saveCharacter(ch); } break;
     case 'spend_slot': for (const ch of targetChars()) if (ch.spellcasting && amount >= 1 && amount <= 9) { if (!combat.spendSlot(ch, amount)) system(c, `✨ ${ch.name} has no level ${amount} spell slot left.`, [userForCharacter(c, ch.id)].filter(Boolean)); saveCharacter(ch); } break;
     case 'spend_resource': for (const ch of targetChars()) { const k = resourceKey(ch, e.text); if (k) { ch.resources ||= {}; ch.resources[k] = { used: (ch.resources[k]?.used || 0) + Math.max(1, amount) }; saveCharacter(ch); } } break;
+    case 'spell_add': case 'spell_remove': for (const ch of targetChars().slice(0, 8)) learnSpell(c, ch, e.text, type === 'spell_remove'); break;
     case 'give_map': giveMap(c, e.mapId, e.target || 'party'); break;
     case 'discover_location': discoverLocation(c, e.mapId, e.locationId, e.target || 'party'); break;
     case 'move_party': moveParty(c, e.mapId || c.scene.areaMapId, e.locationId); break;
@@ -1730,4 +1731,67 @@ function spotOnMap(c, map, target) {
   const low = ref.toLowerCase();
   const o = (map.objects || []).find((x) => (x.label || '').toLowerCase().includes(low) || x.kind.replace(/_/g, ' ') === low);
   return o ? { x: o.x, y: o.y } : null;
+}
+
+const ABILITY_WORDS = { str: 'str', strength: 'str', dex: 'dex', dexterity: 'dex', con: 'con', constitution: 'con', int: 'int', intelligence: 'int', wis: 'wis', wisdom: 'wis', cha: 'cha', charisma: 'cha' };
+
+/** A spell from the rules by its name or index ("Fire Bolt", "fire-bolt", "ray of frost"). */
+function findSpell(ref) {
+  const want = String(ref || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  if (!want) return null;
+  const by = srd().by.spells;
+  return by.get(want) || [...by.values()].find((s) => s.name.toLowerCase().replace(/[^a-z0-9]+/g, '-') === want) || null;
+}
+
+/**
+ * The DM gives a character a spell, or takes one away: a boon, a blessing, a dragon's gift, a curse. text is the spell's
+ * name, optionally followed by "(ability, source)", e.g. "Fire Bolt (int, Dawnmark)". A cantrip can go to anyone,
+ * including a fighter who casts nothing else; a granted levelled spell is always prepared and uses their spell slots.
+ * A character who doesn't cast already gets the spellcasting ability named, or their best of Int, Wis and Cha.
+ */
+function learnSpell(c, ch, text, forget = false) {
+  const raw = String(text || '').trim();
+  const paren = raw.match(/\(([^)]*)\)\s*$/);
+  const name = (paren ? raw.slice(0, paren.index) : raw).trim();
+  const extra = paren ? paren[1].split(/[,;]/).map((s) => s.trim()).filter(Boolean) : [];
+  const named = extra.map((x) => ABILITY_WORDS[x.toLowerCase()]).find(Boolean);
+  const source = extra.find((x) => !ABILITY_WORDS[x.toLowerCase()]) || '';
+  const spell = findSpell(name);
+  if (!spell) {
+    (c.world.dmNotes ||= []).push(`spell_${forget ? 'remove' : 'add'} for ${ch.name} did nothing: there is no spell called "${name}" in the SRD rules. Use its exact SRD name.`);
+    return false;
+  }
+  const lists = ['cantrips', 'known', 'prepared', 'alwaysPrepared'];
+  if (forget) {
+    const sc = ch.spellcasting;
+    if (!sc) return false;
+    const had = lists.some((k) => sc[k]?.includes(spell.index)) || sc.innate?.some((i) => i.spell === spell.index);
+    for (const k of lists) if (Array.isArray(sc[k])) sc[k] = sc[k].filter((s) => s !== spell.index);
+    if (sc.innate) sc.innate = sc.innate.filter((i) => i.spell !== spell.index);
+    const casterByClass = !!safeDerive(ch)?.spellcasting?.classes?.length;
+    if (!casterByClass && !sc.cantrips.length && !sc.known.length && !sc.innate?.length) ch.spellcasting = null;
+    saveCharacter(ch);
+    if (had) system(c, `✨ ${ch.name} no longer has ${spell.name}.`);
+    return had;
+  }
+  const casterByClass = !!safeDerive(ch)?.spellcasting?.classes?.length;
+  if (!ch.spellcasting) {
+    const best = ['int', 'wis', 'cha'].reduce((a, k) => ((ch.abilities?.[k] ?? 10) > (ch.abilities?.[a] ?? 10) ? k : a), 'int');
+    ch.spellcasting = { ability: named || best, cantrips: [], known: [], prepared: [], slotsUsed: [0, 0, 0, 0, 0, 0, 0, 0, 0], pactUsed: 0 };
+  } else if (!casterByClass && named) ch.spellcasting.ability = named;
+  const sc = ch.spellcasting;
+  for (const k of ['cantrips', 'known', 'prepared']) sc[k] ||= [];
+  const level = spell.level || 0;
+  const already = level === 0 ? sc.cantrips.includes(spell.index) : sc.known.includes(spell.index) || sc.prepared.includes(spell.index) || sc.alwaysPrepared?.includes(spell.index);
+  if (level === 0) { if (!already) sc.cantrips.push(spell.index); }
+  else {
+    if (!sc.known.includes(spell.index)) sc.known.push(spell.index);
+    if (!sc.prepared.includes(spell.index)) sc.prepared.push(spell.index);
+    sc.alwaysPrepared = [...new Set([...(sc.alwaysPrepared || []), spell.index])];
+  }
+  sc.innate = (sc.innate || []).filter((i) => i.spell !== spell.index);
+  sc.innate.push({ spell: spell.index, ability: named || sc.ability, source: source || 'Granted by the DM', level });
+  saveCharacter(ch);
+  if (!already) system(c, `✨ ${ch.name} gains the spell ${spell.name}${source ? ` (${source})` : ''}.`, 'all', { tone: 'good' });
+  return !already;
 }
