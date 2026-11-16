@@ -738,3 +738,20 @@ export function encounterDifficulty(partyLevels, monsters) {
   const difficulty = adjustedXp >= th.deadly ? "deadly" : adjustedXp >= th.hard ? "hard" : adjustedXp >= th.medium ? "medium" : adjustedXp >= th.easy ? "easy" : "trivial";
   return { totalXp, adjustedXp, multiplier, thresholds: th, difficulty };
 }
+
+/**
+ * Throwing a weapon instead of swinging it (the Throw toggle on the turn panel). A weapon made for throwing (dagger,
+ * javelin, handaxe, spear...) uses its own range, attack bonus and damage. Anything else is an improvised throw:
+ * 1d4 bludgeoning, 20/60 ft, the weapon's usual ability modifier and no proficiency bonus. Unarmed strikes can't be
+ * thrown. `derived` is deriveCharacter's result (for the ability modifiers). Returns null if it can't be thrown.
+ */
+export function throwProfile(attack, derived) {
+  if (!attack || attack.id === "unarmed" || /unarmed/i.test(attack.name || "")) return null;
+  const props = attack.properties || [];
+  if (attack.kind !== "ranged" && props.includes("thrown") && attack.rangeFt) {
+    return { bonus: attack.bonus, damage: attack.damage, damageType: attack.damageType, range: attack.rangeFt, improvised: false };
+  }
+  const ab = attack.kind === "ranged" ? "str" : attack.ability || "str";
+  const mod = derived?.mods?.[ab] ?? 0;
+  return { bonus: mod, damage: withMod("1d4", mod), damageType: "bludgeoning", range: { normal: 20, long: 60 }, improvised: true };
+}

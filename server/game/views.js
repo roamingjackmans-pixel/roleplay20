@@ -163,7 +163,7 @@ function combatView(c, userId) {
     myTurn, myCombatantId: myCb?.id || null, economy: myTurn ? combat.movementInfo(c, myCb) : null,
     pending: Object.values(k.pending || {}).filter((p) => p.userId === userId).map((p) => ({ id: p.id, label: p.label, dice: p.dice, type: p.type, crit: p.crit, versatile: p.versatile, melee: p.melee, options: p.options || [] })),
     // a typed "run over and attack" the player now rolls to hit for
-    ready: myTurn && k.ready && k.ready.userId === userId ? { id: k.ready.id, attackId: k.ready.attackId, attackName: k.ready.attackName, bonus: k.ready.bonus, targetTokenId: k.ready.targetTokenId, targetName: k.ready.targetName } : null,
+    ready: myTurn && k.ready && k.ready.userId === userId ? { id: k.ready.id, attackId: k.ready.attackId, attackName: k.ready.attackName, bonus: k.ready.bonus, thrown: !!k.ready.thrown, targetTokenId: k.ready.targetTokenId, targetName: k.ready.targetName } : null,
   };
 }
 

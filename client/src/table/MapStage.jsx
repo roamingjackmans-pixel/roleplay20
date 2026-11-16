@@ -71,7 +71,7 @@ export default function MapStage() {
     }
   }
   async function doAttack(t, tokenId, advantage, mode, natural) {
-    const r = await emit('combat:attack', { attackId: t.attackId, targetTokenId: tokenId, advantage, mode, natural });
+    const r = await emit('combat:attack', { attackId: t.attackId, targetTokenId: tokenId, advantage, mode, natural, thrown: !!t.thrown });
     if (r?.hit && r.pendingId) ui.set({ damagePrompt: { pendingId: r.pendingId, damage: r.damage, damageType: r.damageType, crit: r.crit, options: r.options || [] } });
     else if (r?.ok && !r.hit && r.reasons?.length) toast(`Miss. (${r.reasons.join(', ')})`, 'info', 3500);
   }
@@ -118,7 +118,7 @@ export default function MapStage() {
       )}
       {t && (
         <div className="targeting-banner">
-          <span>🎯 {t.kind === 'attack' ? `Click an enemy to attack with ${t.attackName}` : template ? `Aim ${t.spell.name} (${templateLabel(template)}) - click to cast` : `Click a target for ${t.spell.name}`}</span>
+          <span>🎯 {t.kind === 'attack' ? `Click an enemy to ${t.thrown ? 'throw' : 'attack with'} ${t.attackName}` : template ? `Aim ${t.spell.name} (${templateLabel(template)}) - click to cast` : `Click a target for ${t.spell.name}`}</span>
           <button className="btn xs" onClick={ui.cancelTargeting}>Cancel (Esc)</button>
         </div>
       )}

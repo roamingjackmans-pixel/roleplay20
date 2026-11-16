@@ -981,10 +981,13 @@ export function applyTurnResult(c, data, input = {}) {
   }
 
   c.round.n += 1;
+  // in a fight, remember which round and whose turn it was, so an earlier turn is never mistaken for this one
+  const fight = c.combat ? { round: input.combatRound ?? c.combat.round, turnOf: input.turnOf || combat.currentCombatant(c)?.name || '' } : null;
   c.chronicle.turns.push({
     n: c.round.n, at: Date.now(), kind: input.kind,
-    actions: input.actions || [], rolls: input.rollsText || [],
+    actions: input.actions || (input.askText && fight ? [{ name: fight.turnOf, text: input.askText }] : []), rolls: input.rollsText || [],
     narration: posted.map((p) => ({ to: p.to, parts: p.parts })), summary: data.summary || '',
+    ...(fight ? { combatRound: fight.round, turnOf: fight.turnOf } : {}),
   });
   if (c.chronicle.turns.length > 120) c.chronicle.turns.splice(0, c.chronicle.turns.length - 120);
   rememberTurn(c, { n: c.round.n, summary: data.summary, location: c.scene?.location });

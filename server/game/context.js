@@ -223,7 +223,7 @@ export function historyBlock(c) {
   const turns = c.chronicle?.turns || [];
   const older = turns.slice(0, -8).map((t) => t.summary).filter(Boolean);
   const recent = turns.slice(-8).map((t) => [
-    `## Turn ${t.n}${t.kind ? ` (${t.kind})` : ''}`,
+    `## Turn ${t.n}${t.kind ? ` (${t.kind})` : ''}${t.combatRound ? ` - combat round ${t.combatRound}${t.turnOf ? `, ${t.turnOf}'s turn` : ''}` : ''}`,
     ...(t.actions || []).map((a) => `* ${a.name}${a.private ? ' (PRIVATE)' : ''}: ${clip(a.text, 400)}`),
     ...(t.rolls || []).map((r) => `* roll: ${r}`),
     ...(t.narration || []).map((n) => clip(narrationText(n, nameForUser), 900)),

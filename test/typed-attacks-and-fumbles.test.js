@@ -29,9 +29,9 @@ async function fight() {
   const id = `ch_typed_${n}`;
   C.storeNewCharacter({
     id, ownerId: 'u_a', name: 'Bram', race: 'human', class: 'fighter', level: 1, classes: [{ class: 'fighter', subclass: null, level: 1 }],
-    hp: { max: 12, current: 12, temp: 0 }, speed: 30, abilities: { str: 14, dex: 16, con: 12, int: 10, wis: 10, cha: 10 },
+    hp: { max: 12, current: 12, temp: 0 }, speed: 30, conditions: [], abilities: { str: 14, dex: 16, con: 12, int: 10, wis: 10, cha: 10 },
     otherProfs: { armor: [], weapons: ['simple', 'martial'], tools: [], languages: [] },
-    equipment: [item('rapier', 'Rapier'), item('shortbow', 'Shortbow')],
+    equipment: [item('rapier', 'Rapier'), item('shortbow', 'Shortbow'), item('javelin', 'Javelin')],
   });
   c.members[0].characterId = id;
   E.setSceneMap(c, { theme: 'tavern', name: 'The Thimble & Thistle', size: 'medium' });
@@ -78,7 +78,8 @@ test('the DM is told that moving and weapon attacks are for the app and the play
   assert.match(text, /they roll to hit and roll damage themselves/);
   assert.match(text, /leave rollRequests and effects empty/);
   const a = TURN_SCHEMA.properties.attack;
-  assert.deepEqual(a.items.required, ['characterId', 'moveTo', 'targetId', 'weapon']);
+  assert.deepEqual(a.items.required, ['characterId', 'moveTo', 'targetId', 'weapon', 'thrown']);
+  assert.deepEqual(TURN_SCHEMA.properties.combatCost.enum, ['action', 'bonus', 'free', 'none']);
 });
 
 test('"I run over and stab the goblin": the token runs next to it, and the player rolls to hit (nothing rolled yet)', async () => {
@@ -236,4 +237,84 @@ test('the DM keeps the same content in about 40% fewer words, and makes natural 
   assert.match(DM_CORE, /Keep every piece of content/);
   assert.match(DM_CORE, /natural 1.*critical fail.*extra bad and\/or funny/s);
   assert.match(COMBAT_CORE, /one punchy sentence each/);
+});
+
+// ---- throwing, and nothing from an earlier turn counting against this one
+const { historyBlock } = await import('../server/game/context.js');
+const weaponId = (f, name) => f.ch().equipment.find((i) => i.name === name).id;
+
+test('a javelin can be thrown at range (it used to be refused as "too far for a melee attack")', async () => {
+  const f = await fight();
+  placeApart(f.c, f.map, f.bTok, f.gTok, 20, 25);
+  const melee = K.attack(f.c, 'u_a', { attackId: weaponId(f, 'Javelin'), targetTokenId: f.gTok.id, mode: 'auto' });
+  assert.match(melee.error, /Too far for a melee attack .*switch on 🎯 Throw to throw it \(30\/120 ft\)/);
+  assert.equal(f.k.economy[f.bram.id].action, false, 'a refused attack never uses up the action');
+  const r = K.attack(f.c, 'u_a', { attackId: weaponId(f, 'Javelin'), targetTokenId: f.gTok.id, mode: 'manual', natural: 15, thrown: true });
+  assert.ok(r.ok, r.error);
+  assert.equal(f.k.economy[f.bram.id].action, true);
+  const card = f.c.log.filter((e) => e.kind === 'dice').at(-1);
+  assert.match(card.label, /^Javelin \(thrown\) vs /);
+  if (r.hit) assert.equal(r.damageType, 'piercing', 'a throwing weapon keeps its own damage');
+});
+
+test('anything else can be thrown as an improvised weapon: 1d4, 20/60 ft, no proficiency bonus', async () => {
+  const f = await fight();
+  placeApart(f.c, f.map, f.bTok, f.gTok, 15, 20);
+  const r = K.attack(f.c, 'u_a', { attackId: weaponId(f, 'Rapier'), targetTokenId: f.gTok.id, mode: 'manual', natural: 20, thrown: true });
+  assert.ok(r.ok && r.hit, r.error);
+  assert.equal(r.damage, '1d4+3', 'its usual (finesse: DEX) modifier, improvised damage');
+  assert.equal(r.damageType, 'bludgeoning');
+  const card = f.c.log.filter((e) => e.kind === 'dice').at(-1);
+  assert.match(card.label, /Rapier \(thrown, improvised\)/);
+  assert.equal(card.result.total, 23, '20 + DEX 3, without the proficiency bonus');
+  const f2 = await fight();
+  placeApart(f2.c, f2.map, f2.bTok, f2.gTok, 5, 5);
+  assert.match(K.attack(f2.c, 'u_a', { attackId: 'unarmed', targetTokenId: f2.gTok.id, thrown: true }).error, /can't throw your unarmed strike/);
+});
+
+test('"I throw my javelin at the goblin" readies a thrown attack from where they stand', async () => {
+  const f = await fight();
+  placeApart(f.c, f.map, f.bTok, f.gTok, 20, 25);
+  const at = { x: f.bTok.x, y: f.bTok.y };
+  f.k.state = 'asking';
+  E.applyTurnResult(f.c, plan(f.k, f.bram, { targetId: f.gob.id, weapon: 'javelin', thrown: true }), { kind: 'combat_ask' });
+  assert.deepEqual({ x: f.bTok.x, y: f.bTok.y }, at, 'no running up to it');
+  assert.equal(f.k.ready?.attackName, 'Javelin (thrown)');
+  assert.equal(buildView(f.c, 'u_a').combat.ready.thrown, true);
+});
+
+test('the DM is told exactly what was done this turn, and that earlier rounds never count', async () => {
+  const f = await fight();
+  f.ch().hp = { max: 200, current: 200, temp: 0 };
+  placeApart(f.c, f.map, f.bTok, f.gTok, 5, 5);
+  assert.ok(K.takeAction(f.c, 'u_a', { type: 'dodge' }).ok);
+  assert.deepEqual(f.k.economy[f.bram.id].done, ['dodge']);
+  K.combatAsk(f.c, 'u_a', 'I shout a warning to the others');
+  assert.match(f.c.pendingInput.text, /THIS turn so far \(the only things that count against it\): dodge\./);
+  // the next round: nothing from last turn carries over
+  await tick();
+  assert.ok(K.endTurn(f.c, 'u_a').ok);
+  for (let i = 0; i < 100 && K.currentCombatant(f.c)?.id !== f.bram.id; i++) await tick(50);
+  assert.equal(K.currentCombatant(f.c).id, f.bram.id);
+  assert.equal(K.movementInfo(f.c, f.bram).action, false);
+  K.combatAsk(f.c, 'u_a', 'I kick sand in its eyes');
+  const text = f.c.pendingInput.text;
+  assert.match(text, /THIS turn so far \(the only things that count against it\): nothing yet\./);
+  assert.match(text, /a spell they cast or an attack they made last round does not use up this turn's action/);
+});
+
+test('a correction or question to the DM costs nothing; an action costs the action', async () => {
+  const f = await fight();
+  const ask = (data) => { f.k.state = 'asking'; E.applyTurnResult(f.c, { narration: [{ to: ['all'], parts: [{ speaker: 'narrator', text: 'Noted.' }] }], ...data }, { kind: 'combat_ask', combatRound: f.k.round, turnOf: 'Bram', askText: 'I cast that last round, not this one' }); };
+  ask({ combatCost: 'free' });
+  assert.equal(f.k.economy[f.bram.id].action, false, 'still has the action');
+  const turn = f.c.chronicle.turns.at(-1);
+  assert.equal(turn.combatRound, f.k.round);
+  assert.match(historyBlock(f.c), new RegExp(`combat round ${f.k.round}, Bram's turn`));
+  assert.match(historyBlock(f.c), /\* Bram: I cast that last round, not this one/);
+  ask({ combatCost: 'bonus' });
+  assert.equal(f.k.economy[f.bram.id].bonus, true);
+  assert.equal(f.k.economy[f.bram.id].action, false);
+  ask({}); // an older reply with no cost given: the action, as before
+  assert.equal(f.k.economy[f.bram.id].action, true);
 });

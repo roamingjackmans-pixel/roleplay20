@@ -18,6 +18,7 @@ export const useUI = create((set, get) => ({
   nextAdv: 'none',
   rollMode: (() => { try { return localStorage.getItem('rp20.rollMode') || 'auto'; } catch { return 'auto'; } })(),
   damagePrompt: null,
+  throwing: false,               // the Throw toggle on the turn panel: attacks throw the weapon (this turn only)
   dmOpen: false,
   // unsent text per campaign: { [campaignId]: { action, priv, chat } }. Switching between "Your action" and
   // "Table talk" keeps both; each box only sends its own text. Kept for this tab across reloads.

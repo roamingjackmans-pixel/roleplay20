@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
+import { throwProfile } from '../../../shared/rules.js';
 import { useStore, emit } from '../lib/store.js';
 import { useUI } from './ui.js';
 import { useCharacter } from '../sheet/CharacterSheet.jsx';
@@ -34,6 +35,8 @@ export function TurnPanel() {
   const [ask, setAsk] = useState('');
   const c = view.combat;
   const eco = c.economy;
+  // the Throw toggle lasts for your turn only, so you never throw your sword by accident next round
+  useEffect(() => { if (!c.myTurn && useUI.getState().throwing) useUI.getState().set({ throwing: false }); }, [c.myTurn]);
   if (!c.myTurn || !ch || !d) {
     return ui.damagePrompt ? <DamagePrompt /> : null;
   }
@@ -60,11 +63,20 @@ export function TurnPanel() {
           </div>
         )}
         <div className="tp-row">
-          {d.attacks.map((a) => (
-            <button key={a.id} className={`btn sm ${ui.targeting?.attackId === a.id ? 'active' : ''}`} disabled={actionUsed} onClick={() => ui.startTargeting({ kind: 'attack', attackId: a.id, attackName: a.name })}>
-              ⚔ {a.name} <span className="faint">{fmtMod(a.bonus)} · {a.damage}</span>
-            </button>
-          ))}
+          {d.attacks.map((a) => {
+            const tp = ui.throwing ? throwProfile(a, d) : null;
+            if (ui.throwing && !tp) return <button key={a.id} className="btn sm" disabled title="That can't be thrown">⚔ {a.name}</button>;
+            return (
+              <button key={a.id} className={`btn sm ${ui.targeting?.attackId === a.id ? 'active' : ''}`} disabled={actionUsed}
+                title={tp ? `Throw your ${a.name.toLowerCase()}: ${tp.range.normal} ft (up to ${tp.range.long} ft with disadvantage)${tp.improvised ? '. It isn\'t made for throwing, so it\'s an improvised throw: 1d4, no proficiency bonus.' : ''}` : undefined}
+                onClick={() => ui.startTargeting({ kind: 'attack', attackId: a.id, attackName: tp ? `${a.name} (thrown)` : a.name, thrown: !!tp })}>
+                {tp ? '🎯' : '⚔'} {a.name}{tp ? ' (throw)' : ''} <span className="faint">{fmtMod(tp ? tp.bonus : a.bonus)} · {tp ? tp.damage : a.damage}{tp ? ` · ${tp.range.normal}/${tp.range.long} ft${tp.improvised ? ', improvised' : ''}` : ''}</span>
+              </button>
+            );
+          })}
+          <button className={`btn sm throw-toggle ${ui.throwing ? 'active' : ''}`} aria-pressed={ui.throwing} disabled={actionUsed}
+            title="Throw your weapon instead of swinging it. Throwing weapons (daggers, javelins, handaxes, spears) use their own range; anything else is an improvised throw: 1d4, 20/60 ft, no proficiency bonus. Switches off when your turn ends."
+            onClick={() => ui.set({ throwing: !ui.throwing })}>🎯 Throw: {ui.throwing ? 'on' : 'off'}</button>
           <button className="btn sm" onClick={() => ui.set({ panelOpen: true, panelTab: 'spells' })} disabled={!ch.spellcasting}>✨ Spells</button>
         </div>
         <div className="tp-row">
@@ -97,7 +109,7 @@ function ReadyAttack({ r }) {
   const valid = Number(n) >= 1 && Number(n) <= 20;
   async function go(mode) {
     setBusy(true);
-    const res = await emit('combat:attack', { attackId: r.attackId, targetTokenId: r.targetTokenId, advantage: adv, mode, natural: mode === 'manual' ? Number(n) : undefined });
+    const res = await emit('combat:attack', { attackId: r.attackId, targetTokenId: r.targetTokenId, advantage: adv, mode, natural: mode === 'manual' ? Number(n) : undefined, thrown: !!r.thrown });
     setBusy(false);
     if (adv === ui.nextAdv) ui.takeAdv();
     if (res?.hit && res.pendingId) ui.set({ damagePrompt: { pendingId: res.pendingId, damage: res.damage, damageType: res.damageType, crit: res.crit, options: res.options || [] } });

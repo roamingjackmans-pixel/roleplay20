@@ -113,7 +113,10 @@ export const TURN_SCHEMA = obj({
   // [] normally. In combat only, when the character whose turn it is moves and/or makes a weapon or unarmed attack:
   // where they go (a name or "x,y", "" = stay), who they attack (combatant id, "" = just moving) and with what
   // ("" = their usual weapon). The app moves the token and the player rolls to hit and damage.
-  attack: arr(obj({ characterId: S, moveTo: S, targetId: S, weapon: S })),
+  attack: arr(obj({ characterId: S, moveTo: S, targetId: S, weapon: S, thrown: B })),
+  // In combat only: what the character's request used up this turn ("free" for a correction, a question or a quick
+  // word); "none" outside combat.
+  combatCost: en('action', 'bonus', 'free', 'none'),
   // [] normally (the next round waits for everyone). Character id(s) when an NPC has just asked them something or is in
   // a one-on-one conversation with them: the next round waits only for their answer.
   waitFor: arr(S),
