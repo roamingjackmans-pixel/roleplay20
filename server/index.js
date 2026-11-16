@@ -13,6 +13,7 @@ import * as C from './game/campaign.js';
 import * as E from './game/engine.js';
 import * as K from './game/combat.js';
 import * as V from './game/voice.js';
+import * as DC from './game/dmchat.js';
 import { buildView, visibleLog } from './game/views.js';
 import { srd, srdFile } from './srd.js';
 import { aiStatus, MODELS } from './ai/client.js';
@@ -422,7 +423,9 @@ io.on('connection', (socket) => {
   socket.on('token:move', wrap((p) => act() || E.moveTokenFree(c, userId, p.tokenId, p.x | 0, p.y | 0)));
   // battle-map pings are grid cells; town and region map pings are 0-1 positions on that map
   socket.on('ping', wrap((p) => need() || (p.mapId ? E.ping(c, userId, Math.min(1, Math.max(0, Number(p.x) || 0)), Math.min(1, Math.max(0, Number(p.y) || 0)), String(p.mapId).slice(0, 80)) : E.ping(c, userId, p.x | 0, p.y | 0), { ok: true })));
-  socket.on('chat', wrap((p) => need() || (E.chat(c, userId, p.text), { ok: true })));
+  socket.on('chat', wrap((p) => need() || E.chat(c, userId, p.text, p.to ? String(p.to) : null)));
+  // DM Chat: a private question to the DM, answered only to the one who asked (never uses a turn)
+  socket.on('dm:ask', wrap((p) => need() || DC.askDm(c, userId, p.text)));
   // private notes: saved with the campaign (they survive sessions, restarts and closing the app); the answer tells the
   // player's screen what was saved, so coming back to the notes tab shows the latest text
   socket.on('notes', wrap((p) => {

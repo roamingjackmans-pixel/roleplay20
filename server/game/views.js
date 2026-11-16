@@ -23,6 +23,8 @@ export function logVisibleTo(c, entry, userId) {
   if (entry.to === 'all' || !entry.to) return true;
   if (Array.isArray(entry.to)) {
     if (entry.to.includes(userId)) return true;
+    // private table talk between two players, and a player's private questions to the DM: never even in God view
+    if (entry.strictPrivate) return false;
     const m = member(c, userId);
     return m?.role === 'owner' && c.settings.dmView;
   }

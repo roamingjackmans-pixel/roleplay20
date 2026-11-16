@@ -29,15 +29,60 @@ export default function Composer() {
   const [tab, setTab] = useState('act');
   const myChar = view.myCharacter;
   const inCombat = !!view.combat;
-  useEffect(() => { if (inCombat) setTab('chat'); else setTab('act'); }, [inCombat]);
+  useEffect(() => { if (inCombat) setTab((t) => (t === 'dm' ? t : 'chat')); else setTab((t) => (t === 'dm' ? t : 'act')); }, [inCombat]);
+  const dmState = useDmChatState();
   return (
     <div className="composer">
       <RollRequests />
       <div className="composer-tabs">
         <button className={tab === 'act' ? 'on' : ''} onClick={() => setTab('act')} disabled={!myChar}>{inCombat ? '⚔ Combat' : '✒ Your action'}{tab !== 'act' && !inCombat && draft.action?.trim() ? <i className="draft-dot" title="Unsent action" /> : null}</button>
         <button className={tab === 'chat' ? 'on' : ''} onClick={() => setTab('chat')}>💬 Table talk{tab !== 'chat' && draft.chat?.trim() ? <i className="draft-dot" title="Unsent message" /> : null}</button>
+        <button className={tab === 'dm' ? 'on' : ''} onClick={() => setTab('dm')} title="Ask the DM something privately: only you see the question and the answer">
+          🧙 DM chat{tab !== 'dm' && (draft.dm?.trim() || dmState.unread) ? <i className={`draft-dot ${dmState.unread ? 'reply' : ''}`} title={dmState.unread ? 'The DM answered' : 'Unsent question'} /> : null}
+        </button>
       </div>
-      {tab === 'act' ? (inCombat ? <CombatHint /> : <ActionBox />) : <ChatBox />}
+      {tab === 'act' ? (inCombat ? <CombatHint /> : <ActionBox />) : tab === 'dm' ? <DmChatBox state={dmState} /> : <ChatBox />}
+    </div>
+  );
+}
+
+/** Your private chat with the DM, from the log: whether an answer is on its way, and whether one came in unseen. */
+function useDmChatState() {
+  const log = useStore((s) => s.log);
+  const me = useStore((s) => s.view?.me?.userId);
+  const mine = log.filter((e) => e.kind === 'dmchat');
+  const lastQ = [...mine].reverse().find((e) => e.role === 'player' && e.userId === me);
+  const waiting = !!lastQ && !mine.some((e) => e.role === 'dm' && e.replyTo === lastQ.id);
+  const lastA = [...mine].reverse().find((e) => e.role === 'dm');
+  const [seen, setSeen] = useState(null);
+  return { waiting, lastQ, lastA, unread: !!lastA && lastA.recvAt && lastA.id !== seen, markSeen: () => lastA && setSeen(lastA.id) };
+}
+
+/** DM chat: ask the DM privately. It doesn't use your turn; the question and the answer show in the story for you only. */
+function DmChatBox({ state }) {
+  const view = useStore((s) => s.view);
+  const [draft, setDraft] = useDraft();
+  const t = draft.dm || '';
+  const [busy, setBusy] = useState(false);
+  const dict = useDictation((words) => setDraft({ dm: appendWords(useUI.getState().drafts[view.campaign.id]?.dm, words) }));
+  useEffect(() => { state.markSeen(); }, [state.lastA?.id]); // eslint-disable-line
+  const send = async () => {
+    if (!t.trim() || busy || state.waiting) return;
+    dict.stop();
+    setBusy(true);
+    const r = await emit('dm:ask', { text: t });
+    setBusy(false);
+    if (r?.ok) setDraft({ dm: '' });
+  };
+  return (
+    <div className="composer-body col" style={{ gap: 6 }}>
+      <div className="row">
+        <input className="input" value={t} onChange={(e) => setDraft({ dm: e.target.value })} onKeyDown={(e) => e.key === 'Enter' && send()} placeholder="Ask the DM privately (a rule, your character, what you know…)" />
+        <MicButton dict={dict} small />
+        <button className="btn sm" disabled={!t.trim() || busy || state.waiting} onClick={send}>Ask</button>
+      </div>
+      {dict.listening && <div className="dictating small">🎤 Listening… {dict.interim ? <i>{dict.interim}</i> : <span className="muted">speak now</span>}</div>}
+      <div className="tiny muted">{state.waiting ? '🧙 The DM is thinking about your question…' : 'Only you see this chat, and it never uses your turn. To do something, use Your action.'}</div>
     </div>
   );
 }
@@ -166,12 +211,28 @@ function ChatBox() {
   const view = useStore((s) => s.view);
   const [draft, setDraft] = useDraft();
   const t = draft.chat || '';
+  // to everyone, or privately to one other player who is at the table right now
+  const others = view.members.filter((m) => m.userId !== view.me.userId && m.online);
+  const toId = others.some((m) => m.userId === draft.chatTo) ? draft.chatTo : '';
+  const to = others.find((m) => m.userId === toId);
+  const nameOf = (m) => { const ch = view.party.find((p) => p.userId === m.userId); return ch ? `${m.displayName} (${ch.name.split(' ')[0]})` : m.displayName; };
   const dict = useDictation((words) => setDraft({ chat: appendWords(useUI.getState().drafts[view.campaign.id]?.chat, words) }));
-  const send = () => { if (t.trim()) { dict.stop(); emit('chat', { text: t }); setDraft({ chat: '' }); } };
+  const send = async () => {
+    if (!t.trim()) return;
+    dict.stop();
+    const r = await emit('chat', { text: t, to: toId || undefined });
+    if (!r?.error) setDraft({ chat: '' });
+  };
   return (
     <div className="composer-body col" style={{ gap: 6 }}>
       <div className="row">
-        <input className="input" value={t} onChange={(e) => setDraft({ chat: e.target.value })} onKeyDown={(e) => e.key === 'Enter' && send()} placeholder="Out-of-character chat (the DM ignores this)" />
+        <select className="select chat-to" value={toId} onChange={(e) => setDraft({ chatTo: e.target.value })} title="Send to everyone, or privately to one player who is here">
+          <option value="">To everyone</option>
+          {others.map((m) => <option key={m.userId} value={m.userId}>To {nameOf(m)} only</option>)}
+        </select>
+      </div>
+      <div className="row">
+        <input className="input" value={t} onChange={(e) => setDraft({ chat: e.target.value })} onKeyDown={(e) => e.key === 'Enter' && send()} placeholder={to ? `Private message to ${to.displayName} (only you two see it)` : 'Out-of-character chat (the DM ignores this)'} />
         <MicButton dict={dict} small />
         <button className="btn sm" disabled={!t.trim()} onClick={send}>Send</button>
       </div>

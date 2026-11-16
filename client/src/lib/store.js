@@ -80,7 +80,8 @@ export const useStore = create((set, get) => ({
         sounds.dice();
       }
       if (entry.kind === 'narration') sounds.page();
-      if (entry.kind === 'clarify') sounds.request();
+      if (entry.kind === 'clarify' || (entry.kind === 'dmchat' && entry.role === 'dm')) sounds.request();
+      if (entry.kind === 'chat' && entry.toUserId && entry.userId !== get().view?.me?.userId) sounds.ping();
     });
     socket.on('toast', (t) => get().toast(t.text, t.tone));
     socket.on('ping', (p) => {

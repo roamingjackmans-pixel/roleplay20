@@ -107,7 +107,29 @@ function Entry({ e, view, speaking }) {
         </div>
       );
     case 'chat':
+      if (e.toUserId) {
+        const mine = e.userId === view.me.userId;
+        return (
+          <div className="entry chat whisper fade-in">
+            <b style={{ color: e.color }}>{mine ? 'You' : e.name}</b> <span className="tiny whisper-tag">🔒 {mine ? `to ${e.toName} only` : 'to you only'}</span> {e.text}
+          </div>
+        );
+      }
       return <div className="entry chat fade-in"><b style={{ color: e.color }}>{e.name}</b> <span className="tiny faint">(table talk)</span> {e.text}</div>;
+    case 'dmchat':
+      return e.role === 'dm' ? (
+        <div className={`entry dmchat answer fade-in ${e.error ? 'error' : ''}`}>
+          <div className="private-tag">only you</div>
+          <div className="speaker">🧙 The DM answers</div>
+          <div className="line">{inline(e.text || '', 0)}</div>
+        </div>
+      ) : (
+        <div className="entry dmchat question fade-in">
+          <div className="private-tag">only you</div>
+          <div className="speaker">You asked the DM</div>
+          <div className="line">{e.text}</div>
+        </div>
+      );
     case 'roll_request':
       return <div className="entry sys fade-in">🎲 The DM asks <b>{e.characterName}</b> for a <b>{e.label}</b>{e.reason ? <span className="muted"> - {e.reason}</span> : null}</div>;
     case 'session':

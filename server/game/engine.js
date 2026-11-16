@@ -1436,11 +1436,25 @@ export function ping(c, userId, x, y, mapId = null) {
   emitToUsers(c, 'ping', { x, y, ...(mapId ? { mapId } : {}), color: u?.color || '#fff', by: u?.displayName, at: Date.now() }, 'all');
 }
 
-export function chat(c, userId, text) {
+/**
+ * Table talk: to everyone, or privately to one other player who is at the table (`toUserId`). A private message is
+ * seen only by the two of them (never in the host's God view).
+ */
+export function chat(c, userId, text, toUserId = null) {
   const t = String(text || '').trim().slice(0, 1000);
-  if (!t) return;
+  if (!t) return { error: 'Type a message.' };
   const u = getUser(userId);
-  addLog(c, { kind: 'chat', userId, name: u?.displayName || '?', color: u?.color, text: t });
+  if (!toUserId) {
+    addLog(c, { kind: 'chat', userId, name: u?.displayName || '?', color: u?.color, text: t });
+    return { ok: true };
+  }
+  if (toUserId === userId) return { error: 'Pick someone else to message.' };
+  const them = member(c, toUserId);
+  const toName = getUser(toUserId)?.displayName || 'them';
+  if (!them) return { error: 'They are not in this campaign.' };
+  if (!onlineUsers(c).has(toUserId)) return { error: `${toName} isn't at the table right now.` };
+  addLog(c, { kind: 'chat', userId, name: u?.displayName || '?', color: u?.color, text: t, to: [userId, toUserId], toUserId, toName, strictPrivate: true });
+  return { ok: true };
 }
 
 // ---------------------------------------------------------------- sessions

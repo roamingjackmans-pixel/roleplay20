@@ -178,3 +178,6 @@ export const CHARACTER_ASSIST_SCHEMA = obj({
 });
 
 export const RECAP_SCHEMA = obj({ narration });
+
+// A private answer to one player's out-of-character question (DM Chat).
+export const DM_CHAT_SCHEMA = obj({ answer: S });
