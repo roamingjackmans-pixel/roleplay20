@@ -7,6 +7,7 @@ import { safeDerive } from './context.js';
 import * as combat from './combat.js';
 import { onlineUsers, requiredUsers, roundNeeds, joinLevel, partyWhereabouts, dmBrain } from './engine.js';
 import { aiStatus, PRICES } from '../ai/client.js';
+import { roster as voiceRoster } from './voice.js';
 
 export function logVisibleTo(c, entry, userId) {
   // declared actions are shared with the whole table when the round resolves; a Private one stays with its player
@@ -161,6 +162,8 @@ function combatView(c, userId) {
     currentName: cur && (combat.isPc(cur) || !c.tokens[cur.tokenId]?.hidden || god) ? cur.name : 'Someone unseen',
     myTurn, myCombatantId: myCb?.id || null, economy: myTurn ? combat.movementInfo(c, myCb) : null,
     pending: Object.values(k.pending || {}).filter((p) => p.userId === userId).map((p) => ({ id: p.id, label: p.label, dice: p.dice, type: p.type, crit: p.crit, versatile: p.versatile, melee: p.melee, options: p.options || [] })),
+    // a typed "run over and attack" the player now rolls to hit for
+    ready: myTurn && k.ready && k.ready.userId === userId ? { id: k.ready.id, attackId: k.ready.attackId, attackName: k.ready.attackName, bonus: k.ready.bonus, targetTokenId: k.ready.targetTokenId, targetName: k.ready.targetName } : null,
   };
 }
 
@@ -204,7 +207,7 @@ export function buildView(c, userId, cache = {}) {
       id: c.id, name: c.name, status: c.status, ownerId: c.ownerId, inviteCode: c.inviteCode,
       title: c.world.title, tagline: c.world.tagline, characterPrompts: c.world.characterPrompts, openingHook: c.world.openingHook,
       sessionActive: c.sessionActive, sessionNumber: c.sessionNumber, genesisError: c.genesisError || null,
-      settings: { model: c.settings.model, effort: c.settings.effort, enemyTactics: c.settings.enemyTactics, autoReadAloud: c.settings.autoReadAloud, dmView: !!c.settings.dmView, tone: c.settings.tone, startLevel: c.settings.startLevel },
+      settings: { model: c.settings.model, effort: c.settings.effort, enemyTactics: c.settings.enemyTactics, autoReadAloud: c.settings.autoReadAloud, allowSkipNarration: !!c.settings.allowSkipNarration, dmView: !!c.settings.dmView, tone: c.settings.tone, startLevel: c.settings.startLevel },
     },
     members: c.members.map((x) => {
       const u = getUser(x.userId);
@@ -222,6 +225,7 @@ export function buildView(c, userId, cache = {}) {
     tactical: tacticalView(c, userId, cache),
     areaMaps: areaView(c, userId),
     combat: combatView(c, userId),
+    voice: voiceRoster(c), // who is in the table's voice chat
     npcs: Object.values(c.npcs).filter((n) => c.log.some((e) => e.parts?.some((p) => p.speaker === n.id) && logVisibleTo(c, e, userId)) || isOwner && c.settings.dmView || n.ally).map((n) => ({ id: n.id, name: n.name, role: n.role, description: n.description, voice: n.voice, attitude: n.attitude, location: n.location, status: n.status, color: n.color, ally: !!n.ally })),
     voices: Object.fromEntries(Object.values(c.npcs).map((n) => [n.id, { name: n.name, voice: n.voice, color: n.color }])),
     quests: c.quests.map((q) => ({ id: q.id, title: q.title, status: q.status, summary: q.summary, giver: q.giver, updates: q.updates.slice(-5) })),

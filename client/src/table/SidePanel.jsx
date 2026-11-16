@@ -14,38 +14,76 @@ const TABS = [
   ['party', '👥', 'Party'], ['rules', '⚖', 'Rules'],
 ];
 
+/** Two panels side by side only fit on a wide screen; narrower screens keep one panel over the map. */
+export function useWideTable() {
+  const [wide, setWide] = useState(() => typeof window === 'undefined' || window.innerWidth > 1100);
+  useEffect(() => {
+    const on = () => setWide(window.innerWidth > 1100);
+    window.addEventListener('resize', on);
+    return () => window.removeEventListener('resize', on);
+  }, []);
+  return wide;
+}
+
+/** Which panels show: the pinned one (left) and the one the rail picks, never the same one twice. */
+export function openPanels(ui, wide) {
+  const pinned = wide && ui.pinnedTab ? ui.pinnedTab : null;
+  const main = ui.panelOpen && ui.panelTab !== pinned ? ui.panelTab : null;
+  return { pinned, main };
+}
+
 export default function SidePanel() {
   const ui = useUI();
   const view = useStore((s) => s.view);
+  const wide = useWideTable();
+  const { pinned, main } = openPanels(ui, wide);
+  const label = (k) => TABS.find((t) => t[0] === k)?.[2];
   return (
     <>
       <nav className="panel-rail">
-        {TABS.map(([k, icon, label]) => (
-          <button key={k} className={`rail-btn ${ui.panelOpen && ui.panelTab === k ? 'on' : ''}`} title={label} onClick={() => (ui.panelOpen && ui.panelTab === k ? ui.set({ panelOpen: false }) : ui.set({ panelOpen: true, panelTab: k }))}>
+        {TABS.map(([k, icon, name]) => (
+          <button key={k} className={`rail-btn ${main === k || pinned === k ? 'on' : ''} ${pinned === k ? 'pinned' : ''}`} title={pinned === k ? `${name} (pinned: click to unpin)` : name}
+            onClick={() => (pinned === k ? ui.unpin() : main === k ? ui.set({ panelOpen: false }) : ui.set({ panelOpen: true, panelTab: k }))}>
             <span>{icon}</span>
             {k === 'sheet' && view.myCharacter?.pendingLevelUp && <i className="badge gold">↑</i>}
+            {pinned === k && <i className="pin-mark" aria-hidden="true">📌</i>}
           </button>
         ))}
       </nav>
-      {ui.panelOpen && (
-        <section className="side-panel fade-in">
-          <div className="sp-head"><b className="display">{TABS.find((t) => t[0] === ui.panelTab)?.[2]}</b><div className="spacer" /><button className="btn ghost icon" onClick={() => ui.set({ panelOpen: false })}>✕</button></div>
-          <div className="sp-body">
-            {ui.panelTab === 'sheet' && <CharacterSheet />}
-            {ui.panelTab === 'spells' && <SpellsPage />}
-            {ui.panelTab === 'bag' && <Inventory />}
-            {ui.panelTab === 'notes' && <Notes />}
-            {ui.panelTab === 'maps' && <MapsTab />}
-            {ui.panelTab === 'quests' && <Quests />}
-            {ui.panelTab === 'npcs' && <People />}
-            {ui.panelTab === 'journal' && <Journal />}
-            {ui.panelTab === 'party' && <Party />}
-            {ui.panelTab === 'rules' && <Rules />}
+      {pinned && (
+        <section className="side-panel pinned fade-in" aria-label={`${label(pinned)} (pinned)`}>
+          <div className="sp-head"><b className="display">📌 {label(pinned)}</b><div className="spacer" /><button className="btn ghost icon" title="Unpin" onClick={ui.unpin}>✕</button></div>
+          <div className="sp-body"><PanelBody tab={pinned} /></div>
+        </section>
+      )}
+      {main && (
+        <section className="side-panel fade-in" aria-label={label(main)}>
+          <div className="sp-head">
+            <b className="display">{label(main)}</b><div className="spacer" />
+            {wide && !pinned && <button className="btn ghost sm pin-btn" title="Keep this panel open and open a second one beside it (in place of the map)" onClick={ui.pin}>📌 Pin</button>}
+            <button className="btn ghost icon" onClick={() => ui.set({ panelOpen: false })}>✕</button>
           </div>
+          <div className="sp-body"><PanelBody tab={main} /></div>
         </section>
       )}
     </>
   );
+}
+
+function PanelBody({ tab }) {
+  switch (tab) {
+    case 'sheet': return <CharacterSheet />;
+    case 'spells': return <SpellsPage />;
+    case 'bag': return <Inventory />;
+    case 'notes': return <Notes />;
+    case 'maps': return <MapsTab />;
+    case 'quests': return <Quests />;
+    case 'npcs': return <People />;
+    case 'journal': return <Journal />;
+    case 'party': return <Party />;
+    case 'rules': return <Rules />;
+    default: return null;
+  }
 }
 
 // Private notes are saved on the server with the campaign, so they last across sessions, devices and closing the app.

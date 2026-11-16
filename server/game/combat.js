@@ -13,6 +13,7 @@ import { templateCells } from '../../shared/templates.js';
 import { rollDice, rollD20, manualD20 } from '../../shared/dice.js';
 import { abilityMod, spellDamage, spellHealing, monsterSaveBonus } from '../../shared/rules.js';
 import * as E from './engine.js';
+import { pickMishap, NO_DAMAGE_NICK } from './fumbles.js';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const INCAPACITATING = ['paralyzed', 'stunned', 'unconscious', 'petrified', 'incapacitated'];
@@ -363,8 +364,22 @@ function resetEconomy(c, cb) {
   const ch = charOf(cb);
   const d = ch ? safeDerive(ch) : null;
   const extra = ch ? extraAttacks(ch) : 0;
-  c.combat.economy[cb.id] = { action: false, bonus: false, reaction: false, moved: 0, speed: speedOf(cb), dash: false, attacksLeft: 0, maxAttacks: 1 + extra, sneakUsed: false, ac: d?.ac };
+  const eco = c.combat.economy[cb.id] = { action: false, bonus: false, reaction: false, moved: 0, speed: speedOf(cb), dash: false, attacksLeft: 0, maxAttacks: 1 + extra, sneakUsed: false, ac: d?.ac };
+  c.combat.ready = null; // a typed "run over and attack" waiting for its roll lasts only for that turn
   if (cb.dodging) cb.dodging = false;
+  delete cb.exposed; // "wide open" after a fumble lasts until the start of their next turn
+  if (cb.fumbledWeapon) {
+    delete cb.fumbledWeapon;
+    eco.moved = Math.min(eco.speed, Math.floor(eco.speed / 10) * 5);
+    if (eco.speed > 0) E.addLog(c, { kind: 'combat', text: `${cb.name} scoops up the weapon they dropped (half their movement).`, tone: 'muted' });
+  }
+  // a prone hero gets back up at the start of their turn, for half their movement (unless something keeps them down)
+  if (isPc(cb) && ch?.conditions?.includes('prone') && eco.speed > 0 && ch.hp.current > 0) {
+    ch.conditions = ch.conditions.filter((x) => x !== 'prone');
+    saveCharacter(ch);
+    eco.moved = Math.min(eco.speed, eco.moved + Math.floor(eco.speed / 10) * 5);
+    E.addLog(c, { kind: 'combat', text: `${cb.name} gets back on their feet (half their movement).`, tone: 'muted' });
+  }
   if (ch && ch.conditions?.includes('dodging')) { ch.conditions = ch.conditions.filter((x) => x !== 'dodging'); saveCharacter(ch); }
   if (ch && ch.conditions?.includes('shielded')) { ch.conditions = ch.conditions.filter((x) => x !== 'shielded'); saveCharacter(ch); }
 }
@@ -495,7 +510,7 @@ export function onRollComplete(c, req) {
   } else if (req.purpose === 'combat_ask') {
     const all = k.rollRequests.filter((r) => r.purpose === 'combat_ask' && r.askId === req.askId);
     if (all.every((r) => r.status === 'done')) {
-      const lines = all.map((r) => `${r.characterName} ${E.rollLabel(r)}: ${r.result.total}${r.dc ? ` vs DC ${r.dc} -> ${r.success ? 'SUCCESS' : 'FAILURE'}` : ''}`);
+      const lines = all.map((r) => `${r.characterName} ${E.rollLabel(r)}: ${r.result.total}${r.result.natural === 1 ? ' (NATURAL 1: a critical fail, so something extra bad or funny happens too)' : r.result.natural === 20 ? ' (natural 20)' : ''}${r.dc ? ` vs DC ${r.dc} -> ${r.success ? 'SUCCESS' : 'FAILURE'}` : ''}`);
       k.rollRequests = k.rollRequests.filter((r) => r.askId !== req.askId);
       E.runTurn(c, { kind: 'combat_rolls', rollsText: lines, text: `COMBAT IS ONGOING. Roll results for the action you just adjudicated:\n${lines.join('\n')}\nNarrate the outcome briefly and apply it with effects (target combatant ids for enemies). Do not start a new combat, do not set sceneMap, do not request more rolls unless essential.` });
     }
@@ -710,6 +725,7 @@ function advantageFor(c, attacker, target, { ranged = false, distFt = 5 } = {}) 
   if (tCond.has('prone')) (distFt <= 5 && !ranged ? adv : dis).push('target is prone');
   for (const x of ['restrained', 'stunned', 'paralyzed', 'unconscious', 'petrified', 'blinded']) if (tCond.has(x)) adv.push(`target is ${x}`);
   if (tCond.has('dodging') || target.dodging) dis.push('target is dodging');
+  if (target.exposed) adv.push('target is wide open after a fumble');
   if (tCond.has('outlined')) adv.push('target is outlined (Faerie Fire)');
   for (const x of ['poisoned', 'blinded', 'frightened', 'restrained', 'prone']) if (aCond.has(x)) dis.push(`you are ${x}`);
   if (isPc(attacker) && (charOf(attacker)?.exhaustion || 0) >= 3) dis.push('exhaustion');
@@ -811,6 +827,43 @@ function diceCard(c, { name, label, result, advantage, outcome, to = 'all', tone
   return E.addLog(c, { kind: 'dice', name, label, characterId, result: { total: result.total, natural: result.natural, text: result.text, manual: !!result.manual, isCrit: result.isCrit, isFumble: result.isFumble }, advantage, outcome, to, tone });
 }
 
+/**
+ * A natural 1 on an attack roll: on top of the miss, the attacker suffers a small, silly mishap (see fumbles.js).
+ * Heroes and monsters alike; never more than 1 damage and never below 1 HP.
+ */
+export function fumble(c, cb, target, weaponName, { spell = false, rng = Math.random } = {}) {
+  const k = c.combat;
+  if (!k || !cb) return null;
+  const ch = charOf(cb);
+  const onTheirTurn = isPc(cb) && current(c)?.id === cb.id;
+  const who = ch ? String(cb.name).split(' ')[0] : cb.name; // heroes by first name, monsters as named
+  let m = pickMishap({ name: who, target: target?.name || 'the enemy', weapon: weaponName || 'weapon', spell, canStick: onTheirTurn, rng });
+  const cond = conditionsOf(cb);
+  if (m.key === 'prone' && (cond.has('prone') || cb.stat?.condImmune?.includes('prone'))) m = { ...m, key: 'open', rule: `The next attack against ${who} has advantage.` };
+  let rule = m.rule;
+  if (m.key === 'prone') {
+    if (ch) { ch.conditions = [...(ch.conditions || []), 'prone']; saveCharacter(ch); }
+    else cb.conditions = [...(cb.conditions || []), 'prone'];
+  } else if (m.key === 'open') {
+    cb.exposed = true;
+  } else if (m.key === 'nick') {
+    const hp = ch ? ch.hp.current : cb.hp.cur;
+    if (hp > 1) {
+      if (ch) E.applyDamageToCharacter(c, ch, 1, { source: 'fumble' });
+      else cb.hp.cur -= 1;
+    } else rule = NO_DAMAGE_NICK;
+  } else if (m.key === 'drop') {
+    cb.fumbledWeapon = true;
+  } else if (m.key === 'stuck') {
+    const eco = k.economy[cb.id];
+    if (eco) eco.moved = eco.speed * (eco.dash ? 2 : 1);
+  }
+  const tok = tokenOf(c, cb);
+  E.addLog(c, { kind: 'combat', text: `🤦 Fumble! ${m.text} ${rule}`, tone: 'fumble', characterId: ch?.id, to: tok?.hidden && !isPc(cb) ? [] : 'all' });
+  k.events.push(`FUMBLE (natural 1) by ${cb.name}: ${m.text} ${rule}`);
+  return { ...m, rule };
+}
+
 // ---------------------------------------------------------------- player attacks
 
 function requirePlayerTurn(c, userId) {
@@ -861,9 +914,12 @@ export function attack(c, userId, p) {
   const hit = roll.natural !== 1 && (roll.natural === 20 || roll.total >= ac);
   revealToWatchers(c, aTok);
   if (aTok.hidden) { aTok.hidden = false; }
-  diceCard(c, { name: ch.name, characterId: ch.id, label: `${atk.name} vs ${target.name}`, result: roll, advantage: adv, outcome: crit ? 'CRITICAL HIT!' : hit ? 'Hit!' : 'Miss', tone: crit ? 'crit' : hit ? 'hit' : 'miss' });
+  k.ready = null;
+  delete target.exposed;
+  diceCard(c, { name: ch.name, characterId: ch.id, label: `${atk.name} vs ${target.name}`, result: roll, advantage: adv, outcome: crit ? 'CRITICAL HIT!' : hit ? 'Hit!' : roll.natural === 1 ? 'Fumble!' : 'Miss', tone: crit ? 'crit' : hit ? 'hit' : 'miss' });
   k.events.push(`${ch.name} attacks ${target.name} with ${atk.name}: ${roll.total}${crit ? ' (CRIT)' : ''} -> ${hit ? 'hit' : 'miss'}.`);
-  if (!hit) { E.pushViews(c); return { ok: true, hit: false, reasons: [...auto.adv.map((x) => `+ ${x}`), ...auto.dis.map((x) => `- ${x}`)] }; }
+  if (roll.natural === 1) fumble(c, cb, target, atk.name);
+  if (!hit) { E.pushViews(c); return { ok: true, hit: false, fumble: roll.natural === 1, reasons: [...auto.adv.map((x) => `+ ${x}`), ...auto.dis.map((x) => `- ${x}`)] }; }
   const pendingId = randomId('pd_', 4);
   const options = damageOptions(ch, eco, { melee: !ranged, weapon: true });
   k.pending[pendingId] = { id: pendingId, userId, attackerId: cb.id, targets: [target.id], dice: atk.damage, type: atk.damageType, crit, label: atk.name, kind: 'weapon', melee: !ranged, versatile: atk.versatile || null, options };
@@ -1077,7 +1133,9 @@ export async function castSpell(c, userId, p) {
       const roll = d20(sm.attack, { advantage: adv, mode: list.length === 1 ? p.mode : 'auto', natural: p.natural });
       const ac = acOf(c, t);
       const hit = roll.natural !== 1 && (roll.natural === 20 || roll.total >= ac);
-      diceCard(c, { name: ch.name, characterId: ch.id, label: `${spell.name} vs ${t.name}`, result: roll, advantage: adv, outcome: roll.natural === 20 ? 'CRITICAL HIT!' : hit ? 'Hit!' : 'Miss', tone: roll.natural === 20 ? 'crit' : hit ? 'hit' : 'miss' });
+      delete t.exposed;
+      diceCard(c, { name: ch.name, characterId: ch.id, label: `${spell.name} vs ${t.name}`, result: roll, advantage: adv, outcome: roll.natural === 20 ? 'CRITICAL HIT!' : hit ? 'Hit!' : roll.natural === 1 ? 'Fumble!' : 'Miss', tone: roll.natural === 20 ? 'crit' : hit ? 'hit' : 'miss' });
+      if (roll.natural === 1) fumble(c, caster, t, spell.name, { spell: true });
       if (hit && dmg) {
         const dr = rollDice(roll.natural === 20 ? doubleDice(dmg.dice) : dmg.dice, {});
         const rr = applyDamage(c, t, dr.total, dmg.type, { crit: roll.natural === 20 });
@@ -1237,8 +1295,119 @@ export function combatAsk(c, userId, text) {
   E.runTurn(c, {
     kind: 'combat_ask',
     revised: revisedAlready ? [userId] : [],
-    text: `COMBAT IS ONGOING (round ${k.round}). It is ${ch.name}'s turn (${ch.id}) and they try something creative:\n"${t}"\n\nWhat ${ch.name} has left this turn: action ${eco.action ? 'already used' : 'available'}; bonus action ${eco.bonus ? 'already used' : 'available only if a feature or spell grants one'}; ${eco.left} ft of movement; ${eco.maxAttacks} attack${eco.maxAttacks === 1 ? '' : 's'} per Attack action.\n\nCombatants: ${Object.values(k.combatants).map((x) => `${x.id} ${x.name} (${x.kind}${isPc(x) ? '' : `, HP ${x.hp.cur}/${x.hp.max}, AC ${x.stat.ac}`}) at ${tokenOf(c, x)?.x},${tokenOf(c, x)?.y}${alive(x) ? '' : ' DOWN'}`).join('; ')}\n\n${revisedAlready ? `${ch.name} already revised this once after you asked; do not ask again: resolve the part that fits and say in one line what they didn't get to.` : `If this needs more than what they have left, or it's unclear what they mean (which target, which object), don't resolve it: use "clarify" for ${ch.id} (what the most is and which part they want, or which one they mean), with everything else empty.`} Otherwise adjudicate this one action (it uses their action unless trivially free). If the outcome is uncertain, request ONE roll (or a contest) and stop. Otherwise narrate the result in 1-3 sentences and apply it with effects (damage/condition_add on combatant ids). Do not start combat, do not set sceneMap.`,
+    text: `COMBAT IS ONGOING (round ${k.round}). It is ${ch.name}'s turn (${ch.id}) and they try something creative:\n"${t}"\n\nWhat ${ch.name} has left this turn: action ${eco.action ? 'already used' : 'available'}; bonus action ${eco.bonus ? 'already used' : 'available only if a feature or spell grants one'}; ${eco.left} ft of movement; ${eco.maxAttacks} attack${eco.maxAttacks === 1 ? '' : 's'} per Attack action.\n\nCombatants: ${Object.values(k.combatants).map((x) => `${x.id} ${x.name} (${x.kind}${isPc(x) ? '' : `, HP ${x.hp.cur}/${x.hp.max}, AC ${x.stat.ac}`}) at ${tokenOf(c, x)?.x},${tokenOf(c, x)?.y}${alive(x) ? '' : ' DOWN'}`).join('; ')}\n\n${revisedAlready ? `${ch.name} already revised this once after you asked; do not ask again: resolve the part that fits and say in one line what they didn't get to.` : `If this needs more than what they have left, or it's unclear what they mean (which target, which object), don't resolve it: use "clarify" for ${ch.id} (what the most is and which part they want, or which one they mean), with everything else empty.`}\n\nMoving and weapon attacks are the app's job, not yours. If they move and/or make a weapon or unarmed attack ("I run over and stab the goblin", "I charge the bandit with my axe", "I duck behind the crates and shoot the archer"), fill "attack" with one entry: characterId "${ch.id}"; moveTo = where they said they go (a creature's or object's name, or "x,y"; "" if they stay put or simply close in on their target); targetId = the combatant id they attack ("" if they only move); weapon = the weapon they named ("" for their usual one). The app moves their token if their movement reaches (and asks them if it doesn't), then they roll to hit and roll damage themselves. In that case write at most one short narration sentence about the approach, never the result, and leave rollRequests and effects empty.\n\nOtherwise adjudicate this one action (it uses their action unless trivially free). If the outcome is uncertain, request ONE roll (or a contest) and stop. Otherwise narrate the result in 1-2 sentences and apply it with effects (damage/condition_add on combatant ids). Do not start combat, do not set sceneMap.`,
   });
+  return { ok: true };
+}
+
+/** Which of a character's attacks they mean: the weapon they named, or their usual melee weapon. */
+export function pickAttack(attacks, weapon, { distFt = 5 } = {}) {
+  const list = attacks || [];
+  const w = norm(String(weapon || '').replace(/^(my|the|a|an|his|her|their)\s+/i, ''));
+  if (w) {
+    const unarmed = /\b(unarmed|punch|fist|kick|headbutt|elbow|knee)\b/.test(w);
+    const hit = list.find((a) => norm(a.name) === w) || list.find((a) => (unarmed ? /unarmed/i.test(a.name) : norm(a.name).includes(w) || w.includes(norm(a.name))))
+      || list.find((a) => w.split(' ').some((word) => word.length > 2 && norm(a.name).includes(word)));
+    if (hit) return hit;
+  }
+  const melee = list.filter((a) => a.kind !== 'ranged' && !/unarmed/i.test(a.name));
+  const ranged = list.filter((a) => a.kind === 'ranged');
+  if (distFt > 5 && !melee.length && ranged.length) return ranged[0];
+  return melee[0] || list.find((a) => a.kind !== 'ranged') || list[0] || null;
+}
+
+/** The open cell within `reach` of the target that is the shortest walk away. */
+function closestCellInReach(c, map, tok, tTok, reach, blocked) {
+  const size = tok.size || 1;
+  const r = Math.ceil(reach / 5);
+  let best = null;
+  for (let x = tTok.x - r - (size - 1); x <= tTok.x + (tTok.size || 1) - 1 + r; x++) {
+    for (let y = tTok.y - r - (size - 1); y <= tTok.y + (tTok.size || 1) - 1 + r; y++) {
+      if (distanceFeet({ x, y, size }, tTok) > reach) continue;
+      let ok = true;
+      for (let dx = 0; dx < size && ok; dx++) for (let dy = 0; dy < size && ok; dy++) {
+        if (!Number.isFinite(cellCost(map, x + dx, y + dy)) || occupiedBy(c, x + dx, y + dy, tok.id)) ok = false;
+      }
+      if (!ok) continue;
+      const res = findPath(map, { x: tok.x, y: tok.y }, { x, y }, { size, isBlocked: (cx, cy) => blocked.has(`${cx},${cy}`) });
+      if (res && (!best || res.feet < best.res.feet)) best = { x, y, res };
+    }
+  }
+  return best;
+}
+
+/**
+ * A typed "I run over and attack the goblin": move the token where they said (if their movement reaches) and get the
+ * attack ready for the player to roll to hit (then damage, as with the attack buttons). Anything that doesn't fit
+ * (too far, out of reach, no action left, an unknown target) changes nothing and comes back as a question to ask them.
+ */
+export function moveAndReady(c, cb, plan) {
+  const k = c.combat;
+  const ch = charOf(cb);
+  const tok = tokenOf(c, cb);
+  const map = c.maps.tactical[k.mapId] || c.maps.tactical[c.scene.tacticalMapId];
+  const eco = k.economy[cb.id];
+  if (!ch || !tok || !map || !eco) return { ask: "I couldn't work that out on the map. Move your token yourself and use the attack buttons." };
+  const left = Math.max(0, eco.speed * (eco.dash ? 2 : 1) - eco.moved);
+  let target = null;
+  if (plan.targetId) {
+    target = k.combatants[plan.targetId] || (() => { const t = findToken(c, plan.targetId); return t?.combatantId ? k.combatants[t.combatantId] : null; })();
+    if (!target || !alive(target) || target.id === cb.id) return { ask: `Who do you attack? I couldn't find "${plan.targetId}" in this fight.` };
+    if (eco.attacksLeft <= 0 && eco.action) return { ask: "You've already used your action this turn, so there's no attack left. You can still move, or end your turn." };
+  }
+  const tTok = target ? tokenOf(c, target) : null;
+  const atk = target ? pickAttack(safeDerive(ch)?.attacks, plan.weapon, { distFt: distanceFeet(tok, tTok) }) : null;
+  if (target && !atk) return { ask: 'What do you attack with? I couldn\'t find a weapon on your sheet.' };
+  const melee = !!atk && atk.kind !== 'ranged';
+  const reach = atk?.reachFt || 5;
+  const blocked = hostileCells(c, tok);
+  let goal = null;
+  if (plan.moveTo) {
+    const dest = destination(c, map, plan.moveTo, tok);
+    if (!dest) return { ask: `Where exactly do you go? I couldn't find "${plan.moveTo}" on the map.` };
+    const toTarget = tTok && dest.near && dest.x === tTok.x && dest.y === tTok.y;
+    if (toTarget && melee) goal = distanceFeet(tok, tTok) <= reach ? null : closestCellInReach(c, map, tok, tTok, reach, blocked);
+    else {
+      const spot = nearestOpen(c, map, dest.x, dest.y, tok, { avoidExact: !!dest.near });
+      const res = spot && findPath(map, { x: tok.x, y: tok.y }, spot, { size: tok.size || 1, isBlocked: (cx, cy) => blocked.has(`${cx},${cy}`) });
+      goal = spot ? { ...spot, res } : null;
+    }
+    if (!goal && !(toTarget && melee && distanceFeet(tok, tTok) <= reach)) return { ask: "I can't find a way through to there from where you stand. Where else do you go?" };
+  } else if (target && melee && distanceFeet(tok, tTok) > reach) {
+    goal = closestCellInReach(c, map, tok, tTok, reach, blocked);
+    if (!goal) return { ask: `There's no open space next to ${target.name} you can get to. What do you do instead?` };
+  }
+  if (goal && (goal.x === tok.x && goal.y === tok.y)) goal = null;
+  if (goal && !goal.res) return { ask: "I can't find a way through to there from where you stand. Where else do you go?" };
+  const feet = goal ? goal.res.feet : 0;
+  if (feet > left) {
+    const dash = !eco.dash && !eco.action ? ' (Dash would double that, but it uses your action, so no attack this turn)' : '';
+    return { ask: `That's ${feet} ft of running, and you have ${left} ft of movement left this turn${dash}. Do you want to get as close as you can, or do something else?` };
+  }
+  if (target) {
+    const end = goal || tok;
+    const dist = distanceFeet({ x: end.x, y: end.y, size: tok.size || 1 }, tTok);
+    if (melee && dist > reach) return { ask: `From there your ${atk.name} can't reach ${target.name} (${dist} ft away). Do you want to go right up to them instead?` };
+    if (!melee && atk.rangeFt && dist > atk.rangeFt.long) return { ask: `${target.name} would be ${dist} ft away, beyond your ${atk.name}'s range (${atk.rangeFt.long} ft). Move closer first?` };
+  }
+  if (goal) {
+    openDoorsOnPath(map, goal.res.path);
+    eco.moved += feet;
+    tok.x = goal.x;
+    tok.y = goal.y;
+    k.events.push(`${cb.name} moves ${feet} ft to (${goal.x},${goal.y}).`);
+    updateReveals(c);
+    E.addLog(c, { kind: 'combat', text: `🏃 ${cb.name} ${target ? `rushes ${feet} ft to ${target.name}` : `moves ${feet} ft`}.`, tone: 'muted' });
+  }
+  if (target) k.ready = { id: randomId('rd_', 3), userId: characterOwner(c, ch.id), combatantId: cb.id, attackId: atk.id, attackName: atk.name, bonus: atk.bonus, targetTokenId: tTok.id, targetName: target.name };
+  return { ok: true, moved: feet, ready: k.ready };
+}
+
+/** The player decided not to make the attack they described. */
+export function unready(c, userId) {
+  const k = c.combat;
+  if (k?.ready && k.ready.userId === userId) k.ready = null;
+  E.pushViews(c);
   return { ok: true };
 }
 
@@ -1246,6 +1415,25 @@ export function combatAsk(c, userId, text) {
 export function afterAsk(c, data) {
   const k = c.combat;
   if (!k) return;
+  const cur = current(c);
+  const plan = isPc(cur) ? (data.attack || []).find((a) => a && (a.targetId || a.moveTo) && (!a.characterId || a.characterId === cur.characterId)) : null;
+  if (plan) {
+    k.state = 'turn';
+    const owner = characterOwner(c, cur.characterId);
+    const r = moveAndReady(c, cur, plan);
+    if (r.ask && !k.awayTurn) {
+      E.addLog(c, { kind: 'clarify', to: [owner], name: cur.name, text: r.ask });
+      E.toast(c, [owner], 'The DM has a question about your action.', 'turn');
+    } else if (k.ready && k.awayTurn) {
+      // nobody is there to roll: the app rolls the attack and the damage for them
+      const res = attack(c, owner, { attackId: k.ready.attackId, targetTokenId: k.ready.targetTokenId, mode: 'auto' });
+      if (res.hit && res.pendingId) damage(c, owner, { pendingId: res.pendingId, mode: 'auto' });
+    } else if (k.ready) {
+      E.toast(c, [owner], `Roll to hit: ${k.ready.attackName} vs ${k.ready.targetName}.`, 'turn');
+    }
+    if (c.combat === k && k.awayTurn && k.state === 'turn') finishAwayTurn(c);
+    return;
+  }
   const reqs = (data.rollRequests || []).map((r) => E.makeRollRequest(c, r, 'combat_ask', { askId: k.askId })).filter(Boolean);
   if (reqs.length) { k.rollRequests.push(...reqs); k.state = 'waiting'; }
   else {
@@ -1269,7 +1457,7 @@ function playAwayTurn(c, cb, ch) {
   E.runTurn(c, {
     kind: 'combat_ask',
     noClarify: true,
-    text: `COMBAT IS ONGOING (round ${k.round}). It is ${ch.name}'s turn (${ch.id}). Their player is away, so YOU play ${ch.name} this turn, like an NPC companion fighting with the party.\n\nWhat ${ch.name} has: action available; ${eco.left} ft of movement; ${eco.maxAttacks} attack${eco.maxAttacks === 1 ? '' : 's'} per Attack action. Their sheet is in PARTY above.\n\nCombatants: ${Object.values(k.combatants).map((x) => `${x.id} ${x.name} (${x.kind}${isPc(x) ? '' : `, HP ${x.hp.cur}/${x.hp.max}, AC ${x.stat.ac}`}) at ${tokenOf(c, x)?.x},${tokenOf(c, x)?.y}${alive(x) ? '' : ' DOWN'}`).join('; ')}\n\nChoose the one sensible thing ${ch.name} would do now, true to who they are: attack the nearest threat with their best weapon or cantrip, help or stabilise a downed ally, or take cover and Dodge when badly hurt. Don't spend their limited resources (spell slots above cantrips, potions, scrolls) unless an ally is dying. Move them first with move_token if they need to close in or pull back. If the outcome is uncertain, request ONE roll for ${ch.id} (it is rolled for them automatically) and stop. Otherwise narrate in 1-3 sentences and apply it with effects (damage/condition_add on combatant ids). Do not start combat, do not set sceneMap.`,
+    text: `COMBAT IS ONGOING (round ${k.round}). It is ${ch.name}'s turn (${ch.id}). Their player is away, so YOU play ${ch.name} this turn, like an NPC companion fighting with the party.\n\nWhat ${ch.name} has: action available; ${eco.left} ft of movement; ${eco.maxAttacks} attack${eco.maxAttacks === 1 ? '' : 's'} per Attack action. Their sheet is in PARTY above.\n\nCombatants: ${Object.values(k.combatants).map((x) => `${x.id} ${x.name} (${x.kind}${isPc(x) ? '' : `, HP ${x.hp.cur}/${x.hp.max}, AC ${x.stat.ac}`}) at ${tokenOf(c, x)?.x},${tokenOf(c, x)?.y}${alive(x) ? '' : ' DOWN'}`).join('; ')}\n\nChoose the one sensible thing ${ch.name} would do now, true to who they are: attack the nearest threat with their best weapon or cantrip, help or stabilise a downed ally, or take cover and Dodge when badly hurt. Don't spend their limited resources (spell slots above cantrips, potions, scrolls) unless an ally is dying. Move them first with move_token if they need to close in or pull back. If the outcome is uncertain, request ONE roll for ${ch.id} (it is rolled for them automatically) and stop. Otherwise narrate in 1-2 sentences and apply it with effects (damage/condition_add on combatant ids). Do not start combat, do not set sceneMap.`,
   });
 }
 
@@ -1466,6 +1654,19 @@ async function executeIntent(c, cb, intent) {
   if (!tok) return;
   const speed = speedOf(cb);
   let budget = speed * (intent.action === 'dash' || intent.action === 'flee' ? 2 : 1);
+  // the start of its turn: last turn's fumbles catch up with it
+  delete cb.exposed;
+  const half = Math.floor(speed / 10) * 5;
+  if (cb.conditions?.includes('prone') && speed > 0) {
+    cb.conditions = cb.conditions.filter((x) => x !== 'prone');
+    budget = Math.max(0, budget - half);
+    E.addLog(c, { kind: 'combat', text: `${cb.name} scrambles back to its feet.`, tone: 'muted', to: tok.hidden ? [] : 'all' });
+  }
+  if (cb.fumbledWeapon) {
+    delete cb.fumbledWeapon;
+    budget = Math.max(0, budget - half);
+    E.addLog(c, { kind: 'combat', text: `${cb.name} snatches up the weapon it dropped.`, tone: 'muted', to: tok.hidden ? [] : 'all' });
+  }
   if (intent.say) {
     const npc = cb.npcId ? c.npcs[cb.npcId] : null;
     E.addLog(c, { kind: 'narration', parts: [{ speaker: npc?.id || `creature:${cb.monster || 'custom'}`, speakerName: cb.name, text: intent.say }], to: tok.hidden ? [] : 'all', creature: true });
@@ -1540,7 +1741,9 @@ async function executeIntent(c, cb, intent) {
     const tName = target.name;
     const outcomeText = hit ? (intent.onHit || `${cb.name} hits ${tName}.`) : (intent.onMiss || `${cb.name} misses ${tName}.`);
     E.addLog(c, { kind: 'narration', parts: [{ speaker: 'narrator', text: outcomeText }], to: 'all', enemy: true });
-    diceCard(c, { name: wasHidden ? `${cb.name} (from hiding)` : cb.name, label: `${a.name} vs ${tName}`, result: roll, advantage: auto.mode, outcome: crit ? 'CRITICAL HIT!' : hit ? 'Hit!' : 'Miss', tone: crit ? 'crit' : hit ? 'hit' : 'miss' });
+    delete target.exposed;
+    diceCard(c, { name: wasHidden ? `${cb.name} (from hiding)` : cb.name, label: `${a.name} vs ${tName}`, result: roll, advantage: auto.mode, outcome: crit ? 'CRITICAL HIT!' : hit ? 'Hit!' : roll.natural === 1 ? 'Fumble!' : 'Miss', tone: crit ? 'crit' : hit ? 'hit' : 'miss' });
+    if (roll.natural === 1) fumble(c, cb, target, a.name);
     if (hit && a.damage?.length) {
       let total = 0;
       const texts = [];

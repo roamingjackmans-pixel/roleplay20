@@ -2,6 +2,8 @@ import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useStore } from '../lib/store.js';
 import { speakEntry, stopSpeaking, onSpeaking, othersCanHear } from '../lib/tts.js';
 import { inline } from '../lib/format.jsx';
+import { feedFlourish } from '../lib/rollFx.js';
+import { useStoryLock } from '../lib/voice.js';
 
 export default function StoryFeed() {
   const log = useStore((s) => s.log);
@@ -45,6 +47,7 @@ function Thinking({ t }) {
 
 function Entry({ e, view, speaking }) {
   const prefs = useStore((st) => st.prefs);
+  const storyLock = useStoryLock();
   const priv = Array.isArray(e.to);
   switch (e.kind) {
     case 'narration': {
@@ -67,15 +70,16 @@ function Entry({ e, view, speaking }) {
           })}
           {priv && othersCanHear(prefs)
             ? <button className="replay" disabled title="Private: not read aloud while others can hear (change it in ⚙ Voices & sound)">🔇</button>
-            : <button className="replay" title="Read aloud" onClick={() => { stopSpeaking(); speakEntry(e, view.voices || {}, { ...prefs, readAloud: true }); }}>🔊</button>}
+            : <button className="replay" disabled={storyLock} title={storyLock ? 'Story time: wait for the narration to finish' : 'Read aloud'} onClick={() => { if (stopSpeaking()) speakEntry(e, view.voices || {}, { ...prefs, readAloud: true }); }}>🔊</button>}
         </div>
       );
     }
     case 'dice': {
       const r = e.result || {};
       const tone = e.tone || (r.isCrit || r.natural === 20 ? 'crit' : r.isFumble || r.natural === 1 ? 'miss' : '');
+      const fx = feedFlourish(e);
       return (
-        <div className={`entry dice fade-in ${tone} ${priv ? 'private' : ''}`}>
+        <div className={`entry dice fade-in ${tone} ${priv ? 'private' : ''} ${fx ? `fx-${fx}` : ''}`}>
           <div className="die-badge" data-n={r.natural ?? ''}>{r.total ?? '?'}</div>
           <div className="grow">
             <div className="dice-label"><b>{e.name}</b> · {e.label}{e.advantage && e.advantage !== 'none' ? <span className={`pill ${e.advantage === 'adv' ? 'green' : 'red'}`}>{e.advantage === 'adv' ? 'advantage' : 'disadvantage'}</span> : null}{r.manual ? <span className="pill" title="Rolled with real dice">✍ table roll</span> : null}</div>

@@ -4,15 +4,45 @@ import { useUI } from './ui.js';
 import { sounds } from '../lib/sound.js';
 import { Modal } from '../components/Toasts.jsx';
 import D20 from '../components/D20.jsx';
+import { natEffect, overlayMs, ROLL_MS, CONFETTI } from '../lib/rollFx.js';
 
-/** A big tumbling d20 for your own rolls (and everyone's crits and fumbles). */
+/** Golden rays, a flash and a burst of confetti behind the die. */
+function Celebration() {
+  return (
+    <div className="fx fx-celebrate" aria-hidden="true">
+      <div className="fx-rays" />
+      <div className="fx-flash" />
+      {CONFETTI.map((p, i) => (
+        <i key={i} className={p.round ? 'round' : ''} style={{ '--x': `${p.x}px`, '--y': `${p.y}px`, '--r': `${p.rot}deg`, '--w': `${p.w}px`, '--c': p.color, '--delay': `${p.delay}ms` }} />
+      ))}
+    </div>
+  );
+}
+
+/** A small grey cloud that rains on the die for a moment. */
+function RainCloud() {
+  return (
+    <div className="fx-cloud" aria-hidden="true">
+      <span className="puff a" /><span className="puff b" /><span className="puff c" />
+      {[14, 30, 46, 62, 78, 22, 54, 70].map((x, i) => <b key={i} style={{ '--x': `${x}px`, '--delay': `${(i * 110) % 600}ms` }} />)}
+    </div>
+  );
+}
+
+/**
+ * A big tumbling d20 for your own rolls (and everyone's crits and fumbles). When a party member's d20 lands on a
+ * natural 20 the whole table gets a fanfare and confetti; a natural 1 gets a sad trombone, a cracked die and a
+ * little rain cloud. The effects play behind the result and are gone within about two seconds of the landing.
+ */
 export function DiceOverlay() {
   const dice = useStore((s) => s.dice);
+  const diceDone = useStore((s) => s.diceDone);
   const party = useStore((s) => s.view?.party);
   // each player's die keeps the look they picked on their sheet, on everyone's screen
   const look = dice?.look || party?.find((p) => p.id === dice?.characterId)?.dice || null;
   const [phase, setPhase] = useState('hidden');
   const [face, setFace] = useState(20);
+  const fx = natEffect(dice);
   useEffect(() => {
     if (!dice) return;
     setPhase('rolling');
@@ -22,19 +52,26 @@ export function DiceOverlay() {
       clearInterval(iv);
       setFace(dice.result?.natural ?? dice.result?.total);
       setPhase('landed');
-      if (dice.result?.natural === 20) sounds.crit();
-      if (dice.result?.natural === 1) sounds.fumble();
-    }, 820);
-    const t2 = setTimeout(() => setPhase('hidden'), 2600);
+      if (fx === 'nat20') sounds.nat20();
+      else if (fx === 'nat1') sounds.nat1();
+      else if (dice.result?.natural === 20) sounds.crit();
+      else if (dice.result?.natural === 1) sounds.fumble();
+    }, ROLL_MS);
+    const t2 = setTimeout(() => { setPhase('hidden'); diceDone(dice.key); }, overlayMs(dice));
     return () => { clearInterval(iv); clearTimeout(t1); clearTimeout(t2); };
   }, [dice?.key]); // eslint-disable-line
   if (!dice || phase === 'hidden') return null;
   const nat = dice.result?.natural;
   const cls = nat === 20 ? 'nat20' : nat === 1 ? 'nat1' : '';
   return (
-    <div className={`dice-overlay ${phase} ${cls}`} onClick={() => setPhase('hidden')}>
+    <div className={`dice-overlay ${phase} ${cls} ${fx ? `fx-${fx}` : ''}`}>
+      {phase === 'landed' && fx === 'nat20' && <Celebration />}
+      {phase === 'landed' && fx === 'nat1' && <RainCloud />}
       <div className="d20-3d">
         <D20 look={look} face={face} size={150} />
+        {phase === 'landed' && fx === 'nat1' && (
+          <svg className="fx-crack" viewBox="0 0 120 120" aria-hidden="true"><path d="M86 18 L79 36 L92 50 L82 68 L96 86 L90 100" /><path d="M92 50 L105 56" /><path d="M82 68 L74 76" /></svg>
+        )}
       </div>
       {phase === 'landed' && (
         <div className="dice-result">

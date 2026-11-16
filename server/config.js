@@ -59,6 +59,11 @@ export const config = {
   // Where password-reset links point (the public password page, never an address taken from a request).
   siteUrl: env.SITE_URL || 'https://josephjackman.com/games/roleplay20/',
 
+  // Voice chat relays (Cloudflare Realtime TURN) for players whose network blocks direct connections. Optional: without
+  // them the call uses free STUN only, which works for most home connections.
+  turnKeyId: env.CLOUDFLARE_TURN_KEY_ID || '',
+  turnKeyToken: env.CLOUDFLARE_TURN_KEY_TOKEN || '',
+
   // Public URL discovery for the GitHub Pages shell. The game runs on Fly.io at a fixed address, so the PC tunnel is
   // off unless TUNNEL=auto is set (it would publish this PC's address and pull the website away from the cloud server).
   tunnel: env.TUNNEL || 'off',                 // auto | off

@@ -18,7 +18,8 @@ export function useDictation(onWords) {
 
   function start() {
     if (!Recognition || rec.current) return;
-    stopSpeaking(); // don't let the read-aloud voice end up in your text
+    // don't let the read-aloud voice end up in your text (and during story time, wait for the story to finish)
+    if (!stopSpeaking()) { useStore.getState().toast('Story time: voice typing can start once the narration has finished.', 'info'); return; }
     const r = new Recognition();
     r.lang = navigator.language || 'en-US';
     r.continuous = true;

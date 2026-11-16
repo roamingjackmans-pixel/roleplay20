@@ -291,8 +291,13 @@ export function addLog(c, entry) {
       if (sock?.data?.userId && logVisibleTo(c, entry, sock.data.userId)) sock.emit('log', entry);
     }
   }
+  for (const fn of logListeners) { try { fn(c, entry); } catch (e) { console.error('[log listener]', e); } }
   return entry;
 }
+
+const logListeners = new Set();
+/** Hear about every new log entry (voice chat starts "story time" when shared narration is posted). */
+export function onLogEntry(fn) { logListeners.add(fn); return () => logListeners.delete(fn); }
 
 export function system(c, text, to = 'all', extra = {}) {
   return addLog(c, { kind: 'system', text, to, ...extra });

@@ -8,26 +8,32 @@ import { setSoundsEnabled } from '../lib/sound.js';
 import MapStage from './MapStage.jsx';
 import StoryFeed from './StoryFeed.jsx';
 import Composer from './Composer.jsx';
-import SidePanel from './SidePanel.jsx';
+import SidePanel, { useWideTable, openPanels } from './SidePanel.jsx';
 import { InitiativeBar, TurnPanel } from './TurnPanel.jsx';
 import { DiceOverlay, RollPromptModal, DiceTray } from './Dice.jsx';
 import MapViewer from './MapViewer.jsx';
 import DMScreen from './DMScreen.jsx';
 import VoiceSettings from './VoiceSettings.jsx';
 import AwayChoice from './AwayChoice.jsx';
+import VoiceChat from './VoiceChat.jsx';
+import { useVoice, useStoryLock } from '../lib/voice.js';
+
+export const LOCKED = "Story time: the narration plays to the end for everyone in the voice chat (the host can allow skipping on the DM Screen)";
 
 export default function GameTable({ id }) {
   const { view, joining, joinCampaign, leaveCampaign, connected } = useStore();
   const srd = useStore((s) => s.srd);
   const ui = useUI();
-  useEffect(() => { joinCampaign(id); return () => { leaveCampaign(); stopSpeaking(); }; }, [id]); // eslint-disable-line
+  useEffect(() => { joinCampaign(id); return () => { leaveCampaign(); stopSpeaking({ force: true }); }; }, [id]); // eslint-disable-line
   // bring the map back when it's your turn in a fight (you need it to move and target)
   const myTurn = !!view?.combat?.myTurn;
   useEffect(() => { if (myTurn && useUI.getState().mapCollapsed) useUI.getState().setMapCollapsed(false); }, [myTurn]);
+  const wide = useWideTable();
   if (!view || !srd) return <Splash text={joining ? 'Pulling up a chair at the table…' : 'Connecting…'} />;
   const min = ui.mapCollapsed;
+  const open = openPanels(ui, wide);
   return (
-    <div className={`table-root ${view.combat ? 'in-combat' : ''} ${min ? 'map-min' : ''}`}>
+    <div className={`table-root ${view.combat ? 'in-combat' : ''} ${min ? 'map-min' : ''} ${open.pinned && open.main ? 'two-panels' : ''}`}>
       <TopBar />
       <div className="table-body">
         <SidePanel />
@@ -62,6 +68,8 @@ function TopBar() {
   const [voiceOpen, setVoiceOpen] = useState(false);
   const [awayOpen, setAwayOpen] = useState(false);
   useEffect(() => onSpeaking(setSpeaking), []);
+  const storyLock = useStoryLock();
+  const inVoiceNoSkip = useVoice((s) => s.joined) && !view.campaign.settings?.allowSkipNarration;
   const isOwner = view.me.role === 'owner';
   const sc = view.scene;
   return (
@@ -86,8 +94,11 @@ function TopBar() {
         })}
       </div>
       <div className="spacer" />
-      {speaking && <button className="btn sm speaking" onClick={stopSpeaking} title="Stop reading">🔊 <span className="small">stop</span></button>}
-      <button className={`btn icon ${prefs.readAloud !== false ? 'active' : ''}`} title={prefs.readAloud !== false ? 'Read-aloud is on' : 'Read-aloud is off'} onClick={() => { const on = prefs.readAloud === false; setPrefs({ readAloud: on }); if (!on) stopSpeaking(); }}>{prefs.readAloud !== false ? '🔊' : '🔇'}</button>
+      <VoiceChat />
+      {speaking && <button className="btn sm speaking" disabled={storyLock} onClick={() => stopSpeaking()} title={storyLock ? LOCKED : 'Stop reading'}>🔊 <span className="small">stop</span></button>}
+      <button className={`btn icon ${prefs.readAloud !== false || inVoiceNoSkip ? 'active' : ''}`} disabled={inVoiceNoSkip}
+        title={inVoiceNoSkip ? 'In the voice chat the story is read to everyone (the host can let players skip it on the DM Screen)' : prefs.readAloud !== false ? 'Read-aloud is on' : 'Read-aloud is off'}
+        onClick={() => { const on = prefs.readAloud === false; setPrefs({ readAloud: on }); if (!on) stopSpeaking(); }}>{prefs.readAloud !== false || inVoiceNoSkip ? '🔊' : '🔇'}</button>
       <button className="btn icon" title="Voices & sound" onClick={() => setVoiceOpen(true)}>⚙</button>
       {isOwner && <button className="btn sm" onClick={() => ui.set({ dmOpen: true })}>🎭 DM Screen</button>}
       {(isOwner || view.me.characterId) && !view.campaign.sessionActive && (() => {

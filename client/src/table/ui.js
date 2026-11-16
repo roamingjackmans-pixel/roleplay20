@@ -1,6 +1,9 @@
 // UI-only state for the game table (which panel is open, targeting mode, roll prompts).
 import { create } from 'zustand';
 
+// When a panel is pinned, the panel beside it opens on its most useful partner (you can switch it from the rail).
+export const PAIRS = { sheet: 'spells', spells: 'sheet', bag: 'sheet', notes: 'quests', maps: 'quests', quests: 'maps', npcs: 'quests', journal: 'quests', party: 'sheet', rules: 'sheet' };
+
 export const useUI = create((set, get) => ({
   panelOpen: typeof window !== 'undefined' ? window.innerWidth > 1100 : true,
   panelTab: 'sheet',
@@ -26,6 +29,20 @@ export const useUI = create((set, get) => ({
   }),
   setPanel: (tab) => set((s) => ({ panelTab: tab, panelOpen: s.panelTab === tab ? !s.panelOpen || true : true })),
   togglePanel: () => set((s) => ({ panelOpen: !s.panelOpen })),
+  // A second panel pinned beside the first (sheet + spells, quests + maps...). It takes the map's place, and the
+  // story column stays open. Remembered on this device.
+  pinnedTab: (() => { try { return localStorage.getItem('rp20.pinnedTab') || null; } catch { return null; } })(),
+  mapBeforePin: null,
+  pin: () => set((s) => {
+    if (!s.panelOpen) return {};
+    try { localStorage.setItem('rp20.pinnedTab', s.panelTab); localStorage.setItem('rp20.mapCollapsed', '1'); } catch { /* ignore */ }
+    return { pinnedTab: s.panelTab, panelTab: PAIRS[s.panelTab] || 'sheet', panelOpen: true, mapBeforePin: s.mapCollapsed, mapCollapsed: true };
+  }),
+  unpin: () => set((s) => {
+    const mapCollapsed = s.mapBeforePin ?? s.mapCollapsed;
+    try { localStorage.removeItem('rp20.pinnedTab'); localStorage.setItem('rp20.mapCollapsed', mapCollapsed ? '1' : '0'); } catch { /* ignore */ }
+    return { pinnedTab: null, mapBeforePin: null, mapCollapsed };
+  }),
   set: (patch) => set(patch),
   setRollMode: (m) => { try { localStorage.setItem('rp20.rollMode', m); } catch { /* ignore */ } set({ rollMode: m }); },
   setMapCollapsed: (v) => { try { localStorage.setItem('rp20.mapCollapsed', v ? '1' : '0'); } catch { /* ignore */ } set({ mapCollapsed: !!v }); },

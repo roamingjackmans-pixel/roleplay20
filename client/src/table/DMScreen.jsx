@@ -64,6 +64,9 @@ export default function DMScreen() {
           <label className="check" title="Shows every hidden token, secret and private message. Spoilers!">
             <input type="checkbox" checked={!!s.dmView} onChange={(e) => set({ dmView: e.target.checked })} /> God view (see everything - spoilers!)
           </label>
+          <label className="check" title="In the voice chat, every mic is off while the story is read aloud, until it has finished for everyone. Off: nobody can cut it short. On: players can stop it on their own device.">
+            <input type="checkbox" checked={!!s.allowSkipNarration} onChange={(e) => set({ allowSkipNarration: e.target.checked })} /> Players can skip the read-aloud story in voice chat
+          </label>
         </div>
         <div className="col" style={{ gap: 12 }}>
           <div className="sub-h">Narrate by hand</div>

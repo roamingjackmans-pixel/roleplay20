@@ -86,7 +86,14 @@ function play() {
   u.pitch = Math.max(0.1, Math.min(2, next.pitch));
   u.rate = Math.max(0.5, Math.min(2, next.rate));
   u.volume = next.volume ?? 1;
-  u.onend = u.onerror = () => { speaking = false; currentUtter = null; play(); };
+  u.onend = u.onerror = () => {
+    if (currentUtter?.utter !== u) return; // a stopped utterance reporting in late
+    const finished = currentUtter;
+    speaking = false;
+    currentUtter = null;
+    if (finished.entryId && !queue.some((q) => q.entryId === finished.entryId)) entryDone(finished.entryId);
+    play();
+  };
   currentUtter = { ...next, utter: u };
   emit();
   synth.speak(u);
@@ -95,17 +102,37 @@ function play() {
 function emit() { for (const l of listeners) l(currentUtter); }
 export function onSpeaking(fn) { listeners.add(fn); return () => listeners.delete(fn); }
 
-export function stopSpeaking() {
+// Voice chat's "story time" waits for every device to finish reading the table's narration, so it is told when each
+// narration entry is done here (read to the end, cut short, or never read at all).
+const doneListeners = new Set();
+export function onEntryDone(fn) { doneListeners.add(fn); return () => doneListeners.delete(fn); }
+function entryDone(id) { for (const l of doneListeners) { try { l(id); } catch { /* a listener's problem, not ours */ } } }
+
+// While story time is on in voice chat, the table's narration can't be cut short unless the host allows skipping.
+let skipLock = () => false;
+export function setSkipLock(fn) { skipLock = fn || (() => false); }
+/** True when the narration being read right now may not be stopped. */
+export function storyLocked() {
+  return !!skipLock() && (!!currentUtter?.shared || queue.some((q) => q.shared));
+}
+
+/** Stop reading. Returns false (and keeps reading) during story time unless forced, e.g. when leaving the table. */
+export function stopSpeaking({ force = false } = {}) {
+  if (!force && storyLocked()) return false;
+  const cut = new Set([currentUtter?.entryId, ...queue.map((q) => q.entryId)].filter(Boolean));
   queue = [];
   speaking = false;
   currentUtter = null;
   if (synth) synth.cancel();
   emit();
+  for (const id of cut) entryDone(id);
+  return true;
 }
 
 function enqueue(text, profile, key, prefs, extra = {}) {
   const t = clean(text);
-  if (!t) return;
+  if (!t) return 0;
+  const before = queue.length;
   const age = AGE[profile.age] || AGE.adult;
   const narr = pickVoice(narratorProfile(prefs), 'narrator');
   const voice = key === 'narrator' && prefs?.narratorVoice
@@ -121,6 +148,7 @@ function enqueue(text, profile, key, prefs, extra = {}) {
     buf += c;
   }
   if (buf.trim()) queue.push({ text: buf.trim(), voice, rate, pitch, key, ...extra });
+  return queue.length - before;
 }
 
 const CREATURE = { gender: 'male', age: 'old', accent: 'any', pitch: 0.55, rate: 0.85 };
@@ -135,29 +163,36 @@ export function othersCanHear(prefs = {}) {
   return prefs.alone === false;
 }
 
-/** Read a narration log entry aloud: narrator parts in the narrator's voice, dialogue in each NPC's voice. */
+/**
+ * Read a narration log entry aloud: narrator parts in the narrator's voice, dialogue in each NPC's voice.
+ * Returns true if anything was queued to be read (false: read-aloud is off, it's private with others around, or it's
+ * all stage directions).
+ */
 export function speakEntry(entry, npcVoices = {}, prefs = {}) {
-  if (!synth || prefs.readAloud === false) return;
-  if (othersCanHear(prefs) && isPrivateEntry(entry)) return; // private moments stay on the screen
+  if (!synth || prefs.readAloud === false) return false;
+  if (othersCanHear(prefs) && isPrivateEntry(entry)) return false; // private moments stay on the screen
+  const extra = { entryId: entry.id, private: isPrivateEntry(entry), shared: !isPrivateEntry(entry) };
+  let n = 0;
   for (const p of entry.parts || []) {
     if (/^\s*\*[^*]+\*\s*$/.test(p.text || '')) continue; // stage directions like *a wet growl* are shown, not read
     if (p.speaker === 'narrator') {
       if (prefs.readMode === 'dialogue') continue;
-      enqueue(p.text, narratorProfile(prefs), 'narrator', prefs, { entryId: entry.id });
+      n += enqueue(p.text, narratorProfile(prefs), 'narrator', prefs, extra);
     } else if (String(p.speaker).startsWith('creature:')) {
-      enqueue(p.text, CREATURE, p.speaker, prefs, { entryId: entry.id });
+      n += enqueue(p.text, CREATURE, p.speaker, prefs, extra);
     } else {
       const v = npcVoices[p.speaker]?.voice || { gender: 'neutral', age: 'adult', accent: 'any' };
-      enqueue(p.text, v, p.speaker, prefs, { entryId: entry.id });
+      n += enqueue(p.text, v, p.speaker, prefs, extra);
     }
   }
   play();
+  return n > 0;
 }
 
 /** Read a page (journal, world bible, handout) in the narrator's voice. Markdown is turned into plain sentences. */
 export function speakText(text, prefs = {}, id = 'page') {
   if (!synth) return;
-  stopSpeaking();
+  if (!stopSpeaking()) return; // story time: the table's narration finishes first
   const plain = String(text || '')
     .replace(/```[\s\S]*?```/g, ' ')
     .replace(/!\[[^\]]*\]\([^)]*\)/g, ' ')
@@ -174,7 +209,7 @@ export function speakText(text, prefs = {}, id = 'page') {
 
 /** Preview a voice profile ("Hear voice" buttons in the NPC panel). */
 export function previewVoice(profile, key, sample, prefs = {}) {
-  stopSpeaking();
+  if (!stopSpeaking()) return;
   enqueue(sample || 'Well met, traveller. What brings you to these parts?', profile, key, prefs);
   play();
 }

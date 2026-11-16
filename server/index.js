@@ -12,6 +12,7 @@ import { emailStatus } from './email.js';
 import * as C from './game/campaign.js';
 import * as E from './game/engine.js';
 import * as K from './game/combat.js';
+import * as V from './game/voice.js';
 import { buildView, visibleLog } from './game/views.js';
 import { srd, srdFile } from './srd.js';
 import { aiStatus, MODELS } from './ai/client.js';
@@ -147,7 +148,7 @@ api.patch('/campaigns/:id/settings', (req, res) => {
   if (b.name) c.name = String(b.name).slice(0, 80);
   const brain = E.setDmBrain(c, { model: b.model, effort: b.effort });
   if (brain.error) return res.status(400).json(brain);
-  for (const k of ['enemyTactics', 'autoReadAloud', 'dmView', 'lines', 'veils', 'pacing']) if (b[k] !== undefined) c.settings[k] = b[k];
+  for (const k of ['enemyTactics', 'autoReadAloud', 'allowSkipNarration', 'dmView', 'lines', 'veils', 'pacing']) if (b[k] !== undefined) c.settings[k] = b[k];
   if (typeof b.worldBible === 'string') c.world.bible = b.worldBible;
   E.pushViews(c);
   res.json({ ok: true, settings: c.settings });
@@ -332,6 +333,14 @@ const io = new Server(server, {
   maxHttpBufferSize: 2e6,
 });
 E.attachIO(io);
+// voice chat: the call's messages go straight to one socket; shared narration starts "story time"
+V.configureVoice({ toSocket: (sid, event, payload) => io.sockets.sockets.get(sid)?.emit(event, payload) });
+E.onLogEntry((c, entry) => V.onNarration(c, entry));
+let iceCache = { at: 0, servers: null };
+async function voiceIceServers() {
+  if (!iceCache.servers || Date.now() - iceCache.at > 3600000) iceCache = { at: Date.now(), servers: await V.iceServers(config) };
+  return iceCache.servers;
+}
 
 io.use((socket, next) => {
   const { token, gate } = socket.handshake.auth || {};
@@ -367,7 +376,7 @@ io.on('connection', (socket) => {
   socket.on('join', wrap(({ campaignId }) => {
     const camp = C.getCampaign(campaignId);
     if (!camp || !C.member(camp, userId)) return { error: 'Campaign not found.' };
-    if (c) { socket.leave(`c:${c.id}`); E.setOnline(c, userId, socket.id, false); E.pushViews(c); }
+    if (c) { V.leave(c, userId, socket.id); socket.leave(`c:${c.id}`); E.setOnline(c, userId, socket.id, false); E.pushViews(c); }
     c = camp;
     socket.join(`c:${c.id}`);
     E.setOnline(c, userId, socket.id, true);
@@ -379,10 +388,24 @@ io.on('connection', (socket) => {
 
   socket.on('disconnect', () => {
     if (!c) return;
+    V.leave(c, userId, socket.id);
     E.setOnline(c, userId, socket.id, false);
     E.pushViews(c);
     setTimeout(() => { if (c) E.maybeResolve(c); }, 1500);
   });
+
+  // voice chat (talking never needs the session to be running): join/leave the call, pass connection setup between
+  // two players, mute, and "I've finished reading that narration" for story time
+  socket.on('voice:join', wrap(async () => {
+    if (need()) return need();
+    const r = V.join(c, userId, socket.id);
+    E.pushViews(c); // everyone sees who is in the call
+    return { ...r, iceServers: await voiceIceServers() };
+  }));
+  socket.on('voice:leave', wrap(() => need() || (V.leave(c, userId, socket.id), E.pushViews(c), { ok: true })));
+  socket.on('voice:signal', wrap((p) => need() || (p && typeof p.data === 'object' ? V.relay(c, userId, String(p.to || ''), p.data) : { error: 'Bad signal.' })));
+  socket.on('voice:mute', wrap((p) => need() || V.setMuted(c, userId, !!p.muted)));
+  socket.on('voice:done', wrap((p) => need() || V.readDone(c, userId, String(p.entryId || ''))));
 
   socket.on('action', wrap((p) => act() || E.submitAction(c, userId, p)));
   socket.on('action:withdraw', wrap(() => act() || E.withdrawAction(c, userId)));
@@ -411,6 +434,7 @@ io.on('connection', (socket) => {
   socket.on('cast', wrap((p) => act() || K.castSpell(c, userId, p)));
   socket.on('combat:action', wrap((p) => act() || K.takeAction(c, userId, p)));
   socket.on('combat:ask', wrap((p) => act() || K.combatAsk(c, userId, p.text)));
+  socket.on('combat:unready', wrap(() => act() || K.unready(c, userId)));
   socket.on('combat:endTurn', wrap(() => act() || K.endTurn(c, userId)));
   socket.on('combat:skip', wrap(() => need(true) || K.skipTurn(c)));
   socket.on('combat:end', wrap((p) => need(true) || K.endCombatManual(c, p.outcome)));
@@ -429,7 +453,7 @@ io.on('connection', (socket) => {
     if (need(true)) return need(true);
     const brain = E.setDmBrain(c, { model: p.model, effort: p.effort });
     if (brain.error) return brain;
-    for (const k of ['enemyTactics', 'autoReadAloud', 'dmView']) if (p[k] !== undefined) c.settings[k] = p[k];
+    for (const k of ['enemyTactics', 'autoReadAloud', 'allowSkipNarration', 'dmView']) if (p[k] !== undefined) c.settings[k] = p[k];
     E.pushViews(c);
     return { ok: true, brain: brain.brain };
   }));

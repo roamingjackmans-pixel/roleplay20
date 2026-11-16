@@ -53,6 +53,7 @@ export function TurnPanel() {
           <div className="spacer" />
           <button className="btn primary sm" onClick={() => emit('combat:endTurn')}>End turn ⏭</button>
         </div>
+        {c.ready && !c.pending?.length && <ReadyAttack r={c.ready} />}
         {c.pending?.length > 0 && !ui.damagePrompt && (
           <div className="tp-row">
             {c.pending.map((p) => <button key={p.id} className="btn sm primary" onClick={() => ui.set({ damagePrompt: { pendingId: p.id, damage: p.dice, damageType: p.type, crit: p.crit, options: p.options || [] } })}>🎲 Roll damage for {p.label}</button>)}
@@ -84,6 +85,36 @@ export function TurnPanel() {
       </div>
       {ui.damagePrompt && <DamagePrompt />}
     </>
+  );
+}
+
+/** The attack the player described to the DM ("I run over and stab the goblin"): their token has moved; now they roll. */
+function ReadyAttack({ r }) {
+  const ui = useUI();
+  const [adv, setAdv] = useState(ui.nextAdv || 'none');
+  const [n, setN] = useState('');
+  const [busy, setBusy] = useState(false);
+  const valid = Number(n) >= 1 && Number(n) <= 20;
+  async function go(mode) {
+    setBusy(true);
+    const res = await emit('combat:attack', { attackId: r.attackId, targetTokenId: r.targetTokenId, advantage: adv, mode, natural: mode === 'manual' ? Number(n) : undefined });
+    setBusy(false);
+    if (adv === ui.nextAdv) ui.takeAdv();
+    if (res?.hit && res.pendingId) ui.set({ damagePrompt: { pendingId: res.pendingId, damage: res.damage, damageType: res.damageType, crit: res.crit, options: res.options || [] } });
+  }
+  return (
+    <div className="roll-req ready-attack fade-in">
+      <div className="rr-head"><span className="rr-die">⚔</span><div className="grow"><b>Roll to hit: {r.attackName} vs {r.targetName}</b> <span className="pill">{fmtMod(r.bonus)}</span><div className="small muted">If it hits, you roll damage next.</div></div>
+        <button className="btn xs ghost" title="Do something else instead" onClick={() => emit('combat:unready')}>✕</button>
+      </div>
+      <div className="row wrap" style={{ gap: 6 }}>
+        <div className="tabs adv-tabs">{[['dis', 'Disadv.'], ['none', 'Normal'], ['adv', 'Adv.']].map(([k, l]) => <button key={k} className={adv === k ? 'on' : ''} onClick={() => setAdv(k)}>{l}</button>)}</div>
+        <button className="btn primary sm" disabled={busy} onClick={() => go('auto')}>🎲 Roll for me</button>
+        <span className="tiny muted">or</span>
+        <input className="input rr-input" inputMode="numeric" placeholder="d20" value={n} onChange={(e) => setN(e.target.value.replace(/[^0-9]/g, '').slice(0, 2))} onKeyDown={(e) => e.key === 'Enter' && valid && go('manual')} title="Type the number your real d20 shows (the app adds your bonus)" />
+        <button className="btn sm" disabled={busy || !valid} onClick={() => go('manual')}>I rolled it</button>
+      </div>
+    </div>
   );
 }
 

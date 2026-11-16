@@ -3,6 +3,8 @@ import { io } from 'socket.io-client';
 import { cfg, getToken } from './api.js';
 import { speakEntry } from './tts.js';
 import { sounds } from './sound.js';
+import { showsOverlay, queueDice, dequeueDice } from './rollFx.js';
+import { bindVoice, leaveVoice, voiceAfterTableJoin, voiceForcesReading, voiceReadDone } from './voice.js';
 
 let socket = null;
 let toastId = 0;
@@ -17,9 +19,11 @@ export const useStore = create((set, get) => ({
   toasts: [],
   pings: [],
   dice: null,           // the dice result currently being animated
+  diceQueue: [],        // rolls waiting for a natural 20 or 1 to finish
   srd: null,
   prefs: loadPrefs(),
 
+  diceDone: (key) => set((s) => dequeueDice(s, key)),
   setUser: (user) => set({ user }),
   setSrd: (srd) => set({ srd }),
   go: (hash) => { if (location.hash !== hash) location.hash = hash; else set({ route: parseRoute() }); },
@@ -33,14 +37,16 @@ export const useStore = create((set, get) => ({
 
   joinCampaign: (campaignId) => {
     if (socket) { socket.disconnect(); socket = null; }
-    set({ view: null, log: [], joining: true });
+    set({ view: null, log: [], joining: true, dice: null, diceQueue: [] });
     const url = new URL(cfg.server);
     socket = io(url.origin, { path: `${url.pathname.replace(/\/$/, '')}/socket.io`, auth: { token: getToken(), gate: cfg.gate }, transports: ['websocket', 'polling'] });
+    bindVoice(socket, { allowSkip: () => !!get().view?.campaign?.settings?.allowSkipNarration });
     socket.on('connect', () => {
       set({ connected: true });
       socket.emit('join', { campaignId }, (r) => {
         if (r?.error) { get().toast(r.error, 'bad'); set({ joining: false }); return; }
         set({ view: r.view, log: r.log || [], joining: false });
+        voiceAfterTableJoin(); // back in the voice chat after a reconnect
       });
     });
     let failures = 0;
@@ -59,13 +65,18 @@ export const useStore = create((set, get) => ({
       if (view?.combat?.myTurn && !prev?.combat?.myTurn) sounds.turn();
       if (view?.rolls?.mine?.length > (prev?.rolls?.mine?.length || 0)) sounds.request();
     });
-    socket.on('log', (entry) => {
+    socket.on('log', (raw) => {
+      const entry = { ...raw, recvAt: Date.now() }; // arrived live (not loaded from history)
       set((s) => ({ log: [...s.log.slice(-400), entry] }));
       const { prefs, view } = get();
-      if (entry.kind === 'narration' && prefs.readAloud !== false) speakEntry(entry, view?.voices || {}, prefs);
+      if (entry.kind === 'narration') {
+        // in voice chat (unless the host lets players skip) the table's story is read on every device in the call
+        const force = voiceForcesReading(entry);
+        const reading = prefs.readAloud !== false || force ? speakEntry(entry, view?.voices || {}, force ? { ...prefs, readAloud: true } : prefs) : false;
+        if (!reading) voiceReadDone(entry.id); // nothing to read here: story time needn't wait for this device
+      }
       if (entry.kind === 'dice') {
-        const mine = entry.characterId && entry.characterId === view?.me?.characterId;
-        if (mine || entry.result?.isCrit || entry.result?.natural === 20 || entry.result?.natural === 1) set({ dice: { ...entry, key: entry.id } });
+        if (showsOverlay(entry, view?.me?.characterId)) set((s) => queueDice(s, { ...entry, key: entry.id }));
         sounds.dice();
       }
       if (entry.kind === 'narration') sounds.page();
@@ -79,6 +90,7 @@ export const useStore = create((set, get) => ({
   },
 
   leaveCampaign: () => {
+    leaveVoice();
     if (socket) socket.disconnect();
     socket = null;
     set({ view: null, log: [], connected: false });

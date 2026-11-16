@@ -110,6 +110,10 @@ export const TURN_SCHEMA = obj({
   // [] normally. A private question to a player whose action is more than a turn holds or too unclear to resolve
   // without guessing ("Which item do you investigate?"); everything else in the response is left empty.
   clarify: arr(obj({ characterId: S, message: S })),
+  // [] normally. In combat only, when the character whose turn it is moves and/or makes a weapon or unarmed attack:
+  // where they go (a name or "x,y", "" = stay), who they attack (combatant id, "" = just moving) and with what
+  // ("" = their usual weapon). The app moves the token and the player rolls to hit and damage.
+  attack: arr(obj({ characterId: S, moveTo: S, targetId: S, weapon: S })),
   // [] normally (the next round waits for everyone). Character id(s) when an NPC has just asked them something or is in
   // a one-on-one conversation with them: the next round waits only for their answer.
   waitFor: arr(S),

@@ -2,9 +2,11 @@
 import React, { useEffect, useState } from 'react';
 import { useStore } from '../lib/store.js';
 import { speakText, stopSpeaking, onSpeaking, ttsSupported, othersCanHear } from '../lib/tts.js';
+import { useStoryLock } from '../lib/voice.js';
 
 export default function ReadAloud({ text, id, label = 'Read aloud', inline = false, isPrivate = false }) {
   const prefs = useStore((s) => s.prefs);
+  const storyLock = useStoryLock();
   const [current, setCurrent] = useState(null);
   useEffect(() => onSpeaking((u) => setCurrent(u?.entryId || null)), []);
   if (!text || !ttsSupported()) return null;
@@ -13,6 +15,10 @@ export default function ReadAloud({ text, id, label = 'Read aloud', inline = fal
     return inline ? <span {...quiet}>🔇 Private</span> : <button type="button" disabled {...quiet}>🔇 Private</button>;
   }
   const playing = current === id;
+  if (storyLock && !playing) {
+    const wait = { className: 'btn xs ghost read-aloud', title: 'Story time: the narration is being read to the voice chat. This can be read once it has finished.', 'aria-disabled': true };
+    return inline ? <span {...wait}>🔊 {label}</span> : <button type="button" disabled {...wait}>🔊 {label}</button>;
+  }
   const toggle = (e) => { e.preventDefault(); e.stopPropagation(); if (playing) stopSpeaking(); else speakText(text, prefs, id); };
   const props = { className: `btn xs ghost read-aloud ${playing ? 'active' : ''}`, title: playing ? 'Stop reading' : 'Read this to me', onClick: toggle };
   const body = playing ? '⏹ Stop' : `🔊 ${label}`;
