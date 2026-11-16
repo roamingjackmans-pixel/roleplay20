@@ -8,6 +8,7 @@ import * as combat from './combat.js';
 import { onlineUsers, requiredUsers, roundNeeds, joinLevel, partyWhereabouts, dmBrain } from './engine.js';
 import { aiStatus, PRICES } from '../ai/client.js';
 import { roster as voiceRoster } from './voice.js';
+import { waitingNarration } from './readgate.js';
 
 export function logVisibleTo(c, entry, userId) {
   // declared actions are shared with the whole table when the round resolves; a Private one stays with its player
@@ -209,7 +210,7 @@ export function buildView(c, userId, cache = {}) {
       id: c.id, name: c.name, status: c.status, ownerId: c.ownerId, inviteCode: c.inviteCode,
       title: c.world.title, tagline: c.world.tagline, characterPrompts: c.world.characterPrompts, openingHook: c.world.openingHook,
       sessionActive: c.sessionActive, sessionNumber: c.sessionNumber, genesisError: c.genesisError || null,
-      settings: { model: c.settings.model, effort: c.settings.effort, enemyTactics: c.settings.enemyTactics, autoReadAloud: c.settings.autoReadAloud, allowSkipNarration: !!c.settings.allowSkipNarration, dmView: !!c.settings.dmView, tone: c.settings.tone, startLevel: c.settings.startLevel },
+      settings: { model: c.settings.model, effort: c.settings.effort, enemyTactics: c.settings.enemyTactics, autoReadAloud: c.settings.autoReadAloud, allowSkipNarration: !!c.settings.allowSkipNarration, hostStartsReading: c.settings.hostStartsReading !== false, dmView: !!c.settings.dmView, tone: c.settings.tone, startLevel: c.settings.startLevel },
     },
     members: c.members.map((x) => {
       const u = getUser(x.userId);
@@ -228,6 +229,7 @@ export function buildView(c, userId, cache = {}) {
     areaMaps: areaView(c, userId),
     combat: combatView(c, userId),
     voice: voiceRoster(c), // who is in the table's voice chat
+    readWaiting: waitingNarration(c), // narration waiting for the host to press Read
     npcs: Object.values(c.npcs).filter((n) => c.log.some((e) => e.parts?.some((p) => p.speaker === n.id) && logVisibleTo(c, e, userId)) || isOwner && c.settings.dmView || n.ally).map((n) => ({ id: n.id, name: n.name, role: n.role, description: n.description, voice: n.voice, attitude: n.attitude, location: n.location, status: n.status, color: n.color, ally: !!n.ally })),
     voices: Object.fromEntries(Object.values(c.npcs).map((n) => [n.id, { name: n.name, voice: n.voice, color: n.color }])),
     quests: c.quests.map((q) => ({ id: q.id, title: q.title, status: q.status, summary: q.summary, giver: q.giver, updates: q.updates.slice(-5) })),

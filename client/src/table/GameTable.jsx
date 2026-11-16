@@ -7,6 +7,7 @@ import { stopSpeaking, onSpeaking } from '../lib/tts.js';
 import { setSoundsEnabled } from '../lib/sound.js';
 import MapStage from './MapStage.jsx';
 import StoryFeed from './StoryFeed.jsx';
+import ReadBar from './ReadBar.jsx';
 import Composer from './Composer.jsx';
 import SidePanel, { useWideTable, openPanels } from './SidePanel.jsx';
 import { InitiativeBar, TurnPanel } from './TurnPanel.jsx';
@@ -15,7 +16,7 @@ import MapViewer from './MapViewer.jsx';
 import DMScreen from './DMScreen.jsx';
 import VoiceSettings from './VoiceSettings.jsx';
 import AwayChoice from './AwayChoice.jsx';
-import VoiceChat from './VoiceChat.jsx';
+import VoiceChat, { MutedSign } from './VoiceChat.jsx';
 import { useVoice, useStoryLock } from '../lib/voice.js';
 
 export const LOCKED = "Story time: the narration plays to the end for everyone in the voice chat (the host can allow skipping on the DM Screen)";
@@ -44,8 +45,10 @@ export default function GameTable({ id }) {
           {!min && <DiceTray />}
         </main>
         <aside className="story-col">
+          <MutedSign />
           <TableStatus />
           <StoryFeed />
+          <ReadBar />
           <Composer />
         </aside>
       </div>

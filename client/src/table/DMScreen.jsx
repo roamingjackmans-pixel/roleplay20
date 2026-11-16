@@ -67,6 +67,9 @@ export default function DMScreen() {
           <label className="check" title="Shows every hidden token, secret and private message. Spoilers!">
             <input type="checkbox" checked={!!s.dmView} onChange={(e) => set({ dmView: e.target.checked })} /> God view (see everything - spoilers!)
           </label>
+          <label className="check" title="The DM's narration waits on screen until you press Read (under the story), so whoever is talking can finish first. Then it's read on every device at once and every mic in the voice chat is off until it has finished. If you leave the table, it's read without waiting for you.">
+            <input type="checkbox" checked={s.hostStartsReading !== false} onChange={(e) => set({ hostStartsReading: e.target.checked })} /> I press Read before the DM's narration is read aloud
+          </label>
           <label className="check" title="In the voice chat, every mic is off while the story is read aloud, until it has finished for everyone. Off: nobody can cut it short. On: players can stop it on their own device.">
             <input type="checkbox" checked={!!s.allowSkipNarration} onChange={(e) => set({ allowSkipNarration: e.target.checked })} /> Players can skip the read-aloud story in voice chat
           </label>

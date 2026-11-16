@@ -381,3 +381,30 @@ span.read-aloud { display: inline-flex; align-items: center; cursor: pointer; }
 .away-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
 .pp-away { font-size: 12px; line-height: 1; }
 .party-pill.away-out { opacity: .6; }
+
+/* the voice chat mic button says plainly whether the others can hear you */
+.voice-chat .mic { font-weight: 700; white-space: nowrap; }
+.voice-chat .mic.live { color: #c9f2d4; }
+.voice-chat .mic.off { border-color: #b8524a; background: var(--red-dim); color: #ffd9d4; }
+.vc-dot { position: relative; }
+.vc-muted { position: absolute; right: -6px; bottom: -6px; font-size: 11px; font-style: normal; line-height: 1; }
+
+/* the big "Muted" sign at the top of the story column, while the others can't hear you */
+.muted-sign { flex: none; display: flex; align-items: center; gap: 12px; margin: 10px 12px 2px; padding: 12px 14px; border-radius: 12px; border: 2px solid #b8524a; background: linear-gradient(180deg, #4a1d1a, #2e1210); color: #ffe1dc; box-shadow: 0 6px 20px rgba(0, 0, 0, .35); }
+.muted-sign .ms-icon { font-size: 30px; line-height: 1; flex: none; width: 54px; height: 54px; border-radius: 50%; display: grid; place-items: center; background: rgba(0, 0, 0, .35); border: 2px solid currentColor; }
+.muted-sign .ms-text { display: flex; flex-direction: column; gap: 3px; min-width: 0; flex: 1; }
+.muted-sign .ms-text b { font-size: 17px; letter-spacing: .02em; }
+.muted-sign .ms-text span { font-size: 13px; opacity: .92; line-height: 1.35; }
+.muted-sign .btn { flex: none; }
+.muted-sign.story { border-color: #8a72d6; background: linear-gradient(180deg, #2f2350, #1b1530); color: #e9e0ff; animation: storyPulse 1.8s infinite; }
+.muted-sign.listen { border-color: var(--line); background: var(--panel-2); color: var(--text); }
+@keyframes storyPulse { 50% { box-shadow: 0 0 18px rgba(138, 114, 214, .45); } }
+
+/* the host's Read button under the story, and the players' "it's coming" note */
+.read-bar { flex: none; display: flex; align-items: center; gap: 10px; margin: 0 12px 8px; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--line); background: var(--panel-2); }
+.read-bar.host { border-color: var(--gold); background: linear-gradient(180deg, #3a2c16, #221909); box-shadow: 0 8px 24px rgba(0, 0, 0, .35); }
+.read-bar .rb-icon { font-size: 24px; line-height: 1; flex: none; }
+.read-bar .rb-text { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
+.read-bar .btn.primary { flex: none; font-size: 15px; padding: 8px 18px; animation: glowPulse 1.6s infinite; }
+.waiting-tag { display: inline-block; font-family: var(--ui); font-size: 11.5px; font-weight: 700; color: #6b4410; background: rgba(150, 100, 30, .16); border: 1px solid rgba(150, 100, 30, .35); padding: 1px 9px; border-radius: 999px; margin-bottom: 6px; }
+@media (prefers-reduced-motion: reduce) { .muted-sign.story, .read-bar .btn.primary { animation: none; } }

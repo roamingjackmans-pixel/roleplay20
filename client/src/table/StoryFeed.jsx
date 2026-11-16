@@ -52,9 +52,11 @@ function Entry({ e, view, speaking }) {
   const priv = Array.isArray(e.to);
   switch (e.kind) {
     case 'narration': {
+      const waiting = !!view.readWaiting?.includes(e.id); // not read aloud yet: the host starts it with Read
       return (
-        <div className={`entry narration fade-in ${priv ? 'private' : ''} ${e.enemy ? 'enemy' : ''} ${speaking ? 'speaking' : ''}`}>
+        <div className={`entry narration fade-in ${priv ? 'private' : ''} ${e.enemy ? 'enemy' : ''} ${speaking ? 'speaking' : ''} ${waiting ? 'waiting-read' : ''}`}>
           {priv && <div className="private-tag">{e.to.length === 1 && e.to[0] === view.me.userId ? 'only you' : 'private'}</div>}
+          {waiting && <div className="waiting-tag" title="The host starts the reading with Read, once everyone has finished talking">⏳ not read aloud yet</div>}
           {e.parts.map((p, i) => {
             if (p.speaker === 'narrator') return <p key={i} className="narr">{inline(p.text, i)}</p>;
             const who = speakerLabel(p, view); // a name (an NPC, or a player's character), never an internal id

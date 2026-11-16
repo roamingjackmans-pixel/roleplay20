@@ -116,16 +116,27 @@ export function readingAllowanceMs(entry) {
   return Math.min(4 * 60000, 8000 + Math.round(chars * 110));
 }
 
-/** Shared narration was just posted: everyone in the call reads it, so every mic waits until they all have. */
-export function onNarration(c, entry) {
-  if (!entry || entry.kind !== 'narration' || entry.to !== 'all') return;
+/**
+ * Shared narration starts being read (posted, or released by the host's Read button): everyone in the call reads it,
+ * so every mic waits until they all have. `afterMs` is the reading still ahead of it on each device.
+ */
+export function onNarration(c, entry, afterMs = 0) {
+  if (!entry || entry.kind !== 'narration' || entry.to !== 'all') return 0;
   const v = calls.get(c.id);
-  if (!v || !v.members.size) return;
+  if (!v || !v.members.size) return 0;
   const waiting = new Set(v.members.keys());
-  const timer = setTimeout(() => endHush(c, entry.id), readingAllowanceMs(entry));
+  const allowance = readingAllowanceMs(entry);
+  const timer = setTimeout(() => endHush(c, entry.id), afterMs + allowance);
   timer.unref?.();
   v.hush.set(entry.id, { waiting, timer });
   pushState(c);
+  return allowance;
+}
+
+/** The host pressed Read: these entries are read one after another on every device, with every mic off meanwhile. */
+export function startStoryTime(c, entries) {
+  let ahead = 0;
+  for (const e of entries || []) ahead += onNarration(c, e, ahead);
 }
 
 /** A device finished reading this narration (or isn't reading it). */

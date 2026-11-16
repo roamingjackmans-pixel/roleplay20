@@ -68,13 +68,9 @@ export const useStore = create((set, get) => ({
     socket.on('log', (raw) => {
       const entry = { ...raw, recvAt: Date.now() }; // arrived live (not loaded from history)
       set((s) => ({ log: [...s.log.slice(-400), entry] }));
-      const { prefs, view } = get();
-      if (entry.kind === 'narration') {
-        // in voice chat (unless the host lets players skip) the table's story is read on every device in the call
-        const force = voiceForcesReading(entry);
-        const reading = prefs.readAloud !== false || force ? speakEntry(entry, view?.voices || {}, force ? { ...prefs, readAloud: true } : prefs) : false;
-        if (!reading) voiceReadDone(entry.id); // nothing to read here: story time needn't wait for this device
-      }
+      const { view } = get();
+      // narration the host starts with Read waits on screen; it's read when the server says 'narration:play'
+      if (entry.kind === 'narration' && !entry.held) readHere(entry);
       if (entry.kind === 'dice') {
         if (showsOverlay(entry, view?.me?.characterId)) set((s) => queueDice(s, { ...entry, key: entry.id }));
         sounds.dice();
@@ -82,6 +78,11 @@ export const useStore = create((set, get) => ({
       if (entry.kind === 'narration') sounds.page();
       if (entry.kind === 'clarify' || (entry.kind === 'dmchat' && entry.role === 'dm')) sounds.request();
       if (entry.kind === 'chat' && entry.toUserId && entry.userId !== get().view?.me?.userId) sounds.ping();
+    });
+    // the host pressed Read: the narration that was waiting is read now, on every device at once, oldest first
+    socket.on('narration:play', ({ ids }) => {
+      const log = get().log;
+      for (const id of ids || []) { const entry = log.find((e) => e.id === id); if (entry) readHere(entry); }
     });
     socket.on('toast', (t) => get().toast(t.text, t.tone));
     socket.on('ping', (p) => {
@@ -97,6 +98,15 @@ export const useStore = create((set, get) => ({
     set({ view: null, log: [], connected: false });
   },
 }));
+
+/** Read a narration entry aloud on this device (as soon as it arrives, or when the host presses Read). */
+function readHere(entry) {
+  const { prefs, view } = useStore.getState();
+  // in voice chat (unless the host lets players skip) the table's story is read on every device in the call
+  const force = voiceForcesReading(entry);
+  const reading = prefs.readAloud !== false || force ? speakEntry(entry, view?.voices || {}, force ? { ...prefs, readAloud: true } : prefs) : false;
+  if (!reading) voiceReadDone(entry.id); // nothing to read here: story time needn't wait for this device
+}
 
 /** Send a game event and wait for the server's answer. Shows errors as toasts. */
 export function emit(event, payload = {}, { quiet = false } = {}) {

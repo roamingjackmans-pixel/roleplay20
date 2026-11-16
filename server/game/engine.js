@@ -15,6 +15,7 @@ import { SKILL_NAMES, levelForXp, xpForLevel } from '../../shared/rules.js';
 import * as combat from './combat.js';
 import { rememberTurn, rememberNote, rememberFact, rememberHandout, rememberSession } from './memory.js';
 import { buildView, logVisibleTo } from './views.js';
+import { holdNarration, hostReads, takeWaitingNarration, waitingNarration } from './readgate.js';
 
 let io = null;
 export function attachIO(x) { io = x; }
@@ -282,6 +283,8 @@ export function addLog(c, entry) {
   entry.id = randomId('l_', 6);
   entry.ts = Date.now();
   entry.to = entry.to || 'all';
+  // the host's Read button: narration waits on screen (not read aloud yet) until the host starts it
+  if (entry.kind === 'narration' && holdNarration(c, entry, onlineUsers(c))) entry.held = true;
   c.log.push(entry);
   if (c.log.length > LOG_KEEP) c.log.splice(0, c.log.length - LOG_KEEP);
   if (io) {
@@ -298,6 +301,30 @@ export function addLog(c, entry) {
 const logListeners = new Set();
 /** Hear about every new log entry (voice chat starts "story time" when shared narration is posted). */
 export function onLogEntry(fn) { logListeners.add(fn); return () => logListeners.delete(fn); }
+
+const readListeners = new Set();
+/** Hear when the host releases waiting narration (voice chat starts story time for it then). */
+export function onNarrationRead(fn) { readListeners.add(fn); return () => readListeners.delete(fn); }
+
+/**
+ * The host pressed Read (or can't any more): every narration entry waiting for it is read aloud now, on every device at
+ * once, in the order it was posted.
+ */
+export function readWaitingNarration(c) {
+  const ids = takeWaitingNarration(c);
+  if (!ids.length) return { ok: true, ids };
+  const entries = ids.map((id) => c.log.find((e) => e.id === id)).filter(Boolean);
+  for (const fn of readListeners) { try { fn(c, entries); } catch (e) { console.error('[read listener]', e); } }
+  if (io) io.to(room(c)).emit('narration:play', { ids });
+  pushViews(c);
+  return { ok: true, ids };
+}
+
+/** After the host leaves or turns the Read button off, nothing may be left waiting for them. */
+export function releaseNarrationIfUnheld(c) {
+  if (waitingNarration(c).length && !hostReads(c, onlineUsers(c))) return readWaitingNarration(c);
+  return { ok: true, ids: [] };
+}
 
 export function system(c, text, to = 'all', extra = {}) {
   return addLog(c, { kind: 'system', text, to, ...extra });

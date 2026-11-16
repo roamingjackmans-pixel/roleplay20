@@ -1,5 +1,6 @@
 // The voice chat controls in the top bar: join, mute, who is in the call (glowing while they talk), each person's
-// volume on this device, and "Story time" while the narration is read and every mic is off.
+// volume on this device, and "Story time" while the narration is read and every mic is off. Whenever the others can't
+// hear you, a big "Muted" sign says so (and why), so nobody wonders whether they're being heard.
 import React, { useEffect, useRef, useState } from 'react';
 import { useStore } from '../lib/store.js';
 import { useVoice, joinVoice, leaveVoice, setMuted, setVolume, micLive } from '../lib/voice.js';
@@ -42,16 +43,17 @@ export default function VoiceChat() {
           📖 Story time
         </span>
       )}
-      <button className={`btn sm icon mic ${live ? 'live' : ''} ${v.talking.me ? 'talking' : ''}`} disabled={v.listenOnly}
-        title={v.listenOnly ? 'No microphone: you can listen, but the others cannot hear you' : v.muted ? 'You are muted: click to talk' : v.hush.on ? 'Your mic is off for story time' : 'Click to mute yourself'}
+      <button className={`btn sm mic ${live ? 'live' : 'off'} ${v.talking.me ? 'talking' : ''}`} disabled={v.listenOnly}
+        title={v.listenOnly ? 'No microphone: you can listen, but the others cannot hear you' : v.muted ? 'You are muted: click to talk' : v.hush.on ? 'Your mic is off for story time' : 'The others can hear you. Click to mute yourself'}
         onClick={() => setMuted(!v.muted)}>
-        {v.listenOnly ? '🎧' : v.muted || v.hush.on || v.reading ? '🔇' : '🎙'}
+        {v.listenOnly ? '🎧 Listening' : live ? '🎙 Live' : '🔇 Muted'}
       </button>
       <button className="voice-people" onClick={() => setOpen(!open)} title="Who is in the voice chat (click for volumes)">
         {others.length === 0 && <span className="tiny muted">just you</span>}
         {others.map((m) => (
           <span key={m.userId} className={`vc-dot ${v.talking[m.userId] ? 'talking' : ''} ${m.muted ? 'muted' : ''} ${v.peers[m.userId] || 'connecting'}`} style={{ '--c': colorOf(m.userId) }} title={`${nameOf(m.userId)}${m.muted ? ' (muted)' : ''}${v.peers[m.userId] === 'failed' ? ' (could not connect)' : v.peers[m.userId] !== 'connected' ? ' (connecting…)' : ''}`}>
             {nameOf(m.userId).slice(0, 1)}
+            {m.muted && <i className="vc-muted" aria-label="muted">🔇</i>}
           </span>
         ))}
       </button>
@@ -70,6 +72,43 @@ export default function VoiceChat() {
           <button className="btn xs danger" onClick={() => { setOpen(false); leaveVoice(); }}>Leave voice</button>
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * The big sign at the top of the story column while the others can't hear you: story time (the narrator is reading and
+ * every mic is off), you muted yourself, or there's no microphone. Part of the layout, so it never covers the map.
+ */
+export function MutedSign() {
+  const view = useStore((s) => s.view);
+  const v = useVoice();
+  if (!view || !v.joined || micLive(v)) return null;
+  const nameOf = (uid) => view.party.find((p) => p.userId === uid)?.name?.split(' ')[0] || view.members.find((m) => m.userId === uid)?.displayName || 'Someone';
+  const story = v.hush.on || v.reading;
+  const still = v.hush.waiting.filter((u) => u !== view.me.userId).map(nameOf);
+  let icon = '🔇', title, line, kind;
+  if (story) {
+    kind = 'story';
+    title = 'Muted: story time';
+    line = `Every mic is off while the story is read aloud. Nobody can hear anyone until it has finished for everyone.${still.length ? ` Still listening: ${still.join(', ')}.` : ''}`;
+  } else if (v.listenOnly) {
+    icon = '🎧'; kind = 'listen';
+    title = "Listening only: the others can't hear you";
+    line = 'No microphone was found (or it was blocked). Allow the microphone in your browser, then leave and join voice again to talk.';
+  } else {
+    kind = 'self';
+    title = "You're muted: the others can't hear you";
+    line = 'Unmute when you want to talk.';
+  }
+  return (
+    <div className={`muted-sign ${kind}`} role="status" aria-live="polite">
+      <span className="ms-icon" aria-hidden="true">{icon}</span>
+      <div className="ms-text">
+        <b>{title}</b>
+        <span>{line}{story && v.muted ? " You've also muted yourself." : ''}</span>
+      </div>
+      {v.muted && !v.listenOnly && <button className="btn sm" onClick={() => setMuted(false)}>🎙 Unmute</button>}
     </div>
   );
 }

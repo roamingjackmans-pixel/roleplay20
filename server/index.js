@@ -153,7 +153,8 @@ api.patch('/campaigns/:id/settings', (req, res) => {
   if (b.name) c.name = String(b.name).slice(0, 80);
   const brain = E.setDmBrain(c, { model: b.model, effort: b.effort });
   if (brain.error) return res.status(400).json(brain);
-  for (const k of ['enemyTactics', 'autoReadAloud', 'allowSkipNarration', 'dmView', 'lines', 'veils', 'pacing']) if (b[k] !== undefined) c.settings[k] = b[k];
+  for (const k of ['enemyTactics', 'autoReadAloud', 'allowSkipNarration', 'hostStartsReading', 'dmView', 'lines', 'veils', 'pacing']) if (b[k] !== undefined) c.settings[k] = b[k];
+  E.releaseNarrationIfUnheld(c);
   if (typeof b.worldBible === 'string') c.world.bible = b.worldBible;
   E.pushViews(c);
   res.json({ ok: true, settings: c.settings });
@@ -340,7 +341,9 @@ const io = new Server(server, {
 E.attachIO(io);
 // voice chat: the call's messages go straight to one socket; shared narration starts "story time"
 V.configureVoice({ toSocket: (sid, event, payload) => io.sockets.sockets.get(sid)?.emit(event, payload) });
-E.onLogEntry((c, entry) => V.onNarration(c, entry));
+// (narration held for the host's Read button starts story time when the host releases it instead)
+E.onLogEntry((c, entry) => { if (!entry.held) V.onNarration(c, entry); });
+E.onNarrationRead((c, entries) => V.startStoryTime(c, entries));
 let iceCache = { at: 0, servers: null };
 async function voiceIceServers() {
   if (!iceCache.servers || Date.now() - iceCache.at > 3600000) iceCache = { at: Date.now(), servers: await V.iceServers(config) };
@@ -397,6 +400,8 @@ io.on('connection', (socket) => {
     E.setOnline(c, userId, socket.id, false);
     E.pushViews(c);
     setTimeout(() => { if (c) E.maybeResolve(c); }, 1500);
+    // the host left with narration waiting for their Read: give them a moment to come back, then read it to the table
+    if (isOwner()) { const camp = c; setTimeout(() => E.releaseNarrationIfUnheld(camp), 20000).unref?.(); }
   });
 
   // voice chat (talking never needs the session to be running): join/leave the call, pass connection setup between
@@ -458,11 +463,13 @@ io.on('connection', (socket) => {
   socket.on('session:rewriteLog', wrap(() => need(true) || E.rewriteLastSessionLog(c)));
   socket.on('dm:retry', wrap(() => act() || E.retryTurn(c)));
   socket.on('dm:narrate', wrap((p) => need(true) || E.manualNarration(c, p)));
+  socket.on('narration:read', wrap(() => need(true) || E.readWaitingNarration(c)));
   socket.on('dm:settings', wrap((p) => {
     if (need(true)) return need(true);
     const brain = E.setDmBrain(c, { model: p.model, effort: p.effort });
     if (brain.error) return brain;
-    for (const k of ['enemyTactics', 'autoReadAloud', 'allowSkipNarration', 'dmView']) if (p[k] !== undefined) c.settings[k] = p[k];
+    for (const k of ['enemyTactics', 'autoReadAloud', 'allowSkipNarration', 'hostStartsReading', 'dmView']) if (p[k] !== undefined) c.settings[k] = p[k];
+    E.releaseNarrationIfUnheld(c);
     E.pushViews(c);
     return { ok: true, brain: brain.brain };
   }));
