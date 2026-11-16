@@ -4,6 +4,7 @@ import { useStore } from '../lib/store.js';
 import { Avatar, timeAgo } from '../lib/format.jsx';
 import { TopNav } from '../App.jsx';
 import AccountSettings from './AccountSettings.jsx';
+import { VERSION, useServerVersion, builtLabel } from '../lib/version.js';
 
 export default function Lobby() {
   const go = useStore((s) => s.go);
@@ -74,8 +75,26 @@ export default function Lobby() {
               </div>
             ))}
           </div>
+          <VersionTag />
         </div>
       </div>
     </>
+  );
+}
+
+/** "Version v58 (bf1016a)": compare it with your friends'. If the server has moved on, offer a reload. */
+function VersionTag() {
+  const server = useServerVersion();
+  const stale = server && server.code !== VERSION.code;
+  return (
+    <div className="version-tag tiny faint" title={`Built ${builtLabel(VERSION.builtAt)} from commit ${VERSION.hash}`}>
+      Version <b>{VERSION.code}</b> <span>({VERSION.hash})</span>
+      {stale && (
+        <span className="version-stale">
+          · the server is on <b>{server.code}</b>
+          <button className="btn xs" onClick={() => location.reload()}>Reload to update</button>
+        </span>
+      )}
+    </div>
   );
 }

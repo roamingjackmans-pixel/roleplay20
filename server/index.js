@@ -50,7 +50,11 @@ app.use(express.json({ limit: '2mb' }));
 // ---------------------------------------------------------------- API
 const api = express.Router();
 
-api.get('/ping', (req, res) => res.json({ ok: true, name: 'Roleplay20', ai: aiStatus().configured, time: Date.now() }));
+// the version the server is running: stamped into client/dist/version.json by the build (shown on the home page)
+function appVersion() {
+  try { return JSON.parse(fs.readFileSync(path.join(config.clientDist, 'version.json'), 'utf8')); } catch { return null; }
+}
+api.get('/ping', (req, res) => res.json({ ok: true, name: 'Roleplay20', ai: aiStatus().configured, time: Date.now(), version: appVersion() }));
 api.get('/gate/status', (req, res) => res.json(gateStatus(req)));
 api.post('/gate', (req, res) => {
   const r = tryGate(req);

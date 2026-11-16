@@ -1,11 +1,23 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
-import { existsSync } from 'node:fs';
+import { existsSync, writeFileSync } from 'node:fs';
+import { execSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 
 const clientDir = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(clientDir, '..');
+
+// The version code shown on the home page: "v" + the number of commits (higher = newer) and the commit it was built
+// from ("+" if it was built with uncommitted changes). The server reads the same stamp from dist/version.json.
+function buildVersion() {
+  const git = (args) => { try { return execSync(`git ${args}`, { cwd: repoRoot, stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim(); } catch { return ''; } };
+  const count = git('rev-list --count HEAD');
+  const hash = git('rev-parse --short=7 HEAD') || 'dev';
+  const dirty = git('status --porcelain --untracked-files=no') ? '+' : '';
+  return { code: count ? `v${count}${dirty}` : 'dev', hash: hash + dirty, builtAt: new Date().toISOString() };
+}
+const version = buildVersion();
 
 // Multi-page build: only include entry pages that exist (index.html is written by the main UI).
 // RP_PAGES=map-demo (comma list) limits the build to some pages, e.g. to check one page in isolation.
@@ -20,7 +32,12 @@ for (const page of pages) {
 export default defineConfig({
   root: clientDir,
   base: './',
-  plugins: [react()],
+  plugins: [react(), {
+    name: 'rp20-version',
+    apply: 'build',
+    writeBundle(opts) { writeFileSync(resolve(opts.dir || resolve(clientDir, 'dist'), 'version.json'), JSON.stringify(version)); },
+  }],
+  define: { __RP20_VERSION__: JSON.stringify(version) },
   build: {
     outDir: resolve(clientDir, 'dist'),
     emptyOutDir: true,
