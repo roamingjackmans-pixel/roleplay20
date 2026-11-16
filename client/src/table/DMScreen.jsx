@@ -58,6 +58,9 @@ export default function DMScreen() {
           <div className="row wrap" style={{ gap: 6 }}>
             <button className="btn sm" onClick={() => emit('dm:retry')}>↻ Retry the DM</button>
             <button className="btn sm" onClick={() => emit('force')}>⏩ Resolve actions now</button>
+            {!view.campaign.sessionActive && view.campaign.sessionNumber > 0 && (
+              <button className="btn sm" title="Have the DM write up the last session again (its log, recap, story so far and memories). Replaces that session's current log." onClick={() => { if (confirm(`Ask the DM to write up session ${view.campaign.sessionNumber} again? It replaces that session's current log.`)) emit('session:rewriteLog'); }}>📖 Rewrite last session's log</button>
+            )}
             {view.combat && <button className="btn sm" onClick={() => emit('combat:skip')}>⏭ Skip current turn</button>}
             {view.combat && <button className="btn sm danger" onClick={() => { if (confirm('End the fight now?')) emit('combat:end', { outcome: 'victory' }); }}>🏁 End combat</button>}
           </div>

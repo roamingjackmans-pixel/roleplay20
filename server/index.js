@@ -451,6 +451,7 @@ io.on('connection', (socket) => {
     return E.startSession(c, { without: p?.without || null, byUserId: userId, isHost: isOwner() });
   }));
   socket.on('session:end', wrap(() => need(true) || E.endSession(c)));
+  socket.on('session:rewriteLog', wrap(() => need(true) || E.rewriteLastSessionLog(c)));
   socket.on('dm:retry', wrap(() => act() || E.retryTurn(c)));
   socket.on('dm:narrate', wrap((p) => need(true) || E.manualNarration(c, p)));
   socket.on('dm:settings', wrap((p) => {

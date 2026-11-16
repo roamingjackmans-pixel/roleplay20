@@ -86,8 +86,19 @@ export function rememberHandout(c, h) {
 export function rememberSession(c, sess, { headline = '' } = {}) {
   const m = memoryOf(c);
   if (headline) sess.headline = String(headline).slice(0, 200);
-  if (sess.logEntry) addEntry(c, m, { kind: 'session', title: `Session ${sess.n}${headline ? `: ${headline}` : ''}`, text: sess.logEntry });
-  if (sess.partyState) addEntry(c, m, { kind: 'party', title: `Party at the end of session ${sess.n}`, text: sess.partyState });
+  if (sess.logEntry) putSessionEntry(c, m, sess.n, { kind: 'session', title: `Session ${sess.n}${headline ? `: ${headline}` : ''}`, text: sess.logEntry });
+  if (sess.partyState) putSessionEntry(c, m, sess.n, { kind: 'party', title: `Party at the end of session ${sess.n}`, text: sess.partyState });
+}
+
+/** A rewritten session log replaces the session's earlier entry instead of sitting beside it. */
+function putSessionEntry(c, m, n, e) {
+  const old = m.entries.find((x) => x.kind === e.kind && x.session === n);
+  if (!old) return addEntry(c, m, e);
+  const text = String(e.text || '').trim().slice(0, MAX_TEXT);
+  if (!text) return old;
+  Object.assign(old, { title: String(e.title || '').slice(0, 200), text, at: Date.now() });
+  save(file(c.id));
+  return old;
 }
 
 // ---------------------------------------------------------------- search

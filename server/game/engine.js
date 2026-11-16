@@ -1514,6 +1514,30 @@ export async function endSession(c) {
   sess.endedAt = Date.now();
   addLog(c, { kind: 'session_end', text: `End of session ${c.sessionNumber}`, n: c.sessionNumber });
   setThinking(c, 'session_end', 'The Dungeon Master is writing up the session…');
+  await writeSessionLog(c, sess);
+  return { ok: true };
+}
+
+/**
+ * The host asks the DM to write the last session up again (when the write-up fell back to a plain list of what
+ * happened, or they'd like a better one). Runs in the background like the original write-up.
+ */
+export function rewriteLastSessionLog(c) {
+  const sess = c.sessions[c.sessions.length - 1];
+  if (c.sessionActive) return { error: 'End the session first.' };
+  if (!sess?.endedAt) return { error: 'There is no finished session to write up.' };
+  if (c.thinking) return { error: 'The Dungeon Master is busy. Try again in a moment.' };
+  setThinking(c, 'session_end', `The Dungeon Master is rewriting the log of session ${sess.n}…`);
+  writeSessionLog(c, sess).catch((e) => console.error('[session rewrite]', e));
+  return { ok: true };
+}
+
+/**
+ * The DM writes up a finished session: the log, recap, party state, story so far and lasting memories. A long session
+ * needs room (the model's thinking counts toward the limit too). If Claude still can't, a plain log from the turn
+ * summaries stands in, and the host can ask again from the DM Screen.
+ */
+async function writeSessionLog(c, sess) {
   try {
     const prompt = [
       `# SESSION ${c.sessionNumber} JUST ENDED. Write the session log.`,
@@ -1525,7 +1549,7 @@ export async function endSession(c) {
       `# CURRENT STORY-SO-FAR RECAP (rewrite it to include this session)\n${c.world.storySoFar || '(none yet)'}`,
       historyBlock({ ...c, chronicle: { summary: c.chronicle.summary, turns: c.chronicle.turns.filter((t) => t.at >= sess.startedAt) } }),
     ].join('\n\n');
-    const res = await askClaude({ task: 'session_end', system: SESSION_END_CORE, cachedContext: cachedCampaignContext(c), prompt, schema: SESSION_END_SCHEMA, ...dmBrain(c), campaignId: c.id });
+    const res = await askClaude({ task: 'session_end', system: SESSION_END_CORE, cachedContext: cachedCampaignContext(c), prompt, schema: SESSION_END_SCHEMA, ...dmBrain(c), maxTokens: 48000, campaignId: c.id });
     trackUsage(c, res);
     const d = res.data;
     sess.logEntry = d.campaignLogEntry || '';
@@ -1545,13 +1569,19 @@ export async function endSession(c) {
     system(c, `📖 The chronicle of session ${c.sessionNumber} has been written. Read it in the Journal panel.`, 'all', { tone: 'good' });
   } catch (e) {
     if (!(e instanceof NoAIError)) console.error('[session_end]', e);
-    sess.logEntry = `## Session ${c.sessionNumber}\n\n${c.chronicle.turns.filter((t) => t.at >= sess.startedAt).map((t) => t.summary).filter(Boolean).join(' ')}`;
-    rememberSession(c, sess);
+    // a plain log of what happened stands in, but never replaces a real write-up from an earlier try
+    if (!sess.logEntry || sess.logFallback) {
+      sess.logEntry = `## Session ${c.sessionNumber}\n\n${c.chronicle.turns.filter((t) => t.at >= sess.startedAt).map((t) => t.summary).filter(Boolean).join(' ')}`;
+      sess.logFallback = true;
+      rememberSession(c, sess);
+    }
+    if (!(e instanceof NoAIError)) system(c, `The Dungeon Master couldn't finish the write-up of session ${sess.n}, so the journal has a plain list of what happened. The host can ask for it again from the DM Screen.`, 'all', { tone: 'warn' });
+    return;
   } finally {
     c.thinking = null;
     pushViews(c);
   }
-  return { ok: true };
+  delete sess.logFallback;
 }
 
 // ---------------------------------------------------------------- world building + character help
