@@ -4,6 +4,7 @@ import { speakEntry, stopSpeaking, onSpeaking, othersCanHear } from '../lib/tts.
 import { inline } from '../lib/format.jsx';
 import { feedFlourish } from '../lib/rollFx.js';
 import { useStoryLock } from '../lib/voice.js';
+import { speakerLabel } from '../lib/speakers.js';
 
 export default function StoryFeed() {
   const log = useStore((s) => s.log);
@@ -51,19 +52,18 @@ function Entry({ e, view, speaking }) {
   const priv = Array.isArray(e.to);
   switch (e.kind) {
     case 'narration': {
-      const voices = view.voices || {};
       return (
         <div className={`entry narration fade-in ${priv ? 'private' : ''} ${e.enemy ? 'enemy' : ''} ${speaking ? 'speaking' : ''}`}>
           {priv && <div className="private-tag">{e.to.length === 1 && e.to[0] === view.me.userId ? 'only you' : 'private'}</div>}
           {e.parts.map((p, i) => {
             if (p.speaker === 'narrator') return <p key={i} className="narr">{inline(p.text, i)}</p>;
-            const v = voices[p.speaker];
-            const name = v?.name || p.speakerName || 'Someone';
+            const who = speakerLabel(p, view); // a name (an NPC, or a player's character), never an internal id
+            const name = who.name;
             const sound = /^\*[^*]+\*$/.test(p.text.trim());
-            if (sound) return <div key={i} className="dialogue sound" style={{ '--npc': v?.color || '#a05050' }}><div className="speaker">{name}</div><div className="line">{p.text.trim().slice(1, -1)}</div></div>;
+            if (sound) return <div key={i} className="dialogue sound" style={{ '--npc': who.color || '#a05050' }}><div className="speaker">{name}</div><div className="line">{p.text.trim().slice(1, -1)}</div></div>;
             return (
-              <div key={i} className="dialogue" style={{ '--npc': v?.color || '#c9a35c' }}>
-                <div className="speaker">{name}{v?.voice?.style ? <span className="voice-hint">{v.voice.style}</span> : null}</div>
+              <div key={i} className={`dialogue ${who.pc ? 'pc-line' : ''}`} style={{ '--npc': who.color || '#c9a35c' }}>
+                <div className="speaker">{name}{who.voice?.style ? <span className="voice-hint">{who.voice.style}</span> : null}</div>
                 <div className="line">“{inline(p.text.replace(/^["“]|["”]$/g, ''), i)}”</div>
               </div>
             );

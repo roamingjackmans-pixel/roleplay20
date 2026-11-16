@@ -210,9 +210,9 @@ function questLine(q) {
   return [q].map((q) => `- ${q.id}: ${q.title} [${q.status}] - ${clip(q.summary, 200)}${q.updates?.length ? ` | latest: ${clip(q.updates[q.updates.length - 1], 140)}` : ''}`)[0];
 }
 
-function narrationText(entry, nameForUser) {
+function narrationText(entry, nameForUser, nameForSpeaker = (p) => p.speakerName || p.speaker) {
   const who = entry.to === 'all' ? 'ALL' : (entry.to || []).map(nameForUser).join('+');
-  return `[to ${who}] ` + (entry.parts || []).map((p) => (p.speaker === 'narrator' ? p.text : `${p.speakerName || p.speaker}: "${p.text}"`)).join(' ');
+  return `[to ${who}] ` + (entry.parts || []).map((p) => (p.speaker === 'narrator' ? p.text : `${nameForSpeaker(p)}: "${p.text}"`)).join(' ');
 }
 
 export function historyBlock(c) {
@@ -220,13 +220,16 @@ export function historyBlock(c) {
     const m = c.members.find((x) => x.userId === uid);
     return m?.characterId ? (partyCharacters(c).find((ch) => ch.id === m.characterId)?.name || '?') : getUser(uid)?.displayName || '?';
   };
+  // a player character's line shows their name (older logs may hold their raw id)
+  const pcs = partyCharacters(c);
+  const nameForSpeaker = (p) => { const id = String(p.speaker || '').replace(/^pc:/, ''); return pcs.find((x) => x.id === id || x.id === p.speakerName)?.name || p.speakerName || p.speaker; };
   const turns = c.chronicle?.turns || [];
   const older = turns.slice(0, -8).map((t) => t.summary).filter(Boolean);
   const recent = turns.slice(-8).map((t) => [
     `## Turn ${t.n}${t.kind ? ` (${t.kind})` : ''}${t.combatRound ? ` - combat round ${t.combatRound}${t.turnOf ? `, ${t.turnOf}'s turn` : ''}` : ''}`,
     ...(t.actions || []).map((a) => `* ${a.name}${a.private ? ' (PRIVATE)' : ''}: ${clip(a.text, 400)}`),
     ...(t.rolls || []).map((r) => `* roll: ${r}`),
-    ...(t.narration || []).map((n) => clip(narrationText(n, nameForUser), 900)),
+    ...(t.narration || []).map((n) => clip(narrationText(n, nameForUser, nameForSpeaker), 900)),
     t.summary ? `Summary: ${t.summary}` : '',
   ].filter(Boolean).join('\n'));
   return [

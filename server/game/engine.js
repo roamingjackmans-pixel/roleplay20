@@ -933,6 +933,36 @@ function applyEffect(c, e) {
 
 // ---------------------------------------------------------------- applying a DM turn
 
+/**
+ * Who speaks a line of narration, as the story should show it. The DM may name the speaker by an NPC's id or name, a
+ * player character's id or name (the line a player told the DM their character says), or a combatant. The story
+ * always shows a name, never an internal id: an id nobody recognises becomes a tidy name, or "Someone".
+ */
+export function resolveSpeaker(c, raw) {
+  const s = String(raw || '').trim();
+  if (!s || s.toLowerCase() === 'narrator') return { speaker: 'narrator' };
+  if (s.startsWith('creature:')) return { speaker: s };
+  const low = s.toLowerCase();
+  const npc = c.npcs?.[s] || Object.values(c.npcs || {}).find((n) => String(n.name || '').toLowerCase() === low);
+  if (npc) return { speaker: npc.id, speakerName: npc.name, npc };
+  const pcs = partyCharacters(c);
+  const pcId = s.replace(/^pc:/, '');
+  const ch = pcs.find((x) => x.id === pcId) || pcs.find((x) => x.name.toLowerCase() === low) || pcs.find((x) => x.name.split(' ')[0].toLowerCase() === low);
+  if (ch) return { speaker: `pc:${ch.id}`, speakerName: ch.name, color: ch.color };
+  const cb = c.combat ? (c.combat.combatants[s] || Object.values(c.combat.combatants).find((x) => x.tokenId === s)) : null;
+  if (cb?.characterId) return { speaker: `pc:${cb.characterId}`, speakerName: cb.name };
+  if (cb) return { speaker: cb.npcId || `creature:${cb.monster || 'custom'}`, speakerName: cb.name };
+  return { speaker: s, speakerName: tidySpeakerName(s) };
+}
+
+/** "npc_old_marta" -> "Old Marta"; a random id like "ch_j3x2h2ai" -> "Someone"; a plain name stays as it is. */
+export function tidySpeakerName(s) {
+  const m = /^(npc|ch|pc|cb|tok|char|character)[_:-](.+)$/i.exec(String(s || '').trim());
+  if (!m) return String(s || '').trim() || 'Someone';
+  if (/\d/.test(m[2])) return 'Someone';
+  return m[2].replace(/[_-]+/g, ' ').replace(/\b\w/g, (x) => x.toUpperCase());
+}
+
 function postNarration(c, narration, { kind = 'narration' } = {}) {
   const posted = [];
   for (const seg of narration || []) {
@@ -940,9 +970,9 @@ function postNarration(c, narration, { kind = 'narration' } = {}) {
     if (!parts.length) continue;
     const to = audience(c, seg.to);
     const out = parts.map((p) => {
-      const npc = p.speaker && p.speaker !== 'narrator' ? (c.npcs[p.speaker] || Object.values(c.npcs).find((n) => n.name.toLowerCase() === String(p.speaker).toLowerCase())) : null;
-      if (npc) { npc.lastSeenSession = c.sessionNumber || 0; npc.lastSeenRound = c.round?.n || 0; }
-      return { speaker: npc ? npc.id : p.speaker === 'narrator' || !p.speaker ? 'narrator' : String(p.speaker), speakerName: npc?.name || (p.speaker !== 'narrator' ? p.speaker : undefined), text: String(p.text).trim() };
+      const who = resolveSpeaker(c, p.speaker);
+      if (who.npc) { who.npc.lastSeenSession = c.sessionNumber || 0; who.npc.lastSeenRound = c.round?.n || 0; }
+      return { speaker: who.speaker, ...(who.speakerName ? { speakerName: who.speakerName } : {}), ...(who.color ? { color: who.color } : {}), text: String(p.text).trim() };
     });
     posted.push(addLog(c, { kind, parts: out, to }));
   }

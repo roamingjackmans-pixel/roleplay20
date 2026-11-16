@@ -1581,7 +1581,7 @@ async function runEnemyPhase(c, stretch) {
   if (plan?.narration?.length) {
     for (const seg of plan.narration) {
       const parts = (seg.parts || []).filter((p) => p.text);
-      if (parts.length) E.addLog(c, { kind: 'narration', parts: parts.map((p) => ({ speaker: c.npcs[p.speaker] ? p.speaker : 'narrator', speakerName: c.npcs[p.speaker]?.name, text: p.text })), to: E.audience(c, seg.to) });
+      if (parts.length) E.addLog(c, { kind: 'narration', parts: parts.map((p) => { const who = E.resolveSpeaker(c, p.speaker); return { speaker: who.speaker, ...(who.speakerName ? { speakerName: who.speakerName } : {}), ...(who.color ? { color: who.color } : {}), text: p.text }; }), to: E.audience(c, seg.to) });
     }
   }
   k.events = [];
