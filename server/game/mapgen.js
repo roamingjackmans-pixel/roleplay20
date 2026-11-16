@@ -233,6 +233,8 @@ const KIND = {
   helm: { bm: 1, c: "half" },
   signpost: { bm: 1 },
   bedroll: {},
+  egg: {},
+  key_item: {},
 };
 
 // single-character glyphs for ASCII renderings (lowercase / punctuation only: uppercase + digits are tokens)
@@ -245,6 +247,7 @@ const GLYPH = {
   haybale: "p", fence: "-", log: "j", mushroom: "'", crystal: "$", web: "`", rubble: ";", banner: "!",
   cage: "g", trapdoor: "d", mast: "|", rope: null, cauldron: "e", gravestone: "g", ruin_wall: "-", palisade: "|",
   weapon_rack: ")", helm: "@", signpost: "!", bedroll: "z",
+  egg: "{", key_item: "{",
 };
 const TILE_NAMES = {
   "#": "wall/rock", ".": "stone floor", ",": "dirt", '"': "grass", "=": "planks", _: "cobbles/flagstones",
@@ -3255,6 +3258,322 @@ function genGraveyard(g) {
 // =================================================================================================================
 // Theme registry
 
+// =================================================================================================================
+// Shaped chambers: when a place has a shape that matters ("Inside the Skull Shrine", a round tower room, a ribcage
+// hall), the whole map is that one chamber, dressed for its theme, instead of the theme's usual layout.
+
+export const SHAPES = ["round", "oval", "cross", "ring", "long_hall", "skull", "ribcage", "triangle"];
+const SHAPED_THEMES = new Set(["dungeon", "cave", "crypt", "temple", "castle", "mine", "ruins"]);
+// square-ish shapes read best on a square grid
+const SQUARE_SHAPES = new Set(["round", "cross", "ring", "skull", "triangle"]);
+
+/** The shape to build: what the DM asked for, or one plainly named in the place's name ("Skull Shrine"). */
+export function resolveShape(spec, theme) {
+  if (!SHAPED_THEMES.has(theme)) return null;
+  const want = String(spec.shape || "").toLowerCase().trim().replace(/[\s-]+/g, "_");
+  if (SHAPES.includes(want)) return want;
+  if (want && want !== "auto") return null;
+  const text = [spec.name, spec.theme, ...(Array.isArray(spec.features) ? spec.features : [])].join(" ").toLowerCase();
+  if (/\bskull/.test(text)) return "skull";
+  if (/\b(rib ?cage|ribs)\b/.test(text)) return "ribcage";
+  if (/\b(rotunda|circular|round (room|chamber|hall|tower|shrine|vault)|domed?)\b/.test(text)) return "round";
+  if (/\b(cruciform|cross-shaped|cross shaped)\b/.test(text)) return "cross";
+  if (/\b(ring-shaped|ring shaped|circular corridor)\b/.test(text)) return "ring";
+  if (/\b(triangular|pyramid)\b/.test(text)) return "triangle";
+  return null;
+}
+
+const inEllipse = (x, y, ex, ey, rx, ry) => ((x - ex) / rx) ** 2 + ((y - ey) / ry) ** 2 <= 1;
+
+/** What each cell of a shaped chamber is: "floor", "pit" (eye sockets and the like), or null for solid rock. */
+function shapeCell(shape, W, H) {
+  const cx = (W - 1) / 2;
+  const cy = (H - 1) / 2;
+  const inside = (x, y) => x >= 1 && y >= 1 && x <= W - 2 && y <= H - 2;
+  switch (shape) {
+    case "round": { const r = Math.min(W, H) / 2 - 1.1; return (x, y) => (inside(x, y) && inEllipse(x, y, cx, cy, r, r) ? "floor" : null); }
+    case "oval": case "ribcage": return (x, y) => (inside(x, y) && inEllipse(x, y, cx, cy, W / 2 - 1.1, H / 2 - 1.1) ? "floor" : null);
+    case "cross": {
+      const aw = Math.max(2, Math.round(W * 0.17));
+      const ah = Math.max(2, Math.round(H * 0.17));
+      return (x, y) => (inside(x, y) && (Math.abs(x - cx) <= aw || Math.abs(y - cy) <= ah) ? "floor" : null);
+    }
+    case "ring": {
+      const rx = W / 2 - 1.1;
+      const ry = H / 2 - 1.1;
+      return (x, y) => (inside(x, y) && inEllipse(x, y, cx, cy, rx, ry) && !inEllipse(x, y, cx, cy, rx * 0.4, ry * 0.4) ? "floor" : null);
+    }
+    case "long_hall": { const y0 = Math.round(H * 0.2); const y1 = Math.round(H * 0.8); return (x, y) => (inside(x, y) && y >= y0 && y <= y1 ? "floor" : null); }
+    case "triangle": return (x, y) => { const t = (y - 1) / Math.max(1, H - 3); return inside(x, y) && Math.abs(x - cx) <= t * (W / 2 - 1.4) + 0.6 ? "floor" : null; };
+    case "skull": {
+      const sk = skullParts(W, H);
+      return (x, y) => {
+        const cran = inEllipse(x, y, cx, sk.crY, sk.crRx, sk.crRy);
+        const t = (y - sk.jawTop) / Math.max(1, sk.jawBot - sk.jawTop);
+        const jaw = y >= sk.jawTop && y <= sk.jawBot && Math.abs(x - cx) <= sk.jawHalf * (1 - 0.22 * Math.max(0, t));
+        if (!inside(x, y) || !(cran || jaw)) return null;
+        // the empty eye sockets and the nose cavity are pits: you can see across them, not walk through them
+        if (inEllipse(x, y, cx - sk.eyeDx, sk.eyeY, sk.eyeRx, sk.eyeRy) || inEllipse(x, y, cx + sk.eyeDx, sk.eyeY, sk.eyeRx, sk.eyeRy)) return "pit";
+        if (y >= sk.noseTop && y <= sk.noseBot && Math.abs(x - cx) <= sk.noseHalf * ((y - sk.noseTop) / Math.max(1, sk.noseBot - sk.noseTop) + 0.35)) return "pit";
+        return "floor";
+      };
+    }
+    default: return () => null;
+  }
+}
+
+function skullParts(W, H) {
+  return {
+    crY: H * 0.4, crRx: W * 0.45, crRy: H * 0.37,
+    jawTop: H * 0.58, jawBot: H - 2, jawHalf: W * 0.27,
+    eyeY: H * 0.42, eyeDx: W * 0.18, eyeRx: Math.max(1.7, W * 0.09), eyeRy: Math.max(1.7, H * 0.1),
+    noseTop: H * 0.53, noseBot: H * 0.63, noseHalf: Math.max(1.2, W * 0.05),
+    teethY: Math.round(H * 0.7),
+  };
+}
+
+const SHAPE_NAMES = { round: "Round chamber", oval: "Oval hall", cross: "Cross-shaped hall", ring: "Ring corridor", long_hall: "Long hall", skull: "Skull chamber", ribcage: "Ribcage hall", triangle: "Triangular chamber" };
+
+function genShaped(g, shape) {
+  const { rng, F } = g;
+  const W = g.w;
+  const H = g.h;
+  const cx = (W - 1) / 2;
+  const cy = (H - 1) / 2;
+  const floorCh = g.theme === "cave" || g.theme === "mine" ? "," : g.theme === "ruins" ? "_" : ".";
+  g.floor = floorCh;
+  const cell = shapeCell(shape, W, H);
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    const k = cell(x, y);
+    if (k === "floor") g.set(x, y, floorCh);
+    else if (k === "pit") g.set(x, y, " ");
+  }
+  const sk = shape === "skull" ? skullParts(W, H) : null;
+  // the way in: the bottom of the chamber (through the jaw of a skull), out to the map's edge
+  const mid = Math.round(cx);
+  let entryY = H - 2;
+  while (entryY > 1 && g.get(mid, entryY) === "#") entryY--;
+  for (let y = entryY + 1; y < H; y++) for (let x = mid - 1; x <= mid + 1; x++) if (g.inb(x, y)) g.set(x, y, floorCh);
+  for (let y = entryY - 1; y < H; y++) for (let x = mid - 1; x <= mid + 1; x++) if (g.inb(x, y)) g.clear[g.i(x, y)] = 1;
+  g.anchors.party.push([mid, H - 1], [mid - 1, H - 1], [mid + 1, H - 1], [mid, H - 2]);
+  // the focal point: the top of the chamber (the crown of the skull, the apex of a triangle, the far end of a hall)
+  let fy = 1;
+  while (fy < H - 1 && !GROUND.has(g.get(mid, fy))) fy++;
+  const focus = shape === "skull" ? [mid, Math.round(sk.crY - sk.crRy * 0.55)] : shape === "ring" ? [mid, fy + 1] : shape === "cross" || shape === "round" || shape === "oval" ? [mid, Math.round(cy)] : [mid, fy + 1];
+  if (shape === "long_hall" || shape === "ribcage") focus[1] = Math.round(cy);
+  if (shape === "triangle") {
+    // not in the narrow tip (nothing would fit around it): the first row wide enough for the centrepiece and company
+    let y = fy;
+    while (y < H - 2) { let run = 0; for (let x = 0; x < W; x++) if (GROUND.has(g.get(x, y))) run++; if (run >= 7) break; y++; }
+    focus[1] = y;
+  }
+  g.focus = focus;
+  for (let y = focus[1] + 1; y <= entryY; y++) g.clear[g.i(mid, y)] = 1;
+  const focalKind = g.theme === "crypt" ? "sarcophagus" : g.theme === "castle" ? "throne" : g.theme === "cave" || g.theme === "mine" ? "crystal" : g.theme === "ruins" ? "statue" : "altar";
+  const focalLabel = { sarcophagus: "Great sarcophagus", throne: "Throne", crystal: "Crystal cluster", statue: "Weathered statue", altar: "Altar" }[focalKind];
+  const fw = focalKind === "altar" || focalKind === "sarcophagus" ? 2 : 1;
+  const fo = g.add(focalKind, focus[0] - (fw === 2 ? 1 : 0), focus[1], fw, 1, { label: focalLabel, force: true, rot: 180 });
+  if (fo) g.used.add(focalKind);
+  if (fo && focalKind === "crystal") g.light(fo.x, fo.y, "crystal", fo);
+  for (const dx of [-2, 2 + (fw === 2 ? 0 : 0)]) {
+    const b = g.add("brazier", focus[0] + dx, focus[1], 1, 1, {});
+    if (b) g.light(b.x, b.y, "brazier", b);
+  }
+  g.anchors.npc.push([focus[0], focus[1] + 1], [focus[0] - 1, focus[1] + 1]);
+  g.anchors.enemy.push([focus[0], focus[1] + 2], [focus[0] + 2, focus[1] + 1], [focus[0] - 2, focus[1] + 1]);
+  g.anchors.hidden.push([Math.round(W * 0.2), Math.round(H * 0.3)]);
+
+  // shape details
+  if (shape === "skull") {
+    // a row of teeth across the mouth: pillars with gaps you can slip through
+    for (let x = 1; x < W - 1; x++) {
+      if (!GROUND.has(g.get(x, sk.teethY)) || Math.abs(x - mid) <= 1) continue;
+      if ((x - mid) % 2 === 0) g.add("pillar", x, sk.teethY, 1, 1, { label: "Tooth" });
+    }
+    // the eyes glow faintly from deep inside the sockets
+    for (const ex of [cx - sk.eyeDx, cx + sk.eyeDx]) g.light(Math.round(ex), Math.round(sk.eyeY), F.has("fire", "flame", "burn") ? "brazier" : "holy");
+    g.region("Crown of the skull", Math.round(cx - sk.crRx * 0.6), 1, Math.round(sk.crRx * 1.2), Math.max(2, Math.round(sk.crY - sk.crRy * 0.3)));
+    g.region("Left eye socket", Math.round(cx - sk.eyeDx - sk.eyeRx), Math.round(sk.eyeY - sk.eyeRy), Math.round(sk.eyeRx * 2), Math.round(sk.eyeRy * 2));
+    g.region("Right eye socket", Math.round(cx + sk.eyeDx - sk.eyeRx), Math.round(sk.eyeY - sk.eyeRy), Math.round(sk.eyeRx * 2), Math.round(sk.eyeRy * 2));
+    g.region("Teeth", Math.round(cx - sk.jawHalf), sk.teethY, Math.round(sk.jawHalf * 2), 1);
+    g.region("Jaw", Math.round(cx - sk.jawHalf), sk.teethY + 1, Math.round(sk.jawHalf * 2), Math.max(1, sk.jawBot - sk.teethY));
+  } else if (shape === "ribcage") {
+    // ribs curve in from both walls, leaving the spine down the middle clear
+    const ribs = Math.max(3, Math.floor((W - 6) / 3));
+    for (let k = 0; k < ribs; k++) {
+      const x = Math.round(3 + k * ((W - 7) / Math.max(1, ribs - 1)));
+      const reach = Math.max(1, Math.round((H / 2 - 3) * Math.sin(Math.PI * (k + 0.5) / ribs)));
+      for (const dir of [-1, 1]) {
+        let y = dir < 0 ? 0 : H - 1;
+        while (g.inb(x, y) && !GROUND.has(g.get(x, y))) y -= dir;
+        for (let s = 0; s < reach && GROUND.has(g.get(x, y)); s++, y -= dir) {
+          if (Math.abs(y - cy) <= 1.5) break;
+          g.set(x, y, "#");
+        }
+      }
+    }
+    for (let x = 2; x < W - 2; x += 2) if (rng.chance(0.5)) g.add("bones", x, Math.round(cy), 1, 1, { label: "Spine" });
+    g.region("Spine", 2, Math.round(cy) - 1, W - 4, 3);
+  } else if (shape === "ring") {
+    g.region("Central core", Math.round(cx - W * 0.2), Math.round(cy - H * 0.2), Math.round(W * 0.4), Math.round(H * 0.4));
+  } else if (shape === "long_hall" || shape === "oval" || shape === "round" || shape === "cross") {
+    // pillars around the room, leaving the middle open
+    const ring = [];
+    for (let y = 1; y < H - 1; y++) for (let x = 1; x < W - 1; x++) {
+      if (!g.free(x, y) || g.clear[g.i(x, y)]) continue;
+      const near = g.count(x, y, (c) => c === "#", DIR8);
+      if (near === 0 && g.count(x, y, (c) => c === "#", DIR8.map(([a, b]) => [a * 2, b * 2])) > 0) ring.push([x, y]);
+    }
+    const n = shape === "long_hall" ? 8 : 6;
+    for (const p of spreadPoints(rng, n, 1, 1, W - 2, H - 2, 10, [focus])) {
+      const best = ring.sort((a, b) => Math.hypot(a[0] - p[0], a[1] - p[1]) - Math.hypot(b[0] - p[0], b[1] - p[1]))[0];
+      if (best) g.add("pillar", best[0], best[1]);
+    }
+  }
+  // torches along the walls, and the theme's clutter
+  const wallCells = [];
+  for (let y = 1; y < H - 1; y++) for (let x = 1; x < W - 1; x++) if (g.free(x, y) && !g.clear[g.i(x, y)] && g.count(x, y, (c) => c === "#", DIR4) > 0) wallCells.push([x, y]);
+  const torches = Math.max(4, Math.round(wallCells.length / 14));
+  for (const p of spreadPoints(rng, torches, 1, 1, W - 2, H - 2, 12, [focus])) {
+    const best = wallCells.sort((a, b) => Math.hypot(a[0] - p[0], a[1] - p[1]) - Math.hypot(b[0] - p[0], b[1] - p[1]))[0];
+    if (!best) break;
+    const t = g.add("torch", best[0], best[1], 1, 1, {});
+    if (t) g.light(t.x, t.y, g.theme === "crypt" || shape === "skull" ? "candle" : "torch", t);
+  }
+  const open = g.cells(1, 1, W - 2, H - 2, (x, y) => g.free(x, y) && !g.clear[g.i(x, y)]);
+  if (g.theme === "crypt" || shape === "skull" || shape === "ribcage") g.scatter("bones", rng.int(3, 7), open);
+  if (g.theme === "cave" || g.theme === "mine") g.scatter("stalagmite", rng.int(3, 6), open);
+  if (g.theme === "ruins") g.scatter("rubble", rng.int(4, 8), open);
+  if (g.theme === "temple" && shape !== "skull") g.add("rug", mid, focus[1] + 1, 1, Math.max(1, entryY - focus[1] - 1), { label: "Processional carpet" });
+  g.name = g.name || SHAPE_NAMES[shape];
+}
+
+// =================================================================================================================
+// Key objects: the things a scene is about (four dragon eggs to protect, the lever that opens the gate, the idol on
+// the altar). They're always placed, labelled and numbered, so players can find them and guard them on the grid.
+
+const KEY_KIND = [
+  [/\begg/, "egg"], [/\b(idol|totem|effigy)/, "idol"], [/\bstatue/, "statue"], [/\b(crystal|gem|shard|orb|stone|jewel)/, "crystal"],
+  [/\b(chest|coffer|strongbox|casket)/, "chest"], [/\b(lever|switch|winch)/, "lever"], [/\baltar/, "altar"], [/\b(cage|prisoner|captive)/, "cage"],
+  [/\bsarcophag/, "sarcophagus"], [/\bcoffin/, "coffin"], [/\b(brazier|flame|beacon)/, "brazier"], [/\b(banner|flag|standard)/, "banner"],
+  [/\bcauldron/, "cauldron"], [/\bthrone/, "throne"], [/\b(barrel|keg|powder)/, "barrel"], [/\b(crate|box)/, "crate"], [/\bfountain/, "fountain"],
+];
+const PLACEMENTS = ["focal", "center", "near_party", "far", "scattered", "edges", "hidden"];
+
+export function keyObjectKind(name, kind = "") {
+  const k = String(kind || "").toLowerCase();
+  if (k && KIND[k]) return k;
+  const n = String(name || "").toLowerCase();
+  for (const [re, kk] of KEY_KIND) if (re.test(n)) return kk;
+  return "key_item";
+}
+
+/** Normalise the DM's list: [{ name, count, placement }], at most 12 of a kind and 24 in all. */
+export function normaliseKeyObjects(list) {
+  const out = [];
+  let total = 0;
+  for (const k of Array.isArray(list) ? list : []) {
+    const name = String(k?.name || "").trim().slice(0, 60);
+    if (!name) continue;
+    const count = clamp(Math.round(Number(k.count) || 1), 1, 12);
+    if (total + count > 24) break;
+    total += count;
+    out.push({ name, count, placement: PLACEMENTS.includes(k.placement) ? k.placement : "focal", kind: keyObjectKind(name, k.kind) });
+  }
+  return out;
+}
+
+const labelFor = (name, i, count) => {
+  const n = name.replace(/\s+/g, " ").trim();
+  const one = count > 1 ? n.replace(/^(the|some|a|an|\d+|two|three|four|five|six|seven|eight|nine|ten|twelve)\s+/i, "").replace(/(?<=[^s])s$/i, "") : n;
+  const cap = one.charAt(0).toUpperCase() + one.slice(1);
+  return count > 1 ? `${cap} ${i + 1}` : cap;
+};
+
+function placeKeyObjects(g, list) {
+  const { rng } = g;
+  const W = g.w;
+  const H = g.h;
+  const centre = g.focus || [Math.round(W / 2), Math.round(H / 2)];
+  const placed = [];
+  for (const k of list) {
+    const anchor = k.placement === "near_party" ? (g.anchors.party[0] || [W / 2, H - 2])
+      : k.placement === "far" ? (g.anchors.enemy[0] || [W / 2, 2])
+        : k.placement === "center" ? [Math.round(W / 2), Math.round(H / 2)]
+          : k.placement === "hidden" ? (g.anchors.hidden[0] || [2, 2]) : centre;
+    // key objects never block the way (nothing can seal a passage, and they're never cleared away to open one)
+    const okCell = (x, y) => g.free(x, y) && GROUND.has(g.get(x, y))
+      && !placed.some((p) => Math.max(Math.abs(p.x - x), Math.abs(p.y - y)) < 2);
+    let cells = g.cells(1, 1, W - 2, H - 2, okCell);
+    if (k.placement === "edges") cells = cells.filter(([x, y]) => g.count(x, y, (c) => c === "#", DIR4) > 0);
+    if (k.placement === "scattered") {
+      const pts = spreadPoints(rng, k.count, 2, 2, W - 3, H - 3, 12, [anchor]);
+      cells = pts.map((p) => cells.slice().sort((a, b) => Math.hypot(a[0] - p[0], a[1] - p[1]) - Math.hypot(b[0] - p[0], b[1] - p[1]))[0]).filter(Boolean);
+    } else {
+      // gathered around the spot: the nearest open cells, never right on top of each other
+      cells.sort((a, b) => Math.hypot(a[0] - anchor[0], a[1] - anchor[1]) - Math.hypot(b[0] - anchor[0], b[1] - anchor[1]));
+    }
+    // anything that didn't fit where it was meant to goes in the nearest open spot instead
+    const rest = g.cells(1, 1, W - 2, H - 2, okCell).sort((a, b) => Math.hypot(a[0] - anchor[0], a[1] - anchor[1]) - Math.hypot(b[0] - anchor[0], b[1] - anchor[1]));
+    let made = 0;
+    for (const [x, y] of [...cells, ...rest]) {
+      if (made >= k.count) break;
+      if (!okCell(x, y)) continue;
+      const o = g.add(k.kind, x, y, 1, 1, { label: labelFor(k.name, made, k.count), key: true, hidden: k.placement === "hidden", blocksMove: false, blocksSight: false });
+      if (!o) continue;
+      if (k.kind === "egg" || k.kind === "crystal" || k.kind === "key_item") g.light(x, y, "crystal", o, { bright: 0, dim: 5 });
+      placed.push(o);
+      made++;
+    }
+  }
+  return placed;
+}
+
+/**
+ * Add key objects to a battle map that already exists (the DM's place_object effect): `near` is {x, y} or null for the
+ * map's middle. Skips walls, blocking objects and the cells in `occupied` ("x,y"). Returns the new objects.
+ */
+export function addKeyObjectsToMap(map, { name, count = 1, kind = "", near = null, hidden = false }, occupied = new Set()) {
+  const objKind = keyObjectKind(name, kind);
+  const n = clamp(Math.round(Number(count) || 1), 1, 12);
+  const blocked = new Set();
+  for (const o of map.objects || []) for (let y = o.y; y < o.y + (o.h || 1); y++) for (let x = o.x; x < o.x + (o.w || 1); x++) blocked.add(`${x},${y}`);
+  const at = near && Number.isFinite(near.x) ? near : { x: Math.floor(map.w / 2), y: Math.floor(map.h / 2) };
+  const cells = [];
+  for (let y = 0; y < map.h; y++) for (let x = 0; x < map.w; x++) {
+    if (!GROUND.has(map.tiles[y * map.w + x]) || blocked.has(`${x},${y}`) || occupied.has(`${x},${y}`)) continue;
+    cells.push([x, y]);
+  }
+  cells.sort((a, b) => Math.hypot(a[0] - at.x, a[1] - at.y) - Math.hypot(b[0] - at.x, b[1] - at.y));
+  let next = 1 + Math.max(0, ...(map.objects || []).map((o) => Number(String(o.id).replace(/^o/, "")) || 0));
+  const made = [];
+  for (const [x, y] of cells) {
+    if (made.length >= n) break;
+    if (made.some((o) => Math.max(Math.abs(o.x - x), Math.abs(o.y - y)) < 2)) continue;
+    const o = {
+      id: `o${next++}`, kind: objKind, x, y, w: 1, h: 1, rot: 0,
+      blocksMove: false, blocksSight: false, difficult: false, cover: (KIND[objKind] || {}).c || null, light: null,
+      hidden: !!hidden, label: labelFor(String(name || "Item"), made.length, n), key: true,
+    };
+    (map.objects ||= []).push(o);
+    if (objKind === "egg" || objKind === "crystal" || objKind === "key_item") (map.lights ||= []).push({ id: `l${o.id}`, x, y, bright: 0, dim: 5, color: LIGHT.crystal.color, flicker: false, kind: "crystal", objectId: o.id });
+    made.push(o);
+  }
+  return made;
+}
+
+/** Remove key objects (or any labelled object) by label: "Dragon egg 3" removes that one; "Dragon egg" removes all. */
+export function removeObjectsFromMap(map, label, max = 0) {
+  const want = String(label || "").trim().toLowerCase();
+  if (!want) return [];
+  const hits = (map.objects || []).filter((o) => o.label && (o.label.toLowerCase() === want || (o.key && o.label.toLowerCase().startsWith(want))));
+  const gone = max > 0 ? hits.slice(0, max) : hits;
+  const ids = new Set(gone.map((o) => o.id));
+  map.objects = (map.objects || []).filter((o) => !ids.has(o.id));
+  map.lights = (map.lights || []).filter((l) => !ids.has(l.objectId));
+  return gone;
+}
+
 const GENERATORS = {
   dungeon: { gen: (g) => genRooms(g, g.F.has("sewer") ? "sewer" : "dungeon"), prefer: "any", indoor: true, ambient: "dark" },
   crypt: { gen: (g) => genRooms(g, "crypt"), prefer: "any", indoor: true, ambient: "dark" },
@@ -3917,13 +4236,16 @@ export function generateTacticalMap(spec = {}) {
   const realTheme = GENERATORS[theme] ? theme : "dungeon";
   const F = makeFeatures([...(Array.isArray(spec.features) ? spec.features : spec.features ? [spec.features] : []), ...hints, String(spec.theme || "")]);
   const [sw, sh] = SIZES[spec.size] || SIZES.medium;
-  const W = clamp(Math.round(spec.w || sw), 12, 80);
-  const H = clamp(Math.round(spec.h || sh), 10, 60);
+  // a place with a shape that matters (a skull shrine, a round tower room) is built as that one shaped chamber
+  const shape = resolveShape(spec, realTheme);
+  const sq = shape && SQUARE_SHAPES.has(shape) && !spec.w && !spec.h ? Math.round((sw + sh) / 2) : 0;
+  const W = clamp(Math.round(spec.w || sq || sw), 12, 80);
+  const H = clamp(Math.round(spec.h || sq || sh), 10, 60);
   const rng = new Rng((seed ^ hashString(realTheme)) >>> 0);
   const tod = ["day", "dusk", "night"].includes(spec.timeOfDay) ? spec.timeOfDay : "day";
 
   // canonical orientation: transpose when the theme's preferred aspect doesn't match the map
-  const prefer = def.prefer || "any";
+  const prefer = shape ? "any" : def.prefer || "any";
   let transpose = false;
   if (prefer === "wide" && H > W) transpose = true;
   else if (prefer === "tall" && W > H) transpose = true;
@@ -3934,10 +4256,16 @@ export function generateTacticalMap(spec = {}) {
   g.indoor = def.indoor;
   g.night = tod === "night" || tod === "dusk";
   g.tod = tod;
-  def.gen(g);
-  g.indoor = def.indoor; // themes may toggle this while generating
-  const flipX = rng.chance(0.5);
-  const flipY = rng.chance(0.5);
+  if (shape) {
+    genShaped(g, shape);
+    g.indoor = true;
+  } else {
+    def.gen(g);
+    g.indoor = def.indoor; // themes may toggle this while generating
+  }
+  // a shaped chamber stays upright (a skull with its jaw at the bottom, the way in towards the party)
+  const flipX = shape ? false : rng.chance(0.5);
+  const flipY = shape ? false : rng.chance(0.5);
   g.transform(transpose, flipX, flipY);
 
   // ambient
@@ -3949,6 +4277,8 @@ export function generateTacticalMap(spec = {}) {
   g.ambient = ambient;
 
   applyFeatures(g);
+  // the scene's key objects (the eggs to protect, the lever, the idol), labelled and numbered
+  placeKeyObjects(g, normaliseKeyObjects(spec.keyObjects));
   sanitizeDoors(g);
   ensureConnected(g);
   sanitizeDoors(g);
@@ -4009,7 +4339,9 @@ export function generateTacticalMap(spec = {}) {
       blocksMove: !!o.blocksMove, blocksSight: !!o.blocksSight, difficult: !!o.difficult,
       cover: o.cover || null, light: o.light || null, hidden: !!o.hidden, label: o.label || null,
       ...(o.variant ? { variant: o.variant } : {}),
+      ...(o.key ? { key: true } : {}),
     })),
+    ...(shape ? { shape } : {}),
     doors: g.doors.map((d) => ({ x: d.x, y: d.y, open: !!d.open, locked: !!d.locked, secret: !!d.secret })),
     lights: g.lights.map(stripLight),
     ambient,
@@ -4396,12 +4728,15 @@ export function describeMapForAI(map, tokens = []) {
   }
   if (lightGroups.size) out.push("Lights: " + [...lightGroups].map(([n, ps]) => `${n} ${ps.slice(0, 8).join(" ")}${ps.length > 8 ? " ..." : ""}`).join("; "));
   if ((map.regions || []).length) out.push("Areas: " + map.regions.map((r) => `${r.name} (${r.x},${r.y} ${r.w}x${r.h})`).join("; "));
+  // the scene's key objects first: what the players are protecting, chasing or using
+  const keys = (map.objects || []).filter((o) => o.key);
+  if (keys.length) out.push("KEY OBJECTS (the scene's important things, { on the grid): " + keys.map((o) => `${o.label || o.kind} at ${o.x},${o.y}${o.hidden ? " (hidden)" : ""}`).join("; "));
   // notable objects: labelled or rare kinds
   const NOTABLE = new Set(["altar", "throne", "well", "fountain", "chest", "statue", "idol", "stairs_up", "stairs_down", "lever", "cage", "trapdoor", "sarcophagus", "cart", "campfire", "fireplace", "forge", "map_table", "helm", "bar"]);
   const notes = [];
   const seenLabel = new Map();
   for (const o of map.objects || []) {
-    if (o.kind === "torch" || o.kind === "brazier") continue;
+    if (o.kind === "torch" || o.kind === "brazier" || o.key) continue;
     if (!(NOTABLE.has(o.kind) || (o.label && !/^(log seat|keg|lantern|candle|armchair|street lamp)$/i.test(o.label)))) continue;
     const name = o.label || o.kind.replace(/_/g, " ");
     const k = name.toLowerCase();

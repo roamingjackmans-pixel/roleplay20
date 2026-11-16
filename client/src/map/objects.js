@@ -1886,6 +1886,47 @@ D.idol = (c, o, k) => {
   }
 };
 
+// a large speckled egg resting in a little nest of straw: the kind of thing a scene asks you to protect
+D.egg = (c, o, k) => {
+  const { W, H, R } = k;
+  const cx = W / 2, cy = H / 2 + 0.04, s = Math.min(W, H);
+  c.beginPath();
+  c.ellipse(cx, cy + s * 0.2, s * 0.32, s * 0.12, 0, 0, TAU);
+  fill(c, 'rgba(120, 92, 48, 0.75)');
+  for (let i = 0; i < 9; i++) {
+    const a = R() * TAU;
+    line(c, cx + Math.cos(a) * s * 0.12, cy + s * 0.2 + Math.sin(a) * s * 0.05, cx + Math.cos(a) * s * 0.32, cy + s * 0.2 + Math.sin(a) * s * 0.11, '#b8934a', 0.012);
+  }
+  c.beginPath();
+  c.ellipse(cx, cy, s * 0.2, s * 0.27, 0, 0, TAU);
+  shadow(c, k, 0.1, 0.04, 0.07, 0.55);
+  fill(c, rad(c, cx - s * 0.07, cy - s * 0.1, 0, s * 0.3, [[0, '#fff6dc'], [0.55, '#e6c98c'], [1, '#9c7a3e']]));
+  noShadow(c);
+  stroke(c, 'rgba(60, 40, 10, 0.7)', 0.012);
+  for (let i = 0; i < 7; i++) {
+    circle(c, cx + (R() - 0.5) * s * 0.26, cy + (R() - 0.5) * s * 0.36, s * (0.015 + R() * 0.02));
+    fill(c, 'rgba(110, 70, 40, 0.55)');
+  }
+};
+
+// anything else a scene is about: a glowing gem-like marker
+D.key_item = (c, o, k) => {
+  const { W, H } = k;
+  const cx = W / 2, cy = H / 2, s = Math.min(W, H);
+  circle(c, cx, cy, s * 0.3);
+  fill(c, rad(c, cx, cy, 0, s * 0.3, [[0, 'rgba(255, 230, 150, 0.55)'], [1, 'rgba(255, 210, 120, 0)']]));
+  c.beginPath();
+  c.moveTo(cx, cy - s * 0.22);
+  c.lineTo(cx + s * 0.16, cy);
+  c.lineTo(cx, cy + s * 0.22);
+  c.lineTo(cx - s * 0.16, cy);
+  c.closePath();
+  shadow(c, k, 0.1, 0.04, 0.07, 0.5);
+  fill(c, lin(c, cx - 0.15, cy - 0.2, cx + 0.15, cy + 0.2, [[0, '#fff2c0'], [0.5, '#e8b84a'], [1, '#8a5a10']]));
+  noShadow(c);
+  stroke(c, '#4a3008', 0.014);
+};
+
 D.gravestone = (c, o, k) => {
   const { W, H, R } = k;
   const cx = W / 2;

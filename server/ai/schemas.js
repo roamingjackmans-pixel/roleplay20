@@ -15,6 +15,7 @@ export const EFFECT_TYPES = [
   'xp', 'level_up', 'rest_short', 'rest_long', 'hit_dice', 'inspiration', 'spend_slot', 'spend_resource',
   'give_map', 'discover_location', 'move_party', 'move_token', 'reveal_token', 'hide_token', 'remove_token',
   'door_open', 'door_close', 'door_lock', 'door_unlock', 'ambient', 'exhaustion', 'npc_join_party', 'npc_leave_party',
+  'place_object', 'remove_object',
 ];
 
 const narration = arr(obj({
@@ -69,6 +70,10 @@ const sceneMap = obj({
   timeOfDay: en('day', 'dusk', 'night'), features: arr(S),
   partyPlacement: en('entrance', 'center', 'near_npcs'),   // where the party stands when the map is laid out
   npcsPresent: arr(obj({ npcId: S, placement: en('npc', 'near', 'far', 'center', 'hidden') })),
+  // the room's overall shape when it matters (a skull-shaped shrine, a round tower room); "auto" = the theme's usual layout
+  shape: en('auto', 'round', 'oval', 'cross', 'ring', 'long_hall', 'skull', 'ribcage', 'triangle'),
+  // the things the scene is about, placed and labelled on the grid ("Dragon egg" x4 at the focal point)
+  keyObjects: arr(obj({ name: S, count: I, placement: en('focal', 'center', 'near_party', 'far', 'scattered', 'edges', 'hidden') })),
 });
 
 const enemyGroup = obj({

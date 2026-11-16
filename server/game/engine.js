@@ -9,7 +9,7 @@ import { DM_CORE, GENESIS_CORE, SESSION_END_CORE, CHARACTER_ASSIST_CORE } from '
 import { TURN_SCHEMA, GENESIS_SCHEMA, SESSION_END_SCHEMA, CHARACTER_ASSIST_SCHEMA } from '../ai/schemas.js';
 import { saveCampaign, getCharacter, saveCharacter, partyCharacters, characterOwner, member } from './campaign.js';
 import { cachedCampaignContext, turnPrompt, safeDerive, partyBlock, npcBlock, questBlock, historyBlock, sceneBlock } from './context.js';
-import { generateTacticalMap, placeCreatures } from './mapgen.js';
+import { generateTacticalMap, placeCreatures, addKeyObjectsToMap, removeObjectsFromMap } from './mapgen.js';
 import { rollDice, rollD20, manualD20 } from '../../shared/dice.js';
 import { SKILL_NAMES, levelForXp, xpForLevel } from '../../shared/rules.js';
 import * as combat from './combat.js';
@@ -540,7 +540,7 @@ export function clearBattleMap(c) {
 export function setSceneMap(c, spec, { keepTokens = false } = {}) {
   let map;
   try {
-    map = generateTacticalMap({ theme: spec.theme || 'field', name: spec.name || c.scene.location || 'Scene', size: spec.size || 'medium', ambient: spec.ambient, timeOfDay: spec.timeOfDay, features: spec.features || [] });
+    map = generateTacticalMap({ theme: spec.theme || 'field', name: spec.name || c.scene.location || 'Scene', size: spec.size || 'medium', ambient: spec.ambient, timeOfDay: spec.timeOfDay, features: spec.features || [], shape: spec.shape || '', keyObjects: spec.keyObjects || [] });
   } catch (e) {
     console.error('[engine] map generation failed', e);
     return null;
@@ -904,6 +904,21 @@ function applyEffect(c, e) {
       if (type === 'reveal_token') { t.hidden = false; }
       else if (type === 'hide_token') { t.hidden = true; t.revealedTo = []; }
       else delete c.tokens[t.id];
+      break;
+    }
+    // key objects on the current battle map: put them where the story says (text = what, amount = how many, target =
+    // where: "x,y", or a creature's or object's name, or "" for the middle), or take them away (text = the label)
+    case 'place_object': {
+      const map = c.maps.tactical[c.combat?.mapId || c.scene.tacticalMapId];
+      if (!map || !String(e.text || '').trim()) break;
+      const occupied = new Set(Object.values(c.tokens).filter((t) => !t.dead).map((t) => `${t.x},${t.y}`));
+      const made = addKeyObjectsToMap(map, { name: e.text, count: amount || 1, near: spotOnMap(c, map, e.target), hidden: /hidden|secret/i.test(String(e.target || '')) }, occupied);
+      if (made.length && c.combat) c.combat.events.push(`${made.map((o) => o.label).join(', ')} placed on the map.`);
+      break;
+    }
+    case 'remove_object': {
+      const map = c.maps.tactical[c.combat?.mapId || c.scene.tacticalMapId];
+      if (map) removeObjectsFromMap(map, e.text, amount > 0 ? amount : 0);
       break;
     }
     case 'door_open': case 'door_close': case 'door_lock': case 'door_unlock': {
@@ -1698,3 +1713,21 @@ export async function characterAssist(c, userId, p) {
 }
 
 export { aiStatus };
+
+/** Where on the battle map the DM means: "x,y", a creature's or object's name, "party", or null for the middle. */
+function spotOnMap(c, map, target) {
+  const t = String(target || '').replace(/\b(hidden|secret)\b/gi, '').trim();
+  if (!t) return null;
+  const m = /^\(?\s*(\d+)\s*,\s*(\d+)\s*\)?$/.exec(t);
+  if (m) return { x: Number(m[1]), y: Number(m[2]) };
+  const ref = t.replace(/^(next to|near|beside|by|around|on|at)\s+/i, '').replace(/^(the|a|an)\s+/i, '');
+  if (/^(party|the party|us)$/i.test(ref)) {
+    const pc = Object.values(c.tokens).find((x) => x.kind === 'pc' && !x.dead);
+    return pc ? { x: pc.x, y: pc.y } : null;
+  }
+  const tok = combat.findToken(c, ref);
+  if (tok) return { x: tok.x, y: tok.y };
+  const low = ref.toLowerCase();
+  const o = (map.objects || []).find((x) => (x.label || '').toLowerCase().includes(low) || x.kind.replace(/_/g, ' ') === low);
+  return o ? { x: o.x, y: o.y } : null;
+}

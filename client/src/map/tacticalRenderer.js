@@ -442,6 +442,31 @@ export class TacticalRenderer {
         ctx.fillText(o.kind, x, y);
       }
     }
+    // the scene's key objects (the eggs to protect, the lever, the idol): a glowing ring and a label, once seen
+    for (const o of map.objects || []) {
+      if (!o.key || (o.hidden && !dm)) continue;
+      if (fog && !fog.levels[o.y * map.w + o.x]) continue;
+      const kx = this.cam.x + (o.x + (o.w || 1) / 2) * s, ky = this.cam.y + (o.y + (o.h || 1) / 2) * s;
+      ctx.save();
+      ctx.strokeStyle = `rgba(255, 214, 120, ${0.6 + 0.25 * Math.sin(now / 450 + o.x * 1.7)})`;
+      ctx.lineWidth = Math.max(1.5, s * 0.06);
+      ctx.beginPath();
+      ctx.arc(kx, ky, s * 0.5, 0, TAU);
+      ctx.stroke();
+      ctx.restore();
+      if (s >= 16) {
+        // a short tag on the map ("Egg 1" for "Dragon egg 1"); the full name shows on hover
+        const full = o.label || o.kind;
+        const tag = full.replace(/^.*?\b([A-Za-z][\w'-]*)\s+(\d+)$/, (m, w, n) => `${w[0].toUpperCase()}${w.slice(1)} ${n}`);
+        const text = tag.length > 16 ? `${tag.slice(0, 15)}…` : tag;
+        const size = 10;
+        ctx.save();
+        ctx.font = `700 ${size}px ${UI_FONT}`;
+        const tw = ctx.measureText(text).width + 16;
+        ctx.restore();
+        pill(ctx, text, kx - tw / 2, ky + s * 0.5 + size, '#ffd678', size);
+      }
+    }
     this._drawRuler(ctx);
     this._drawDrag(ctx, now);
     this._drawPings(ctx, now);

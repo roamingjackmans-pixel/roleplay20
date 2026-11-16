@@ -6,6 +6,13 @@ import { FIXTURE_MAPS, sampleTokens, AREA_FIXTURES } from './fixtures.js';
 import { THEMES } from './themes.js';
 import { peekBase } from './baseRender.js';
 
+// sample scenes the DM might ask for: shaped chambers and key objects
+const SCENES = {
+  'scene: skull shrine with four eggs': { theme: 'temple', name: 'Inside the Skull Shrine', keyObjects: [{ name: 'four dragon eggs', count: 4, placement: 'focal' }] },
+  'scene: ribcage crypt with a lever': { theme: 'crypt', name: 'The Ribcage Ossuary', keyObjects: [{ name: 'Rusted lever', count: 1, placement: 'far' }] },
+  'scene: round tower room': { theme: 'castle', name: 'The Round Tower', shape: 'round', keyObjects: [{ name: "Wizard's orbs", count: 3, placement: 'scattered' }] },
+};
+
 // Other agents' browser-safe modules: used when present, otherwise the demo falls back to fixtures.
 const MAPGEN = Object.values(import.meta.glob('../../../server/game/mapgen.js', { eager: true }))[0] || null;
 const VISION = Object.values(import.meta.glob('../../../server/game/vision.js', { eager: true }))[0] || null;
@@ -47,7 +54,7 @@ function simpleVis(map, viewer) {
 }
 
 function BattleDemo() {
-  const sources = useMemo(() => [...(MAPGEN ? THEMES.map((t) => `generate: ${t}`) : []), ...Object.keys(FIXTURE_MAPS)], []);
+  const sources = useMemo(() => [...(MAPGEN ? [...Object.keys(SCENES), ...THEMES.map((t) => `generate: ${t}`)] : []), ...Object.keys(FIXTURE_MAPS)], []);
   const [source0, setSource] = usePersist('source', sources[0]);
   const source = sources.includes(source0) ? source0 : sources[0];
   const [seed, setSeed] = usePersist('seed', 1234);
@@ -70,7 +77,8 @@ function BattleDemo() {
     const t0 = performance.now();
     let m;
     try {
-      if (source.startsWith('generate: ')) m = MAPGEN.generateTacticalMap({ theme: source.slice(10), seed, size, timeOfDay });
+      if (SCENES[source]) m = MAPGEN.generateTacticalMap({ ...SCENES[source], seed, size, timeOfDay });
+      else if (source.startsWith('generate: ')) m = MAPGEN.generateTacticalMap({ theme: source.slice(10), seed, size, timeOfDay });
       else m = FIXTURE_MAPS[source]();
     } catch (e) {
       console.error(e);
