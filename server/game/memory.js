@@ -66,6 +66,15 @@ function sessionAt(c, at) {
   return n;
 }
 
+/** A rebuilt world starts with an empty archive: nothing from the world it replaces is remembered or searched. */
+export function forgetEverything(c) {
+  const m = memoryOf(c);
+  m.entries = [];
+  m.seeded = true;
+  save(file(c.id));
+  indexes.delete(c.id);
+}
+
 export function rememberTurn(c, { n, summary, location }) {
   if (!summary) return null;
   return addEntry(c, memoryOf(c), { kind: 'turn', title: `Turn ${n}${location ? ` at ${location}` : ''}`, text: summary, extra: { turn: n } });

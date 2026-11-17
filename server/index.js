@@ -164,6 +164,7 @@ api.post('/campaigns/:id/regenerate', (req, res) => {
   const c = campaignFor(req, res, { owner: true });
   if (!c) return;
   if (c.sessionNumber > 0) return res.status(400).json({ error: 'The world is already in play.' });
+  if (E.genesisRunning(c) || c.status === 'genesis') return res.status(409).json({ error: 'The world is still being built. Wait for it to finish before rebuilding.' });
   if (req.body?.settings) Object.assign(c.settings, req.body.settings);
   E.runGenesis(c);
   res.json({ ok: true });

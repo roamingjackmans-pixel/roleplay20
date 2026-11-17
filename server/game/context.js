@@ -215,7 +215,8 @@ function narrationText(entry, nameForUser, nameForSpeaker = (p) => p.speakerName
   return `[to ${who}] ` + (entry.parts || []).map((p) => (p.speaker === 'narrator' ? p.text : `${nameForSpeaker(p)}: "${p.text}"`)).join(' ');
 }
 
-export function historyBlock(c) {
+/** Writes out one turn in full: what each player did, the rolls, the narration and its summary. */
+function turnWriter(c) {
   const nameForUser = (uid) => {
     const m = c.members.find((x) => x.userId === uid);
     return m?.characterId ? (partyCharacters(c).find((ch) => ch.id === m.characterId)?.name || '?') : getUser(uid)?.displayName || '?';
@@ -223,15 +224,19 @@ export function historyBlock(c) {
   // a player character's line shows their name (older logs may hold their raw id)
   const pcs = partyCharacters(c);
   const nameForSpeaker = (p) => { const id = String(p.speaker || '').replace(/^pc:/, ''); return pcs.find((x) => x.id === id || x.id === p.speakerName)?.name || p.speakerName || p.speaker; };
-  const turns = c.chronicle?.turns || [];
-  const older = turns.slice(0, -8).map((t) => t.summary).filter(Boolean);
-  const recent = turns.slice(-8).map((t) => [
+  return (t) => [
     `## Turn ${t.n}${t.kind ? ` (${t.kind})` : ''}${t.combatRound ? ` - combat round ${t.combatRound}${t.turnOf ? `, ${t.turnOf}'s turn` : ''}` : ''}`,
     ...(t.actions || []).map((a) => `* ${a.name}${a.private ? ' (PRIVATE)' : ''}: ${clip(a.text, 400)}`),
     ...(t.rolls || []).map((r) => `* roll: ${r}`),
     ...(t.narration || []).map((n) => clip(narrationText(n, nameForUser, nameForSpeaker), 900)),
     t.summary ? `Summary: ${t.summary}` : '',
-  ].filter(Boolean).join('\n'));
+  ].filter(Boolean).join('\n');
+}
+
+export function historyBlock(c) {
+  const turns = c.chronicle?.turns || [];
+  const older = turns.slice(0, -8).map((t) => t.summary).filter(Boolean);
+  const recent = turns.slice(-8).map(turnWriter(c));
   return [
     c.chronicle?.summary ? `# STORY SO FAR\n${c.chronicle.summary}` : '',
     older.length ? `# EARLIER THIS SESSION\n${older.slice(-25).map((s) => `- ${s}`).join('\n')}` : '',
@@ -239,28 +244,70 @@ export function historyBlock(c) {
   ].filter(Boolean).join('\n\n');
 }
 
+// The lists that only ever grow - the turns played and the DM's notes - are shown a page at a time. Everything up to
+// the last page boundary stays word for word the same for several turns, so the AI service keeps it cached and bills it
+// at a twentieth of the normal price; only the newest few entries (fewer than a page) are new each turn.
+export const PAGE = 6;
+const FULL_TURNS = 8;     // turns before the boundary shown in full (every turn after it is shown in full too)
+const SUMMARY_TURNS = 25; // one-line summaries of the turns before those
+const NOTES = 12;         // DM notes before the boundary (every note after it is shown too)
+const edgeOf = (count) => Math.floor(count / PAGE) * PAGE;
+
+/** The DM's notes in two parts: the settled page (unchanged for several turns) and the newest few. */
+function notePages(c) {
+  const all = c.world.dmNotes || [];
+  const dropped = c.world.dmNotesDropped || 0; // the oldest notes leave this list (the archive keeps them)
+  const cut = Math.max(0, edgeOf(dropped + all.length) - dropped);
+  return { settled: all.slice(Math.max(0, cut - NOTES), cut), newest: all.slice(cut) };
+}
+
 /**
- * Everything the DM sees for a turn. It stays about the same size however long the campaign runs: compact indexes of
- * every session, NPC, quest and place, full details only for what's in play, and the older memories that match.
+ * Everything the DM sees for a turn, in parts: first what stays the same from turn to turn (the story so far and the
+ * settled turns, then the settled DM notes), which is cached, then what changes every turn. It stays about the same size
+ * however long the campaign runs: compact indexes of every session, NPC, quest and place, full details only for what's
+ * in play, and the older memories that match.
+ * @returns {{ text: string, cache?: boolean }[]}
  */
-export function turnPrompt(c, input, online) {
-  const notes = (c.world.dmNotes || []).slice(-12);
+export function turnPromptParts(c, input, online) {
+  const turns = c.chronicle?.turns || [];
+  const edge = edgeOf(turns.at(-1)?.n || 0);
+  const settledTurns = turns.filter((t) => t.n <= edge);
+  const latest = turns.filter((t) => t.n > edge);
+  const full = settledTurns.slice(-FULL_TURNS);
+  const summarized = settledTurns.slice(0, -FULL_TURNS).slice(-SUMMARY_TURNS);
+  const notes = notePages(c);
   const focus = focusNpcIds(c, input?.text || '');
-  const shownTurns = new Set((c.chronicle?.turns || []).slice(-33).map((t) => t.n));
-  const recalled = recallBlock(c, input, { focus, shownTurns, shownNotes: notes });
+  const shownTurns = new Set([...summarized, ...full, ...latest].map((t) => t.n));
+  const recalled = recallBlock(c, input, { focus, shownTurns, shownNotes: [...notes.settled, ...notes.newest] });
   const others = npcIndex(c, focus);
   const spine = sessionIndex(c);
-  const parts = [
+  const write = turnWriter(c);
+  const lines = summarized.map((t) => t.summary).filter(Boolean);
+  const story = [
+    c.chronicle?.summary ? `# STORY SO FAR\n${c.chronicle.summary}` : '',
+    spine ? `# SESSION INDEX (one line per session so far)\n${spine}` : '',
+    lines.length ? `# EARLIER TURNS (one line each, oldest first)\n${lines.map((s) => `- ${s}`).join('\n')}` : '',
+    full.length ? `# RECENT TURNS (oldest first; the newest turns come later, under THE LATEST TURNS)\n${full.map(write).join('\n\n')}` : '',
+  ];
+  const now = [
+    notes.newest.length ? `# YOUR NEWEST DM NOTES (written after the ones above)\n${notes.newest.map((n) => `- ${n}`).join('\n')}` : '',
     `# PARTY (use these ids in "to", rollRequests and effects)\n${partyBlock(c, online)}`,
     `# NPCs IN PLAY (in the scene, travelling with the party, or mentioned lately)\n${npcBlock(c, focus)}`,
     others ? `# EVERYONE ELSE THE PARTY HAS MET (name [id] role, sN = last seen in session N; reuse these ids, never a new one for the same person)\n${others}` : '',
     `# QUESTS\n${questBlock(c)}`,
     `# SCENE\n${sceneBlock(c)}`,
-    spine ? `# SESSION INDEX (one line per session so far)\n${spine}` : '',
-    notes.length ? `# YOUR RECENT DM NOTES (every older note is kept in the archive and comes up in RECALLED when it matters)\n${notes.map((n) => `- ${n}`).join('\n')}` : '',
     recalled ? `# RECALLED FROM THE CAMPAIGN ARCHIVE (older details that match this turn: trust them over guesses)\n${recalled}` : '',
-    historyBlock(c),
+    latest.length ? `# THE LATEST TURNS (most recent last${full.length ? '; they carry straight on from RECENT TURNS above' : ''})\n${latest.map(write).join('\n\n')}` : '',
     `# THIS TURN\n${input.text}`,
   ];
-  return parts.filter(Boolean).join('\n\n');
+  return [
+    { text: story.filter(Boolean).join('\n\n'), cache: true },
+    { text: notes.settled.length ? `# YOUR DM NOTES (oldest first; every older note is kept in the archive and comes up in RECALLED when it matters)\n${notes.settled.map((n) => `- ${n}`).join('\n')}` : '', cache: true },
+    { text: now.filter(Boolean).join('\n\n') },
+  ];
+}
+
+/** The turn prompt as one text (for tests and the developer's file provider). */
+export function turnPrompt(c, input, online) {
+  return turnPromptParts(c, input, online).map((p) => p.text).filter(Boolean).join('\n\n');
 }

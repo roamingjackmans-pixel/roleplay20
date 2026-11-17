@@ -8,12 +8,12 @@ import { config } from '../config.js';
 import { DM_CORE, GENESIS_CORE, SESSION_END_CORE, CHARACTER_ASSIST_CORE } from '../ai/prompts.js';
 import { TURN_SCHEMA, GENESIS_SCHEMA, SESSION_END_SCHEMA, CHARACTER_ASSIST_SCHEMA } from '../ai/schemas.js';
 import { saveCampaign, getCharacter, saveCharacter, partyCharacters, characterOwner, member } from './campaign.js';
-import { cachedCampaignContext, turnPrompt, safeDerive, partyBlock, npcBlock, questBlock, historyBlock, sceneBlock } from './context.js';
+import { cachedCampaignContext, turnPromptParts, safeDerive, partyBlock, npcBlock, questBlock, historyBlock, sceneBlock } from './context.js';
 import { generateTacticalMap, placeCreatures, addKeyObjectsToMap, removeObjectsFromMap } from './mapgen.js';
 import { rollDice, rollD20, manualD20 } from '../../shared/dice.js';
 import { SKILL_NAMES, levelForXp, xpForLevel } from '../../shared/rules.js';
 import * as combat from './combat.js';
-import { rememberTurn, rememberNote, rememberFact, rememberHandout, rememberSession } from './memory.js';
+import { rememberTurn, rememberNote, rememberFact, rememberHandout, rememberSession, forgetEverything } from './memory.js';
 import { buildView, logVisibleTo } from './views.js';
 import { holdNarration, hostReads, takeWaitingNarration, waitingNarration } from './readgate.js';
 
@@ -393,6 +393,18 @@ export function setDmBrain(c, { model, effort } = {}) {
   if (model !== undefined) c.settings.model = model;
   if (effort !== undefined) c.settings.effort = effort;
   return { ok: true, brain: dmBrain(c) };
+}
+
+/** A note for the DM's own eyes. The prompt shows the latest ones (the archive keeps every note); counting the notes
+ * that have left the list keeps the prompt's settled page of notes word for word the same, so it stays cached. */
+export function addDmNote(c, text) {
+  const notes = (c.world.dmNotes ||= []);
+  notes.push(text);
+  if (notes.length > 80) {
+    const gone = notes.length - 80;
+    notes.splice(0, gone);
+    c.world.dmNotesDropped = (c.world.dmNotesDropped || 0) + gone;
+  }
 }
 
 export function trackUsage(c, res) {
@@ -803,8 +815,7 @@ export function retireCharacter(c, ch, userId, farewell = '') {
 
   const words = farewell ? ` "${farewell}"` : '';
   addLog(c, { kind: 'system', text: died ? `🕯 ${ch.name} is laid to rest. Their story stays in the journal.${words}` : `📜 ${ch.name} retires from the party. Their story stays in the journal.${words}`, tone: died ? 'danger' : undefined });
-  (c.world.dmNotes ||= []).push(`${died ? 'DIED' : 'RETIRED'}: ${ch.name} (${ch.race} ${ch.class} ${ch.level}, played by ${player}) ${died ? 'died' : 'left the party'} on day ${ch.retired.day}${ch.retired.location ? ` at ${ch.retired.location}` : ''}${farewell ? `. The player's farewell: "${farewell}"` : ''}. ${ch.name} is no longer a player character${died ? '' : ', but still lives in the world and may reappear as an NPC you play'}. ${player} is making a new character who joins at level ${joinLevel(c)}.`);
-  if (c.world.dmNotes.length > 80) c.world.dmNotes.splice(0, c.world.dmNotes.length - 80);
+  addDmNote(c, `${died ? 'DIED' : 'RETIRED'}: ${ch.name} (${ch.race} ${ch.class} ${ch.level}, played by ${player}) ${died ? 'died' : 'left the party'} on day ${ch.retired.day}${ch.retired.location ? ` at ${ch.retired.location}` : ''}${farewell ? `. The player's farewell: "${farewell}"` : ''}. ${ch.name} is no longer a player character${died ? '' : ', but still lives in the world and may reappear as an NPC you play'}. ${player} is making a new character who joins at level ${joinLevel(c)}.`);
   pushViews(c);
   maybeResolve(c);
   return { ok: true };
@@ -815,8 +826,7 @@ export function characterJoined(c, ch, userId) {
   const player = getUser(userId)?.displayName || 'a player';
   const past = (member(c, userId)?.pastCharacters || []).map((id) => getCharacter(id)?.name).filter(Boolean);
   system(c, `🧙 ${ch.name} joins the party.`);
-  (c.world.dmNotes ||= []).push(`NEW PARTY MEMBER: ${ch.name}, a level ${ch.level} ${ch.race} ${ch.class} played by ${player}${past.length ? ` (who used to play ${past.join(', ')})` : ''}. Bring them into the story at the next natural moment with a reason to be with the party; give them a short private introduction of their own.`);
-  if (c.world.dmNotes.length > 80) c.world.dmNotes.splice(0, c.world.dmNotes.length - 80);
+  addDmNote(c, `NEW PARTY MEMBER: ${ch.name}, a level ${ch.level} ${ch.race} ${ch.class} played by ${player}${past.length ? ` (who used to play ${past.join(', ')})` : ''}. Bring them into the story at the next natural moment with a reason to be with the party; give them a short private introduction of their own.`);
 }
 
 export function applyEffects(c, effects, source = 'dm') {
@@ -1048,8 +1058,7 @@ export function applyTurnResult(c, data, input = {}) {
   }
   if (data.ruling) system(c, `⚖️ ${data.ruling}`, 'all', { tone: 'ruling' });
   if (data.dmNotes) {
-    c.world.dmNotes.push(data.dmNotes);
-    if (c.world.dmNotes.length > 80) c.world.dmNotes.splice(0, c.world.dmNotes.length - 80); // the archive keeps every note
+    addDmNote(c, data.dmNotes); // the archive keeps every note
     rememberNote(c, data.dmNotes);
   }
 
@@ -1269,7 +1278,7 @@ export async function runTurn(c, input) {
   setThinking(c, 'turn');
   try {
     const res = await askClaude({
-      task: 'turn', system: DM_CORE, cachedContext: cachedCampaignContext(c), prompt: turnPrompt(c, input, onlineUsers(c)),
+      task: 'turn', system: DM_CORE, cachedContext: cachedCampaignContext(c), prompt: turnPromptParts(c, input, onlineUsers(c)), cacheTtl: '1h',
       schema: TURN_SCHEMA, ...dmBrain(c), campaignId: c.id,
     });
     trackUsage(c, res);
@@ -1676,7 +1685,16 @@ async function writeSessionLog(c, sess) {
 
 // ---------------------------------------------------------------- world building + character help
 
+// One world build at a time per campaign. Two builds running at once each wrote their own world into the campaign, and
+// the second one's people, places and quests ended up mixed in with the first's.
+const genesisRuns = new Map(); // campaignId -> id of the build in progress
+
+export function genesisRunning(c) { return genesisRuns.has(c.id); }
+
 export async function runGenesis(c) {
+  if (genesisRuns.has(c.id)) return { error: 'The world is still being built.' };
+  const run = randomId('g_', 4);
+  genesisRuns.set(c.id, run);
   c.status = 'genesis';
   setThinking(c, 'genesis', 'The Dungeon Master is building your world…');
   const s = c.settings;
@@ -1692,6 +1710,7 @@ export async function runGenesis(c) {
   try {
     const res = await askClaude({ task: 'genesis', system: GENESIS_CORE, prompt: `# THE GROUP'S BRIEF\n${brief}`, schema: GENESIS_SCHEMA, ...dmBrain(c), maxTokens: 32000, campaignId: c.id });
     trackUsage(c, res);
+    if (genesisRuns.get(c.id) !== run) return { ok: false }; // overtaken: never mix it into the world
     applyGenesis(c, res.data);
   } catch (e) {
     if (!(e instanceof NoAIError)) console.error('[genesis]', e);
@@ -1700,12 +1719,32 @@ export async function runGenesis(c) {
     c.status = 'ready';
     c.genesisError = e instanceof NoAIError ? 'no-ai' : String(e.message || e).slice(0, 200);
   } finally {
+    if (genesisRuns.get(c.id) === run) genesisRuns.delete(c.id);
     c.thinking = null;
     pushViews(c);
   }
+  return { ok: true };
+}
+
+/** A new world replaces the old one completely: nothing from a world that was thrown away stays behind. */
+export function clearWorld(c) {
+  c.world = { title: '', tagline: '', bible: '', secrets: '', arc: '', storySoFar: '', characterPrompts: [], openingHook: '', dmNotes: [] };
+  c.npcs = {};
+  c.quests = [];
+  c.handouts = [];
+  c.maps = { area: {}, tactical: {} };
+  c.knowledge = {};
+  c.explored = {};
+  c.tokens = {};
+  c.combat = null;
+  c.scene = { location: '', timeOfDay: '', weather: '', mood: '', areaMapId: '', areaLocationId: '', tacticalMapId: '', day: 1 };
+  c.chronicle = { summary: '', turns: [] };
+  if (c.party) c.party.allies = [];
+  forgetEverything(c);
 }
 
 export function applyGenesis(c, d) {
+  clearWorld(c);
   c.world.title = d.title || c.name;
   c.world.tagline = d.tagline || '';
   c.world.bible = d.worldBible || '';
@@ -1734,7 +1773,7 @@ export async function characterAssist(c, userId, p) {
   ].filter(Boolean).join('\n\n');
   const res = await askClaude({ task: 'character', system: CHARACTER_ASSIST_CORE, cachedContext: c.world.secrets ? `# DM SECRETS (use only to plant a hook, never reveal)\n${c.world.secrets}` : '', prompt, schema: CHARACTER_ASSIST_SCHEMA, ...dmBrain(c), campaignId: c.id });
   trackUsage(c, res);
-  if (res.data.secretHook) c.world.dmNotes.push(`Character hook (${p.name || 'new character'}): ${res.data.secretHook}`);
+  if (res.data.secretHook) addDmNote(c, `Character hook (${p.name || 'new character'}): ${res.data.secretHook}`);
   saveCampaign(c);
   const { secretHook, ...visible } = res.data;
   return visible;
@@ -1785,7 +1824,7 @@ function learnSpell(c, ch, text, forget = false) {
   const source = extra.find((x) => !ABILITY_WORDS[x.toLowerCase()]) || '';
   const spell = findSpell(name);
   if (!spell) {
-    (c.world.dmNotes ||= []).push(`spell_${forget ? 'remove' : 'add'} for ${ch.name} did nothing: there is no spell called "${name}" in the SRD rules. Use its exact SRD name.`);
+    addDmNote(c, `spell_${forget ? 'remove' : 'add'} for ${ch.name} did nothing: there is no spell called "${name}" in the SRD rules. Use its exact SRD name.`);
     return false;
   }
   const lists = ['cantrips', 'known', 'prepared', 'alwaysPrepared'];

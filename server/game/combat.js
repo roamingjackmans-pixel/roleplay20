@@ -1568,7 +1568,7 @@ async function runEnemyPhase(c, stretch) {
   if (c.settings.enemyTactics !== 'quick') {
     E.setThinking(c, 'combat', 'The enemies are deciding what to do…');
     try {
-      const res = await askClaude({ task: 'combat', system: COMBAT_CORE, cachedContext: cachedCampaignContext(c), prompt: combatPrompt(c, stretch), schema: COMBAT_SCHEMA, ...E.dmBrain(c), campaignId: c.id });
+      const res = await askClaude({ task: 'combat', system: COMBAT_CORE, cachedContext: cachedCampaignContext(c), prompt: combatPrompt(c, stretch), schema: COMBAT_SCHEMA, ...E.dmBrain(c), campaignId: c.id, cacheTtl: '1h' });
       E.trackUsage(c, res);
       plan = res.data;
     } catch (e) {

@@ -32,8 +32,8 @@ export default function CampaignHome({ id }) {
   const myChar = c.members.find((m) => m.userId === user.id)?.character;
 
   async function regenerate() {
-    if (!confirm('Throw this world away and build a new one from the same brief?')) return;
-    await api(`campaigns/${id}/regenerate`, { method: 'POST' });
+    if (!confirm('Throw this world away and build a new one from the same brief? Its people, places and quests all go.')) return;
+    try { await api(`campaigns/${id}/regenerate`, { method: 'POST' }); } catch (e) { toast(e.message, 'bad'); return; }
     setData({ ...data, status: 'genesis' });
     setTimeout(() => location.reload(), 300);
   }
