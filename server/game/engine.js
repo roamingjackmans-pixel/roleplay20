@@ -3,12 +3,12 @@
 import { randomId } from '../security.js';
 import { getUser } from '../auth.js';
 import { srd } from '../srd.js';
-import { askClaude, NoAIError, aiStatus, MODELS, EFFORTS } from '../ai/client.js';
+import { askClaude, NoAIError, aiStatus, MODELS, EFFORTS, worldBrain } from '../ai/client.js';
 import { config } from '../config.js';
-import { DM_CORE, GENESIS_CORE, SESSION_END_CORE, CHARACTER_ASSIST_CORE } from '../ai/prompts.js';
-import { TURN_SCHEMA, GENESIS_SCHEMA, SESSION_END_SCHEMA, CHARACTER_ASSIST_SCHEMA } from '../ai/schemas.js';
+import { DM_CORE, GENESIS_CORE, SESSION_END_CORE, CHARACTER_ASSIST_CORE, BACKBONE_CORE } from '../ai/prompts.js';
+import { TURN_SCHEMA, GENESIS_SCHEMA, SESSION_END_SCHEMA, CHARACTER_ASSIST_SCHEMA, BACKBONE_SCHEMA } from '../ai/schemas.js';
 import { saveCampaign, getCharacter, saveCharacter, partyCharacters, characterOwner, member } from './campaign.js';
-import { cachedCampaignContext, turnPromptParts, safeDerive, partyBlock, npcBlock, questBlock, historyBlock, sceneBlock } from './context.js';
+import { cachedCampaignContext, turnPromptParts, safeDerive, partyBlock, npcBlock, questBlock, historyBlock, sceneBlock, sessionIndex } from './context.js';
 import { generateTacticalMap, placeCreatures, addKeyObjectsToMap, removeObjectsFromMap } from './mapgen.js';
 import { rollDice, rollD20, manualD20 } from '../../shared/dice.js';
 import { SKILL_NAMES, levelForXp, xpForLevel } from '../../shared/rules.js';
@@ -1214,7 +1214,7 @@ function resolveActions(c) {
   const playedText = played.length ? `\n\nYou play ${played.map((ch) => `${ch.name} (${ch.id})`).join(' and ')} this round: their player${played.length > 1 ? 's are' : ' is'} away and the table did not wait. Decide what ${played.length > 1 ? 'each does' : 'they do'}, in character and alongside the party, and include it in the narration. Keep it modest: no big choices for them, no spending their money, no deals or promises. If you had asked one of them something, answer for them in character.` : '';
   const text = acts.map((a) => `${a.name} (${a.characterId})${a.private ? ' [PRIVATE - only this player knows]' : ''}${a.revised ? ' [REVISED after you asked them a question - do not ask them again]' : ''}: ${a.text}`).join('\n') +
     (asked.length ? `\n\n(This round waited only for ${asked.join(' and ')} to answer; anyone else listed chimed in on their own. Everyone else is watching and listening.)` : '') + playedText +
-    '\n\nResolve these actions together as one shared narration for the whole table (private segments only where something truly cannot be shared; a PRIVATE action that could not logically go unnoticed happens in the open). Move tokens on the battle map to match where people go. Ask for a roll wherever an action gives a chance to (this table loves dice; several characters can roll at once). If any character declared more than their turn allows, or wrote something so unclear you would have to guess what they mean (which item, which person, which door), and has not already revised, use "clarify" to ask them instead of resolving anything.';
+    '\n\nResolve these actions together as one shared narration for the whole table (private segments only where something truly cannot be shared; a PRIVATE action that could not logically go unnoticed happens in the open). Move tokens on the battle map to match where people go. Ask for a roll only where the outcome is uncertain and could change the story, from the character doing it (others only if they face the risk too); routine things for a character just happen. If any character declared more than their turn allows, or wrote something so unclear you would have to guess what they mean (which item, which person, which door), and has not already revised, use "clarify" to ask them instead of resolving anything.';
   c.round.actions = {};
   c.round.casts = {};
   // prepared spells can change only in the round right after a long rest
@@ -1570,6 +1570,7 @@ export function startSession(c, { without = null, byUserId = null, isHost = fals
   c.sessions.push({ n: c.sessionNumber, startedAt: Date.now(), endedAt: null, recap: '', logEntry: '' });
   addLog(c, { kind: 'session', text: `Session ${c.sessionNumber}`, n: c.sessionNumber });
   applyAway(c, picks, byUserId);
+  ensureBackbone(c); // in the background: a campaign that started without one (or finished its story) gets one now
   if (building.length) system(c, `${listNames(building.map((u) => getUser(u)?.displayName || 'a player'))} joins as soon as their new character is ready.`, 'all', { tone: 'info' });
   if (c.nextOpening) {
     // a prepared opening (for example a campaign carried over from another table): post it instead of an AI recap
@@ -1661,6 +1662,8 @@ async function writeSessionLog(c, sess) {
     for (const q of d.questUpdates || []) upsertQuest(c, q);
     if (d.dmSecrets) c.world.secrets = d.dmSecrets;
     if (d.storyArc) c.world.arc = d.storyArc;
+    // the backbone itself is never rewritten here; only when its story has been played to the end does a new one follow
+    if (d.backboneComplete === true && c.world.backbone) finishBackbone(c);
     if (d.chronicle) c.chronicle.summary = d.chronicle;
     if (d.storySoFar) c.world.storySoFar = d.storySoFar;
     rememberSession(c, sess, { headline: d.headline });
@@ -1696,7 +1699,7 @@ export async function runGenesis(c) {
   const run = randomId('g_', 4);
   genesisRuns.set(c.id, run);
   c.status = 'genesis';
-  setThinking(c, 'genesis', 'The Dungeon Master is building your world…');
+  setThinking(c, 'genesis', 'The Dungeon Master is building your world and planning the whole story. This takes several minutes…');
   const s = c.settings;
   const brief = [
     `Campaign name: ${c.name}`,
@@ -1708,7 +1711,8 @@ export async function runGenesis(c) {
     `Number of players expected: ${Math.max(1, c.members.length)}-${Math.max(4, c.members.length)}`,
   ].join('\n');
   try {
-    const res = await askClaude({ task: 'genesis', system: GENESIS_CORE, prompt: `# THE GROUP'S BRIEF\n${brief}`, schema: GENESIS_SCHEMA, ...dmBrain(c), maxTokens: 32000, campaignId: c.id });
+    // the world and its backbone are written once and followed for the whole campaign: the deepest thinking, streamed
+    const res = await askClaude({ task: 'genesis', system: GENESIS_CORE, prompt: `# THE GROUP'S BRIEF\n${brief}`, schema: GENESIS_SCHEMA, ...worldBrain(dmBrain(c).model), maxTokens: 64000, longRun: true, campaignId: c.id });
     trackUsage(c, res);
     if (genesisRuns.get(c.id) !== run) return { ok: false }; // overtaken: never mix it into the world
     applyGenesis(c, res.data);
@@ -1728,7 +1732,7 @@ export async function runGenesis(c) {
 
 /** A new world replaces the old one completely: nothing from a world that was thrown away stays behind. */
 export function clearWorld(c) {
-  c.world = { title: '', tagline: '', bible: '', secrets: '', arc: '', storySoFar: '', characterPrompts: [], openingHook: '', dmNotes: [] };
+  c.world = { title: '', tagline: '', bible: '', backbone: '', secrets: '', arc: '', storySoFar: '', characterPrompts: [], openingHook: '', dmNotes: [] };
   c.npcs = {};
   c.quests = [];
   c.handouts = [];
@@ -1748,6 +1752,7 @@ export function applyGenesis(c, d) {
   c.world.title = d.title || c.name;
   c.world.tagline = d.tagline || '';
   c.world.bible = d.worldBible || '';
+  c.world.backbone = d.backbone || '';
   c.world.secrets = d.dmSecrets || '';
   c.world.arc = d.storyArc || '';
   c.world.characterPrompts = d.characterPrompts || [];
@@ -1763,6 +1768,58 @@ export function applyGenesis(c, d) {
   c.genesisError = null;
 }
 
+// ---------------------------------------------------------------- the story backbone
+
+// One backbone write at a time per campaign.
+const backboneRuns = new Set();
+
+/**
+ * Give a campaign its fixed story backbone if it has none: a campaign that started before backbones existed (built from
+ * its secrets, arc and everything played so far, keeping its villain and plot), or one whose last story was played to
+ * the end (the next chapter). Runs in the background at the deepest effort and never blocks play.
+ */
+export async function ensureBackbone(c) {
+  if (c.world.backbone || backboneRuns.has(c.id) || c.status === 'genesis') return { ok: false };
+  if (!c.world.bible && !c.world.secrets && !c.world.arc) return { ok: false }; // no world yet to build it from
+  backboneRuns.add(c.id);
+  const world = c.world;
+  try {
+    const past = (c.world.pastBackbones || []).at(-1);
+    const prompt = [
+      past ? `# THE PREVIOUS BACKBONE'S STORY HAS ENDED. Write the next chapter.\n## The backbone that was played to its end\n${past.text}` : '# Write the backbone for this campaign, keeping everything already established.',
+      `# STORY SO FAR\n${c.world.storySoFar || c.chronicle?.summary || '(nothing played yet)'}`,
+      c.chronicle?.summary && c.world.storySoFar ? `# CHRONICLE\n${c.chronicle.summary}` : '',
+      `# SESSION INDEX\n${sessionIndex(c) || '(no sessions yet)'}`,
+      `# LATEST SESSION LOGS\n${(c.sessions || []).map((s) => s.logEntry).filter(Boolean).slice(-2).join('\n\n') || '(none)'}`,
+      `# QUESTS\n${questBlock(c)}`,
+      `# PEOPLE THE PARTY HAS MET\n${npcBlock(c)}`,
+      `# WHERE THE PARTY IS NOW\n${sceneBlock(c)}`,
+      (c.world.dmNotes || []).length ? `# YOUR RECENT DM NOTES\n${c.world.dmNotes.slice(-30).map((n) => `- ${n}`).join('\n')}` : '',
+    ].filter(Boolean).join('\n\n');
+    const res = await askClaude({ task: 'backbone', system: BACKBONE_CORE, cachedContext: cachedCampaignContext(c), prompt, schema: BACKBONE_SCHEMA, ...worldBrain(dmBrain(c).model), maxTokens: 64000, longRun: true, campaignId: c.id });
+    trackUsage(c, res);
+    const text = String(res.data?.backbone || '').trim();
+    if (!text || c.world !== world || c.world.backbone) return { ok: false }; // the world was replaced meanwhile, or one arrived
+    c.world.backbone = text;
+    c.world.backboneAt = Date.now();
+    saveCampaign(c);
+    pushViews(c);
+    return { ok: true };
+  } catch (e) {
+    if (!(e instanceof NoAIError)) console.error('[backbone]', e);
+    return { ok: false };
+  } finally {
+    backboneRuns.delete(c.id);
+  }
+}
+
+/** The backbone's story was played to its end: keep it in the record, and the next session starts a new chapter. */
+export function finishBackbone(c) {
+  (c.world.pastBackbones ||= []).push({ text: c.world.backbone, endedSession: c.sessionNumber, at: Date.now() });
+  rememberFact(c, `Session ${c.sessionNumber}: the campaign's story reached its planned ending. The backbone that ended:\n${c.world.backbone}`);
+  c.world.backbone = '';
+}
+
 export async function characterAssist(c, userId, p) {
   const prompt = [
     `# WORLD BIBLE\n${c.world.bible || '(none)'}`,
@@ -1771,7 +1828,7 @@ export async function characterAssist(c, userId, p) {
     `# THE PLAYER'S CHOICES SO FAR\n${JSON.stringify(p, null, 1).slice(0, 3000)}`,
     `# OTHER CHARACTERS IN THE PARTY\n${partyCharacters(c).map((ch) => `- ${ch.name}, ${ch.race} ${ch.class}: ${String(ch.backstory || '').slice(0, 200)}`).join('\n') || '(none yet)'}`,
   ].filter(Boolean).join('\n\n');
-  const res = await askClaude({ task: 'character', system: CHARACTER_ASSIST_CORE, cachedContext: c.world.secrets ? `# DM SECRETS (use only to plant a hook, never reveal)\n${c.world.secrets}` : '', prompt, schema: CHARACTER_ASSIST_SCHEMA, ...dmBrain(c), campaignId: c.id });
+  const res = await askClaude({ task: 'character', system: CHARACTER_ASSIST_CORE, cachedContext: c.world.secrets || c.world.backbone ? `# STORY BACKBONE AND DM SECRETS (use only to plant a hook, never reveal)\n${[c.world.backbone, c.world.secrets].filter(Boolean).join('\n\n')}` : '', prompt, schema: CHARACTER_ASSIST_SCHEMA, ...dmBrain(c), campaignId: c.id });
   trackUsage(c, res);
   if (res.data.secretHook) addDmNote(c, `Character hook (${p.name || 'new character'}): ${res.data.secretHook}`);
   saveCampaign(c);

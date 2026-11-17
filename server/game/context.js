@@ -28,6 +28,7 @@ export function cachedCampaignContext(c) {
     '# WORLD BIBLE (player-facing)',
     c.world.bible || '(not written yet)',
     '',
+    ...(c.world.backbone ? ['# BACKBONE (for you only; fixed for the whole campaign: the villain, the plan, the central truth, the acts and the ending stay as written, only which part the players are seeing moves)', c.world.backbone, ''] : []),
     '# DM SECRETS (for you only - never reveal except through earned in-play reveals)',
     c.world.secrets || '(none yet)',
     '',
@@ -57,6 +58,26 @@ function coins(ch) {
   return ['pp', 'gp', 'ep', 'sp', 'cp'].filter((k) => cur[k]).map((k) => `${cur[k]} ${k}`).join(' ') || 'no coins';
 }
 
+/**
+ * How many actions a character has taken since they last rolled (a check the DM asked for, or a roll in a fight), so the
+ * DM can pace the dice: about one roll per player every 3-5 actions, and only when it matters.
+ */
+export function actionsSinceRoll(c, ch) {
+  const turns = c.chronicle?.turns || [];
+  let n = 0;
+  for (let i = turns.length - 1; i >= 0; i--) {
+    const t = turns[i];
+    if ((t.rolls || []).some((r) => String(r).includes(`(${ch.id})`) || String(r).startsWith(`${ch.name} `))) return n;
+    if ((t.actions || []).some((a) => a.characterId === ch.id || (!a.characterId && a.name === ch.name))) n++;
+  }
+  return turns.length ? null : 0; // null: no roll in all the turns kept
+}
+
+function rollPace(c, ch) {
+  const n = actionsSinceRoll(c, ch);
+  return n === null ? 'none in a long while' : String(n);
+}
+
 export function partyBlock(c, online) {
   const lines = [];
   for (const ch of partyCharacters(c)) {
@@ -76,6 +97,7 @@ export function partyBlock(c, online) {
       usesLeft(ch, d) ? `  Limited uses left: ${usesLeft(ch, d)}` : '',
       `  HP ${ch.hp.current}/${ch.hp.max}${ch.hp.temp ? ` (+${ch.hp.temp} temp)` : ''} | AC ${d?.ac ?? '?'} | speed ${d?.speed ?? ch.speed} ft | darkvision ${ch.darkvision || 0} ft | passive Perception ${d?.passive?.perception ?? '?'}, Insight ${d?.passive?.insight ?? '?'}, Investigation ${d?.passive?.investigation ?? '?'}`,
       `  Conditions: ${[...(ch.conditions || []), ch.exhaustion ? `exhaustion ${ch.exhaustion}` : ''].filter(Boolean).join(', ') || 'none'}${ch.concentration ? ` | concentrating on ${ch.concentration}` : ''}${tok ? ` | token at ${tok.x},${tok.y}` : ''}`,
+      `  Actions since their last roll: ${rollPace(c, ch)}`,
       skills ? `  Proficient skills: ${skills}` : '',
       `  Languages: ${(ch.otherProfs?.languages || []).join(', ') || 'Common'}`,
       spells ? `  Spells: ${spells}${slotsLeft(ch, d) ? ` | slots left: ${slotsLeft(ch, d)}` : ''}` : '',

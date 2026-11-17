@@ -36,15 +36,26 @@ test('changing the brain checks the values and applies at once', () => {
 });
 
 test('every AI call in the game passes the campaign brain (no call picks its own model or effort)', () => {
+  // the one exception: the world and its story backbone are written once, at the deepest effort (worldBrain)
+  const foundations = [];
   for (const file of ['server/game/engine.js', 'server/game/combat.js']) {
     const src = fs.readFileSync(new URL(`../${file}`, import.meta.url), 'utf8');
     const calls = src.split('askClaude({').slice(1).map((s) => s.slice(0, s.indexOf('});') + 3));
     assert.ok(calls.length > 0, `${file} calls the AI`);
     for (const call of calls) {
+      if (/\.\.\.worldBrain\(dmBrain\(c\)\.model\)/.test(call)) { foundations.push(/task: '(\w+)'/.exec(call)?.[1]); continue; }
       assert.match(call, /\.\.\.(E\.)?dmBrain\(c\)/, `${file}: ${call.slice(0, 80)}`);
       assert.doesNotMatch(call, /\b(model|effort):/, `${file} sets its own model or effort: ${call.slice(0, 80)}`);
     }
   }
+  assert.deepEqual(foundations.sort(), ['backbone', 'genesis'], 'only world building and the backbone think harder');
+});
+
+test('the world and its backbone are built at the deepest effort, on Opus unless the campaign plays on Fable', async () => {
+  const { worldBrain } = await import('../server/ai/client.js');
+  assert.deepEqual(worldBrain('claude-sonnet-5-5'), { model: 'claude-opus-5-5', effort: 'xhigh' });
+  assert.deepEqual(worldBrain('claude-haiku-5-5'), { model: 'claude-opus-5-5', effort: 'xhigh' });
+  assert.deepEqual(worldBrain('claude-fable-5-1'), { model: 'claude-fable-5-1', effort: 'xhigh' });
 });
 
 test('the screen learns which model answered last, and notices a fallback', () => {

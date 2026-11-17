@@ -91,6 +91,7 @@ export default function DMScreen() {
           <div className="row"><div className="spacer" /><button className="btn primary sm" disabled={!text.trim()} onClick={async () => { const r = await emit('dm:narrate', { text, to: [to], npcId: npc || null }); if (r.ok) setText(''); }}>Send narration</button></div>
           {view.dm && (
             <>
+              {view.dm.backbone && <details><summary className="sub-h" style={{ cursor: 'pointer' }}>Story backbone (spoilers)</summary><Markdown text={view.dm.backbone} /></details>}
               <details><summary className="sub-h" style={{ cursor: 'pointer' }}>DM secrets (spoilers)</summary><Markdown text={view.dm.secrets} /></details>
               <details><summary className="sub-h" style={{ cursor: 'pointer' }}>Story arc (spoilers)</summary><Markdown text={view.dm.arc} /></details>
               <details><summary className="sub-h" style={{ cursor: 'pointer' }}>DM notes</summary><ul className="small">{view.dm.notes.map((n, i) => <li key={i}>{n}</li>)}</ul></details>

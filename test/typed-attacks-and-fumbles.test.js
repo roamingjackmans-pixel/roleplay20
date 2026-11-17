@@ -235,7 +235,7 @@ test('the DM keeps the same content in about 40% fewer words, and makes natural 
   assert.match(DM_CORE, /about 35-110 words per narration segment/);
   assert.doesNotMatch(DM_CORE, /60-180 words/);
   assert.match(DM_CORE, /Keep every piece of content/);
-  assert.match(DM_CORE, /natural 1.*critical fail.*extra bad and\/or funny/s);
+  assert.match(DM_CORE, /natural 1.*critical fail.*really goes wrong.*never deadly/s);
   assert.match(COMBAT_CORE, /one punchy sentence each/);
 });
 

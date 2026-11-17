@@ -245,7 +245,7 @@ export function buildView(c, userId, cache = {}) {
     canRetry: c.phase === 'failed' || c.combat?.state === 'enemy_failed',
   };
   if (isOwner && c.settings.dmView) {
-    view.dm = { secrets: c.world.secrets, arc: c.world.arc, notes: c.world.dmNotes.slice(-30), allNpcs: Object.values(c.npcs) };
+    view.dm = { backbone: c.world.backbone || '', secrets: c.world.secrets, arc: c.world.arc, notes: c.world.dmNotes.slice(-30), allNpcs: Object.values(c.npcs) };
   }
   return view;
 }

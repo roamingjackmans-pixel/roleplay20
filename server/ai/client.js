@@ -115,7 +115,22 @@ export function buildRequest({ system, cachedContext, prompt, schema, model, eff
   };
 }
 
-async function callApi({ task, system, cachedContext, prompt, schema, model, effort, maxTokens, cacheTtl }) {
+/**
+ * The model and effort for the campaign's foundations (the world and its story backbone): written once and followed for
+ * the whole campaign, so they get the deepest thinking whatever brain the table plays with. Fable stays Fable.
+ */
+export function worldBrain(model) {
+  return { model: model === 'claude-fable-5-1' ? model : 'claude-opus-5-5', effort: 'xhigh' };
+}
+
+/** Send one request. A long run (world building) streams, so a reply that takes many minutes isn't cut off. */
+function send(req, useFallback, longRun) {
+  const body = useFallback ? { ...req, betas: ['server-side-fallback-2026-07-01'], fallbacks: 'default' } : req;
+  const messages = useFallback ? api().beta.messages : api().messages;
+  return longRun ? messages.stream(body, { timeout: config.aiLongTimeoutMs }).finalMessage() : messages.create(body);
+}
+
+async function callApi({ task, system, cachedContext, prompt, schema, model, effort, maxTokens, cacheTtl, longRun }) {
   if (!config.anthropicKey) throw new NoAIError('ANTHROPIC_API_KEY is not set.');
   let useFallback = FALLBACK_OK.has(model);
   let useSchema = !!schema && !promptSchemaTasks.has(task);
@@ -123,9 +138,7 @@ async function callApi({ task, system, cachedContext, prompt, schema, model, eff
   for (let attempt = 0; attempt < 4; attempt++) {
     const req = buildRequest({ system, cachedContext, prompt, schema, model, effort, maxTokens, useSchema, retryNote, cacheTtl });
     try {
-      const res = useFallback
-        ? await api().beta.messages.create({ ...req, betas: ['server-side-fallback-2026-07-01'], fallbacks: 'default' })
-        : await api().messages.create(req);
+      const res = await send(req, useFallback, longRun);
       if (res.stop_reason === 'refusal') {
         throw new Error(`Claude declined this request (${res.stop_details?.category || 'policy'}). Try rephrasing the action.`);
       }
@@ -186,12 +199,12 @@ async function callFile({ task, system, cachedContext, prompt, schema, timeoutMs
  * Ask Claude to do one Dungeon Master task.
  * @returns {{ data: object, usage: object, model: string, ms: number, costUsd: number }}
  */
-export async function askClaude({ task, system, cachedContext = '', prompt, schema, model, effort, maxTokens, campaignId, cacheTtl }) {
+export async function askClaude({ task, system, cachedContext = '', prompt, schema, model, effort, maxTokens, campaignId, cacheTtl, longRun = false }) {
   const t0 = Date.now();
   const m = MODELS.includes(model) ? model : config.defaultModel;
   const eff = effort || config.defaultEffort;
   let out;
-  if (config.aiProvider === 'api') out = await callApi({ task, system, cachedContext, prompt, schema, model: m, effort: eff, maxTokens, cacheTtl });
+  if (config.aiProvider === 'api') out = await callApi({ task, system, cachedContext, prompt, schema, model: m, effort: eff, maxTokens, cacheTtl, longRun });
   else if (config.aiProvider === 'file') out = await callFile({ task, system, cachedContext, prompt, schema });
   else throw new NoAIError();
   const ms = Date.now() - t0;

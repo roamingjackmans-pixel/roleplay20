@@ -66,7 +66,7 @@ export default function CampaignHome({ id }) {
               <span className="spinner" />
               <div>
                 <div className="display" style={{ fontSize: 16 }}>The Dungeon Master is building your world…</div>
-                <div className="muted small">Geography, factions, secrets, NPCs with their own voices, a starting town map. About a minute.</div>
+                <div className="muted small">Geography, factions, secrets, NPCs with their own voices, a starting town map, and the whole story from start to finish. This takes several minutes.</div>
               </div>
             </div>
           )}

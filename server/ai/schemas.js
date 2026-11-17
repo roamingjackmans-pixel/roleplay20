@@ -149,6 +149,7 @@ export const COMBAT_SCHEMA = obj({
 export const GENESIS_SCHEMA = obj({
   title: S, tagline: S,
   worldBible: S,           // markdown, player-facing
+  backbone: S,             // markdown, hidden: the fixed spine (villain, plan, truth, acts, ending); never rewritten
   dmSecrets: S,            // markdown, hidden
   storyArc: S,             // markdown, hidden
   characterPrompts: arr(S),
@@ -167,6 +168,7 @@ export const SESSION_END_SCHEMA = obj({
   partyState: S,           // markdown snapshot
   dmSecrets: S,            // full updated markdown, or "" if unchanged
   storyArc: S,             // full updated markdown, or "" if unchanged
+  backboneComplete: B,     // the backbone's ending was played out this session: the next session starts a new chapter
   chronicle: S,            // compressed story-so-far for future prompts
   headline: S,             // one line (under 20 words): this session's headline for the campaign's session index
   memories: arr(S),        // lasting facts from this session worth keeping forever, each one self-contained
@@ -183,6 +185,9 @@ export const CHARACTER_ASSIST_SCHEMA = obj({
 });
 
 export const RECAP_SCHEMA = obj({ narration });
+
+// The campaign's fixed spine, for a campaign that started without one (or whose last story has ended).
+export const BACKBONE_SCHEMA = obj({ backbone: S });
 
 // A private answer to one player's out-of-character question (DM Chat).
 export const DM_CHAT_SCHEMA = obj({ answer: S });
