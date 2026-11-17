@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { api } from '../lib/api.js';
 import { useStore } from '../lib/store.js';
 import { TopNav } from '../App.jsx';
+import { STORY_PACES, DEFAULT_PACE } from '../../../shared/pace.js';
 
 const TONES = ['heroic', 'grim', 'comedic', 'mystery', 'horror', 'swashbuckling', 'political intrigue', 'wondrous', 'survival', 'romantic', 'epic'];
 const IDEAS = [
@@ -16,7 +17,7 @@ export default function NewCampaign() {
   const go = useStore((s) => s.go);
   const [f, setF] = useState({
     name: '', tone: ['heroic', 'mystery'], inspiration: '', premise: '', magicLevel: 'in between', lethality: 'balanced', shape: 'short season',
-    startLevel: 1, pacing: 'balanced', lines: '', veils: '', model: 'claude-opus-5-5',
+    startLevel: 1, pacing: 'balanced', storyPace: DEFAULT_PACE, lines: '', veils: '', model: 'claude-opus-5-5',
   });
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
@@ -58,7 +59,11 @@ export default function NewCampaign() {
             </div>
             <div className="row wrap" style={{ gap: 18, alignItems: 'flex-start' }}>
               <div className="field grow" style={{ minWidth: 240 }}><span>Shape</span><Seg k="shape" options={['one-shot', 'short season', 'open sandbox']} /></div>
-              <div className="field grow" style={{ minWidth: 240 }}><span>Pacing</span><Seg k="pacing" options={['roleplay', 'balanced', 'combat']} /></div>
+              <div className="field grow" style={{ minWidth: 240 }}><span>Focus</span><Seg k="pacing" options={['roleplay', 'balanced', 'combat']} /></div>
+            </div>
+            <div className="field"><span>Story pace</span>
+              <div className="tabs">{STORY_PACES.map((p) => <button key={p.id} type="button" className={f.storyPace === p.id ? 'on' : ''} onClick={() => set('storyPace', p.id)}>{p.label}</button>)}</div>
+              <div className="tiny muted" style={{ textTransform: 'none', letterSpacing: 0, fontWeight: 400 }}>{STORY_PACES.find((p) => p.id === f.storyPace)?.blurb} You can change it later from the DM Screen.</div>
             </div>
             <div className="row wrap" style={{ gap: 18 }}>
               <label className="field" style={{ width: 160 }}><span>Starting level</span>

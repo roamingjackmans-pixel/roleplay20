@@ -20,6 +20,7 @@ import { aiStatus, MODELS } from './ai/client.js';
 import { startTunnel } from './tunnel.js';
 import { buildCharacter, applyLevelUp, levelUpPlan } from '../shared/charbuild.js';
 import { deriveCharacter, levelForXp, xpForLevel } from '../shared/rules.js';
+import { isPace } from '../shared/pace.js';
 import { randomId } from './security.js';
 import { sheetPatchError, applySheetPatch } from './sheetRules.js';
 
@@ -125,8 +126,9 @@ api.get('/campaigns', (req, res) => {
 api.post('/campaigns', (req, res) => {
   const b = req.body || {};
   const settings = {};
-  for (const k of ['tone', 'inspiration', 'premise', 'magicLevel', 'lethality', 'shape', 'startLevel', 'lines', 'veils', 'pacing', 'model', 'effort', 'enemyTactics']) if (b.settings?.[k] !== undefined) settings[k] = b.settings[k];
+  for (const k of ['tone', 'inspiration', 'premise', 'magicLevel', 'lethality', 'shape', 'startLevel', 'lines', 'veils', 'pacing', 'storyPace', 'model', 'effort', 'enemyTactics']) if (b.settings?.[k] !== undefined) settings[k] = b.settings[k];
   if (settings.model && !MODELS.includes(settings.model)) delete settings.model;
+  if (settings.storyPace !== undefined && !isPace(settings.storyPace)) delete settings.storyPace;
   settings.startLevel = Math.max(1, Math.min(5, Number(settings.startLevel) || 1));
   const c = C.newCampaign(req.user, { name: b.name, settings });
   E.runGenesis(c);
@@ -153,6 +155,8 @@ api.patch('/campaigns/:id/settings', (req, res) => {
   if (b.name) c.name = String(b.name).slice(0, 80);
   const brain = E.setDmBrain(c, { model: b.model, effort: b.effort });
   if (brain.error) return res.status(400).json(brain);
+  const pace = E.setStoryPace(c, b.storyPace);
+  if (pace.error) return res.status(400).json(pace);
   for (const k of ['enemyTactics', 'autoReadAloud', 'allowSkipNarration', 'hostStartsReading', 'dmView', 'lines', 'veils', 'pacing']) if (b[k] !== undefined) c.settings[k] = b[k];
   E.releaseNarrationIfUnheld(c);
   if (typeof b.worldBible === 'string') c.world.bible = b.worldBible;
@@ -469,6 +473,8 @@ io.on('connection', (socket) => {
     if (need(true)) return need(true);
     const brain = E.setDmBrain(c, { model: p.model, effort: p.effort });
     if (brain.error) return brain;
+    const pace = E.setStoryPace(c, p.storyPace);
+    if (pace.error) return pace;
     for (const k of ['enemyTactics', 'autoReadAloud', 'allowSkipNarration', 'hostStartsReading', 'dmView']) if (p[k] !== undefined) c.settings[k] = p[k];
     E.releaseNarrationIfUnheld(c);
     E.pushViews(c);

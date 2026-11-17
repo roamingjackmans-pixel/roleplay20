@@ -9,6 +9,7 @@ import { onlineUsers, requiredUsers, roundNeeds, joinLevel, partyWhereabouts, dm
 import { aiStatus, PRICES } from '../ai/client.js';
 import { roster as voiceRoster } from './voice.js';
 import { waitingNarration } from './readgate.js';
+import { paceOf } from '../../shared/pace.js';
 
 export function logVisibleTo(c, entry, userId) {
   // declared actions are shared with the whole table when the round resolves; a Private one stays with its player
@@ -210,7 +211,7 @@ export function buildView(c, userId, cache = {}) {
       id: c.id, name: c.name, status: c.status, ownerId: c.ownerId, inviteCode: c.inviteCode,
       title: c.world.title, tagline: c.world.tagline, characterPrompts: c.world.characterPrompts, openingHook: c.world.openingHook,
       sessionActive: c.sessionActive, sessionNumber: c.sessionNumber, genesisError: c.genesisError || null,
-      settings: { model: c.settings.model, effort: c.settings.effort, enemyTactics: c.settings.enemyTactics, autoReadAloud: c.settings.autoReadAloud, allowSkipNarration: !!c.settings.allowSkipNarration, hostStartsReading: c.settings.hostStartsReading !== false, dmView: !!c.settings.dmView, tone: c.settings.tone, startLevel: c.settings.startLevel },
+      settings: { model: c.settings.model, effort: c.settings.effort, enemyTactics: c.settings.enemyTactics, autoReadAloud: c.settings.autoReadAloud, allowSkipNarration: !!c.settings.allowSkipNarration, hostStartsReading: c.settings.hostStartsReading !== false, dmView: !!c.settings.dmView, tone: c.settings.tone, startLevel: c.settings.startLevel, storyPace: paceOf(c.settings).id },
     },
     members: c.members.map((x) => {
       const u = getUser(x.userId);

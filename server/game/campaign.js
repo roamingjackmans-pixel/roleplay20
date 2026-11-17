@@ -12,7 +12,7 @@ const index = () => load(INDEX, { campaigns: {}, invites: {} });
 
 export const DEFAULT_SETTINGS = {
   tone: ['heroic'], inspiration: '', premise: '', magicLevel: 'in between', lethality: 'balanced',
-  shape: 'short season', startLevel: 1, lines: '', veils: '', pacing: 'balanced',
+  shape: 'short season', startLevel: 1, lines: '', veils: '', pacing: 'balanced', storyPace: 'steady',
   model: config.defaultModel, effort: config.defaultEffort, enemyTactics: 'ai', autoReadAloud: true, allowSkipNarration: false, hostStartsReading: true, dmView: false,
 };
 

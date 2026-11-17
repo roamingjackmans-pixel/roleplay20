@@ -8,7 +8,8 @@ import { config } from '../config.js';
 import { DM_CORE, GENESIS_CORE, SESSION_END_CORE, CHARACTER_ASSIST_CORE, BACKBONE_CORE } from '../ai/prompts.js';
 import { TURN_SCHEMA, GENESIS_SCHEMA, SESSION_END_SCHEMA, CHARACTER_ASSIST_SCHEMA, BACKBONE_SCHEMA } from '../ai/schemas.js';
 import { saveCampaign, getCharacter, saveCharacter, partyCharacters, characterOwner, member } from './campaign.js';
-import { cachedCampaignContext, turnPromptParts, safeDerive, partyBlock, npcBlock, questBlock, historyBlock, sceneBlock, sessionIndex } from './context.js';
+import { cachedCampaignContext, turnPromptParts, safeDerive, partyBlock, npcBlock, questBlock, historyBlock, sceneBlock, sessionIndex, storyPaceBlock } from './context.js';
+import { isPace, paceOf } from '../../shared/pace.js';
 import { generateTacticalMap, placeCreatures, addKeyObjectsToMap, removeObjectsFromMap } from './mapgen.js';
 import { rollDice, rollD20, manualD20 } from '../../shared/dice.js';
 import { SKILL_NAMES, levelForXp, xpForLevel } from '../../shared/rules.js';
@@ -393,6 +394,19 @@ export function setDmBrain(c, { model, effort } = {}) {
   if (model !== undefined) c.settings.model = model;
   if (effort !== undefined) c.settings.effort = effort;
   return { ok: true, brain: dmBrain(c) };
+}
+
+/**
+ * The host sets how fast the story moves (on the new-campaign page or the DM Screen). It applies from the next reply;
+ * the DM is told about a change mid-session so it eases into the new pace instead of lurching.
+ */
+export function setStoryPace(c, id) {
+  if (id === undefined || id === c.settings.storyPace) return { ok: true };
+  if (!isPace(id)) return { error: 'That story pace is not one of the choices.' };
+  const was = paceOf(c.settings);
+  c.settings.storyPace = id;
+  if (c.sessionActive) addDmNote(c, `The host changed the story pace from ${was.label} to ${paceOf(c.settings).label} during session ${c.sessionNumber}: ease into the new pace from the next scene.`);
+  return { ok: true };
 }
 
 /** A note for the DM's own eyes. The prompt shows the latest ones (the archive keeps every note); counting the notes
@@ -1706,7 +1720,8 @@ export async function runGenesis(c) {
     `Tone: ${[].concat(s.tone).join(', ')}`,
     `Inspiration: ${s.inspiration || 'none - from scratch'}`,
     `Premise / what the group wants: ${s.premise || 'surprise us'}`,
-    `Magic level: ${s.magicLevel}; lethality: ${s.lethality}; campaign shape: ${s.shape}; pacing: ${s.pacing}; starting level: ${s.startLevel}`,
+    `Magic level: ${s.magicLevel}; lethality: ${s.lethality}; campaign shape: ${s.shape}; focus: ${s.pacing}; starting level: ${s.startLevel}`,
+    storyPaceBlock(c),
     `Lines (never include): ${s.lines || 'none stated'}; veils (fade to black): ${s.veils || 'none stated'}`,
     `Number of players expected: ${Math.max(1, c.members.length)}-${Math.max(4, c.members.length)}`,
   ].join('\n');

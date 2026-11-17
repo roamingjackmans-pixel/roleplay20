@@ -6,6 +6,7 @@ import { srd } from '../srd.js';
 import { getUser } from '../auth.js';
 import { partyCharacters, characterOwner, getCharacter } from './campaign.js';
 import { searchMemory, memoryOf, tokens } from './memory.js';
+import { paceOf } from '../../shared/pace.js';
 
 const clip = (s, n) => {
   s = String(s || '').trim();
@@ -16,14 +17,36 @@ export function safeDerive(ch) {
   try { return deriveCharacter(ch, srd()); } catch (e) { return null; }
 }
 
+/** The session the current story (backbone) began in: 1, or the one after the last story was played to its end. */
+export function storyStartSession(c) {
+  return (c.world.pastBackbones?.at(-1)?.endedSession || 0) + 1;
+}
+
+/**
+ * How fast the host wants the story to move, and where this session stands against it. The same story takes about 20
+ * sessions at a slow burn and about 5 when fast; the DM paces scenes, conversations and exposition to match.
+ */
+export function storyPaceBlock(c) {
+  const p = paceOf(c.settings);
+  const head = `# STORY PACE: ${p.label}${c.settings.shape === 'one-shot' ? ' (a one-shot: the whole story fits in one session)' : ` (about ${p.sessions} sessions for the whole story)`}\n${p.dm}`;
+  if (c.settings.shape === 'one-shot' || !c.sessionNumber) return head;
+  const k = c.sessionNumber - storyStartSession(c) + 1;
+  const where = k > p.sessions
+    ? `This is session ${k} of the story, past the ${p.sessions} or so this pace allows: steer firmly toward the ending.`
+    : `This is session ${k} of about ${p.sessions} for this story. Check the story arc's current act against that: if the party is behind, tighten (quicker answers, fewer side moments, cut to the next beat); if ahead, let scenes breathe a little more.`;
+  return `${head}\n${where}`;
+}
+
 export function cachedCampaignContext(c) {
   const s = c.settings;
   return [
     `# CAMPAIGN: ${c.name}${c.world.title ? ` - "${c.world.title}"` : ''}`,
-    `Tone: ${[].concat(s.tone || []).join(', ')} | Magic: ${s.magicLevel} | Lethality: ${s.lethality} | Shape: ${s.shape} | Pacing: ${s.pacing}`,
+    `Tone: ${[].concat(s.tone || []).join(', ')} | Magic: ${s.magicLevel} | Lethality: ${s.lethality} | Shape: ${s.shape} | Focus: ${s.pacing}`,
     s.inspiration ? `Inspiration (borrow tone/structure only): ${s.inspiration}` : '',
     `Lines (never include): ${s.lines || 'none stated'}`,
     `Veils (fade to black): ${s.veils || 'none stated'}`,
+    '',
+    storyPaceBlock(c),
     '',
     '# WORLD BIBLE (player-facing)',
     c.world.bible || '(not written yet)',

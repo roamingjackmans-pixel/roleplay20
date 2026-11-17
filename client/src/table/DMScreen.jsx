@@ -3,6 +3,7 @@ import { useStore, emit } from '../lib/store.js';
 import { useUI } from './ui.js';
 import { Modal } from '../components/Toasts.jsx';
 import { Markdown } from '../lib/format.jsx';
+import { STORY_PACES } from '../../../shared/pace.js';
 
 export default function DMScreen() {
   const ui = useUI();
@@ -49,6 +50,10 @@ export default function DMScreen() {
           <label className="field"><span>Enemy tactics in combat</span>
             <div className="tabs"><button className={s.enemyTactics === 'ai' ? 'on' : ''} onClick={() => set({ enemyTactics: 'ai' })}>Claude plays them</button><button className={s.enemyTactics === 'quick' ? 'on' : ''} onClick={() => set({ enemyTactics: 'quick' })}>Quick (instant)</button></div>
           </label>
+          <label className="field"><span>Story pace</span>
+            <div className="tabs">{STORY_PACES.map((p) => <button key={p.id} className={s.storyPace === p.id ? 'on' : ''} title={p.blurb} onClick={async () => { const r = await set({ storyPace: p.id }); if (r?.ok && s.storyPace !== p.id) useStore.getState().toast(`Story pace: ${p.label}. The DM eases into it from the next reply.`, 'good'); }}>{p.label}</button>)}</div>
+          </label>
+          <div className="tiny muted">{STORY_PACES.find((p) => p.id === s.storyPace)?.blurb}</div>
           <div className="usage">
             <div><b>{u.calls || 0}</b><span>DM calls</span></div>
             <div><b>${(u.costUsd || 0).toFixed(2)}</b><span>API cost so far</span></div>

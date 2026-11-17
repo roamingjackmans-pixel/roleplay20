@@ -39,6 +39,7 @@ test('a new world comes with its backbone, and the DM sees it on every turn', as
   E.runGenesis(c);
   const p = await nextPrompt('genesis');
   assert.match(p.text, /THE GROUP'S BRIEF/);
+  assert.match(p.text, /# STORY PACE: Steady \(about 10 sessions for the whole story\)/, 'the world is planned knowing the pace');
   reply(p.id, { title: 'Bells of Aurelion', tagline: '', worldBible: '# Aurelion', backbone: BACKBONE, dmSecrets: 'The queen was once the bell-keeper.', storyArc: 'Act 1, first beat.', characterPrompts: [], npcs: [], areaMaps: [], quests: [], startingScene: { location: 'Aurelion', timeOfDay: 'dusk', weather: '', mood: '', areaMapId: '', areaLocationId: '' }, openingHook: 'The bells stop.' });
   await until(() => c.status === 'ready');
   assert.equal(c.world.backbone, BACKBONE);
