@@ -191,3 +191,6 @@ export const BACKBONE_SCHEMA = obj({ backbone: S });
 
 // A private answer to one player's out-of-character question (DM Chat).
 export const DM_CHAT_SCHEMA = obj({ answer: S });
+
+// The prologue read aloud before the very first scene of a campaign: the world bible told as a story.
+export const PROLOGUE_SCHEMA = obj({ title: S, paragraphs: arr(S), summary: S });

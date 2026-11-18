@@ -5,10 +5,10 @@ import { getUser } from '../auth.js';
 import { srd } from '../srd.js';
 import { askClaude, NoAIError, aiStatus, MODELS, EFFORTS, worldBrain, WORLD_MAX_TOKENS } from '../ai/client.js';
 import { config } from '../config.js';
-import { DM_CORE, GENESIS_CORE, SESSION_END_CORE, CHARACTER_ASSIST_CORE, BACKBONE_CORE } from '../ai/prompts.js';
-import { TURN_SCHEMA, GENESIS_SCHEMA, SESSION_END_SCHEMA, CHARACTER_ASSIST_SCHEMA, BACKBONE_SCHEMA } from '../ai/schemas.js';
+import { DM_CORE, GENESIS_CORE, SESSION_END_CORE, CHARACTER_ASSIST_CORE, BACKBONE_CORE, PROLOGUE_CORE } from '../ai/prompts.js';
+import { TURN_SCHEMA, GENESIS_SCHEMA, SESSION_END_SCHEMA, CHARACTER_ASSIST_SCHEMA, BACKBONE_SCHEMA, PROLOGUE_SCHEMA } from '../ai/schemas.js';
 import { saveCampaign, getCharacter, saveCharacter, partyCharacters, characterOwner, member } from './campaign.js';
-import { cachedCampaignContext, turnPromptParts, safeDerive, partyBlock, npcBlock, questBlock, historyBlock, sceneBlock, sessionIndex, storyPaceBlock } from './context.js';
+import { cachedCampaignContext, turnPromptParts, safeDerive, partyBlock, npcBlock, questBlock, historyBlock, sceneBlock, sessionIndex, storyPaceBlock, prologuePrompt } from './context.js';
 import { isPace, paceOf } from '../../shared/pace.js';
 import { generateTacticalMap, placeCreatures, addKeyObjectsToMap, removeObjectsFromMap } from './mapgen.js';
 import { rollDice, rollD20, manualD20 } from '../../shared/dice.js';
@@ -1333,6 +1333,7 @@ export async function runTurn(c, input) {
 export function retryTurn(c) {
   if (c.thinking) return { error: 'Already thinking.' };
   if (c.combat && c.combat.state === 'enemy_failed') { combat.retryEnemyPhase(c); return { ok: true }; }
+  if (c.pendingInput?.kind === 'opening') { openCampaign(c); return { ok: true }; } // a prologue cut short is read first
   if (!c.pendingInput) { openActions(c); pushViews(c); return { ok: true }; }
   runTurn(c, c.pendingInput);
   return { ok: true };
@@ -1600,13 +1601,7 @@ export function startSession(c, { without = null, byUserId = null, isHost = fals
     return { ok: true };
   }
   if (c.sessionNumber === 1 && !c.chronicle.turns.length) {
-    if (!c.scene.tacticalMapId && c.scene.location) {
-      // nothing; the opening turn may set a scene map
-    }
-    runTurn(c, {
-      kind: 'opening',
-      text: `This is the very first session. Open the campaign: set the scene at the starting location (${c.scene.location || 'see world bible'}) with the opening hook ("${c.world.openingHook}"). Introduce each PRESENT character in the shared narration with a personal, sensory moment that ties to their backstory (everyone hears everyone's introduction), then bring them together and end on a hook that invites action. Lay the scene out on a battle map ("sceneMap") if positions could matter. Mention which local maps exist only through the fiction (e.g. a cartographer's stall), don't hand them out.`,
-    });
+    openCampaign(c); // the prologue first (the world, read aloud to everyone), then the first scene
   } else {
     const last = c.sessions[c.sessions.length - 2];
     runTurn(c, {
@@ -1615,6 +1610,114 @@ export function startSession(c, { without = null, byUserId = null, isHost = fals
     });
   }
   return { ok: true };
+}
+
+// ---------------------------------------------------------------- the prologue (session 1)
+
+const hasPrologue = (c) => (c.chronicle?.turns || []).some((t) => t.kind === 'prologue');
+
+/** The first scene of the campaign (it knows when the prologue has already told the world). */
+function openingInput(c) {
+  const told = hasPrologue(c)
+    ? `The PROLOGUE (the latest turn) has just been read aloud to the whole table: the world, its history and customs, ${c.scene.location || 'the starting town'} and its people. Don't retell any of it: go straight into the first scene. `
+    : '';
+  return {
+    kind: 'opening',
+    text: `This is the very first session. ${told}Open the campaign: set the scene at the starting location (${c.scene.location || 'see world bible'}) with the opening hook ("${c.world.openingHook}"). Introduce each PRESENT character in the shared narration with a personal, sensory moment that ties to their backstory (everyone hears everyone's introduction), then bring them together and end on a hook that invites action. Lay the scene out on a battle map ("sceneMap") if positions could matter. Mention which local maps exist only through the fiction (e.g. a cartographer's stall), don't hand them out.`,
+  };
+}
+
+/**
+ * Session 1 begins with a prologue read to everyone (the world bible told as a story: the world, its history and
+ * customs, the town and its people) and only then the first scene and the first "What do you do?".
+ */
+function openCampaign(c) {
+  if (hasPrologue(c) || !String(c.world.bible || '').trim()) { runTurn(c, openingInput(c)); return; }
+  readPrologue(c)
+    .catch((e) => { c.thinking = null; console.error('[prologue]', e); })
+    .then(() => runTurn(c, openingInput(c)));
+}
+
+// markdown structure the storyteller shouldn't read out: headings and list bullets
+const unmark = (t) => String(t || '').replace(/\r/g, '').replace(/^\s*#{1,6}\s+.*$/gm, '').replace(/^\s*(?:[-*•]|\d+[.)])\s+/gm, '')
+  .replace(/\s*\n\s*/g, ' ').replace(/\s{2,}/g, ' ').trim();
+
+/** The prologue as the DM wrote it, tidied: plain paragraphs, a title, a summary. null if there's nothing to read. */
+export function cleanPrologue(d) {
+  const paragraphs = [].concat(d?.paragraphs || []).flatMap((p) => String(p || '').split(/\n\s*\n/)).map(unmark)
+    .filter((p) => p.length > 1).slice(0, 12).map((p) => p.slice(0, 2400));
+  if (!paragraphs.length) return null;
+  return {
+    title: unmark(d.title).replace(/^prologue\s*[:\-–—]\s*/i, '').slice(0, 120),
+    paragraphs,
+    summary: unmark(d.summary).slice(0, 500) || 'The Dungeon Master read the prologue: the world, its history and customs, and the town where the story begins.',
+  };
+}
+
+// world-bible sections about the table rather than the world (they stay on the page, not in the prologue)
+const TABLE_SECTION = /\b(boundaries|lines\s*(?:&|and)\s*veils|safety\s+tools?)\b/i;
+
+/** No AI DM (or it failed): the prologue is the world bible itself, read out as plain paragraphs. */
+export function biblePrologue(c) {
+  const paragraphs = [];
+  let cur = [];
+  let skip = false;
+  let words = 0;
+  const flush = () => {
+    const p = cur.join(' ').replace(/\s{2,}/g, ' ').trim();
+    cur = [];
+    if (!p || /^([*_])[^*_]+\1$/.test(p)) return; // an aside in italics (an editor's note), not the world
+    paragraphs.push(p);
+    words += p.split(/\s+/).length;
+  };
+  for (const raw of String(c.world.bible || '').replace(/\r/g, '').split('\n')) {
+    if (words > 1500) break;
+    const line = raw.trim();
+    const h = /^#{1,6}\s+(.*)$/.exec(line);
+    if (h) { flush(); skip = TABLE_SECTION.test(h[1]); continue; } // a heading starts a new paragraph, unread
+    if (!line) { flush(); continue; }
+    if (skip || line.startsWith('|') || /^-{3,}$/.test(line)) continue;
+    const li = /^(?:[-*•]|\d+[.)])\s+(.*)$/.exec(line);
+    cur.push(li && !/[.!?…:]["”’)]*$/.test(li[1]) ? `${li[1]}.` : li ? li[1] : line);
+  }
+  flush();
+  const hook = String(c.world.openingHook || '').trim();
+  if (hook && !paragraphs.some((p) => p.includes(hook.slice(0, 60)))) paragraphs.push(hook);
+  if (!paragraphs.length) return null;
+  return { title: c.world.title || c.name, paragraphs, summary: `The Dungeon Master read the world bible aloud as the prologue${c.scene.location ? `, ending where the story begins: ${c.scene.location}` : ''}.` };
+}
+
+/**
+ * Write and post the prologue. The writer only sees player-facing material (prologuePrompt: the world bible, the
+ * opening hook, the starting town's public places, the heroes' names), never the backbone, secrets, arc or DM notes.
+ * Everyone hears it, before any scene. Returns true if one was posted.
+ */
+export async function readPrologue(c) {
+  if (c.thinking || hasPrologue(c)) return false;
+  const world = c.world;
+  c.phase = 'thinking';
+  c.pendingInput = openingInput(c); // a restart mid-prologue offers "Try again", which reads it and then plays the scene
+  setThinking(c, 'prologue', 'The Dungeon Master is preparing the prologue…');
+  let pro = null;
+  try {
+    const res = await askClaude({ task: 'prologue', system: PROLOGUE_CORE, prompt: prologuePrompt(c, sceneParty(c)), schema: PROLOGUE_SCHEMA, ...dmBrain(c), campaignId: c.id });
+    trackUsage(c, res);
+    pro = cleanPrologue(res.data);
+  } catch (e) {
+    if (!(e instanceof NoAIError)) console.error('[prologue]', e);
+  }
+  c.thinking = null;
+  if (c.world !== world || hasPrologue(c)) return false; // the world was rebuilt meanwhile
+  pro ||= biblePrologue(c);
+  if (!pro) return false;
+  system(c, `📜 Prologue${pro.title ? `: ${pro.title}` : ''}`, 'all', { tone: 'info' });
+  const posted = postNarration(c, [{ to: ['all'], parts: pro.paragraphs.map((text) => ({ speaker: 'narrator', text })) }]);
+  c.round.n += 1;
+  c.chronicle.turns.push({ n: c.round.n, at: Date.now(), kind: 'prologue', actions: [], rolls: [], narration: posted.map((p) => ({ to: p.to, parts: p.parts })), summary: pro.summary });
+  rememberTurn(c, { n: c.round.n, summary: pro.summary, location: c.scene?.location });
+  c.lastPlayedAt = Date.now();
+  pushViews(c);
+  return true;
 }
 
 export async function endSession(c) {

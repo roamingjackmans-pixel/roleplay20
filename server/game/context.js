@@ -356,3 +356,35 @@ export function turnPromptParts(c, input, online) {
 export function turnPrompt(c, input, online) {
   return turnPromptParts(c, input, online).map((p) => p.text).filter(Boolean).join('\n\n');
 }
+
+const words = (s) => String(s || '').replace(/-/g, ' ').replace(/\b\w/g, (m) => m.toUpperCase()).trim();
+
+/**
+ * Everything the prologue writer sees, and nothing more: the player-facing world bible, title and tagline, the table's
+ * tone and lines, where the story begins (the starting town's public places, never its secret ones), the opening hook
+ * and the heroes' names. No backbone, DM secrets, story arc, DM notes or NPC notes, so the prologue can't give any away.
+ */
+export function prologuePrompt(c, heroes = []) {
+  const s = c.settings || {};
+  const sc = c.scene || {};
+  const map = c.maps?.area?.[sc.areaMapId];
+  const here = (map?.locations || []).find((l) => l.id === sc.areaLocationId);
+  const places = (map?.locations || []).filter((l) => !l.secret).map((l) => `- ${l.name} (${l.kind})${l.description ? `: ${clip(l.description, 160)}` : ''}`);
+  const oneShot = s.shape === 'one-shot';
+  return [
+    `# CAMPAIGN: ${c.world.title || c.name}${c.world.tagline ? ` - ${c.world.tagline}` : ''}`,
+    `Tone: ${[].concat(s.tone || []).join(', ') || 'not stated'} | Magic: ${s.magicLevel || 'not stated'}`,
+    `Lines (never include): ${s.lines || 'none stated'}`,
+    `Veils (fade to black): ${s.veils || 'none stated'}`,
+    `# WORLD BIBLE (player-facing)\n${c.world.bible}`,
+    [
+      '# WHERE THE STORY BEGINS',
+      `${sc.location || 'see the world bible'}${here && here.name !== sc.location ? ` (${here.name})` : ''}${sc.timeOfDay ? `, ${sc.timeOfDay}` : ''}${sc.weather ? `, ${sc.weather}` : ''}`,
+      map ? `${map.name}${map.description ? `: ${clip(map.description, 400)}` : ''}` : '',
+      places.length ? `Places anyone in town knows:\n${places.join('\n')}` : '',
+    ].filter(Boolean).join('\n'),
+    c.world.openingHook ? `# OPENING HOOK\n${c.world.openingHook}` : '',
+    heroes.length ? `# THE HEROES (name them only; the first scene introduces them)\n${heroes.map((h) => `- ${h.name}: ${[words(h.subrace || h.race), words(h.class)].filter(Boolean).join(' ')}${h.background ? `, ${words(h.background).toLowerCase()}` : ''}`).join('\n')}` : '',
+    `# LENGTH\n${oneShot ? 'About 300-500 words in 4-6 paragraphs (this is a one-shot: keep it brisk).' : 'About 600-900 words in 5-8 paragraphs (four to six minutes read aloud).'}`,
+  ].filter(Boolean).join('\n\n');
+}
