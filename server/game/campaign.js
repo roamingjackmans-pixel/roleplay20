@@ -50,6 +50,9 @@ export function newCampaign(owner, { name, settings }) {
     party: { gold: 0, allies: [] },
   };
   put(cfile(id), c);
+  // made by this server: nothing of it was cut off by a restart. Without this, opening the new campaign's page while
+  // its world was being built marked the build "interrupted by a server restart" (and invited a second build).
+  recovered.add(id);
   const idx = index();
   idx.campaigns[id] = { id, ownerId: owner.id };
   idx.invites[code] = id;

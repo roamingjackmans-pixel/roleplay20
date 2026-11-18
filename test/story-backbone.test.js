@@ -50,6 +50,30 @@ test('a new world comes with its backbone, and the DM sees it on every turn', as
   assert.equal(c.world.backbone, '', 'a rebuilt world starts its backbone over too');
 });
 
+test('opening a new campaign while its world is being built never calls the build "interrupted by a server restart"', async () => {
+  const S = await import('../server/store.js');
+  const c = C.newCampaign({ id: 'u_host' }, { name: 'Cave of Night' });
+  E.runGenesis(c);
+  const p = await nextPrompt('genesis');
+  const opened = C.getCampaign(c.id); // the owner's browser opens the campaign page right after creating it
+  assert.equal(opened.status, 'genesis', 'still building');
+  assert.equal(opened.genesisError ?? null, null);
+  assert.ok(opened.thinking, 'the page shows the world being built');
+  assert.equal(E.genesisRunning(c), true);
+  reply(p.id, { title: 'Cave of Night', tagline: '', worldBible: '# Night', backbone: BACKBONE, dmSecrets: '', storyArc: '', characterPrompts: [], npcs: [], areaMaps: [], quests: [], startingScene: { location: 'The cave mouth', timeOfDay: 'night', weather: '', mood: '', areaMapId: '', areaLocationId: '' }, openingHook: '' });
+  await until(() => c.status === 'ready');
+  assert.equal(c.genesisError, null);
+
+  // ...but a build that really was cut off (the campaign was mid-build when the server stopped) is still caught
+  const id = 'c_cutoff';
+  fs.mkdirSync(path.join(dir, 'campaigns'), { recursive: true });
+  fs.writeFileSync(path.join(dir, 'campaigns', `${id}.json`), JSON.stringify({ ...structuredClone(c), id, status: 'genesis', thinking: { kind: 'genesis' }, genesisError: null }));
+  S.load('campaign-index.json', { campaigns: {}, invites: {} }).campaigns[id] = { id, ownerId: 'u_host' };
+  const cut = C.getCampaign(id);
+  assert.equal(cut.status, 'ready');
+  assert.match(cut.genesisError, /interrupted by a server restart/);
+});
+
 test('session write-ups move the party through the backbone but never rewrite it; a finished story makes way for the next chapter', async () => {
   assert.match(SESSION_END_CORE, /BACKBONE is fixed and you can't change it/);
   const c = C.newCampaign({ id: 'u_host' }, { name: 'Long road' });

@@ -12,6 +12,18 @@ process.env.AI_PROVIDER = 'off';
 const C = await import('../server/game/campaign.js');
 const E = await import('../server/game/engine.js');
 const { buildView } = await import('../server/game/views.js');
+const S = await import('../server/store.js');
+
+// The same campaign as a freshly started server first loads it from disk (a campaign made by the running server has
+// nothing to recover, so the restart is played out with a copy under its own id).
+let restarts = 0;
+function afterRestart(c) {
+  const id = `${c.id}_r${++restarts}`;
+  fs.mkdirSync(path.join(process.env.DATA_DIR, 'campaigns'), { recursive: true });
+  fs.writeFileSync(path.join(process.env.DATA_DIR, 'campaigns', `${id}.json`), JSON.stringify({ ...c, id }));
+  S.load('campaign-index.json', { campaigns: {}, invites: {} }).campaigns[id] = { id, ownerId: c.ownerId };
+  return C.getCampaign(id);
+}
 
 let n = 0;
 function setup() {
@@ -129,8 +141,7 @@ test('a game already in progress is tidied when the server starts: a battle map 
   c.scene.location = "The Lilt, aboard Captain Dibbs's barge";
   c.scene.areaMapId = 'area_calandor';
   c.scene.areaLocationId = 'loc_lilt';
-  C.saveCampaign(c);
-  const loaded = C.getCampaign(c.id);
+  const loaded = afterRestart(c);
   assert.equal(loaded.scene.tacticalMapId, '');
   assert.deepEqual(loaded.tokens, {});
 });
@@ -140,8 +151,7 @@ test('...but a battle map that still matches where the party is stays, and learn
   const id = c.scene.tacticalMapId;
   delete c.maps.tactical[id].at;
   c.scene.location = 'The Bell Tower balcony, Thimblewick';
-  C.saveCampaign(c);
-  const loaded = C.getCampaign(c.id);
+  const loaded = afterRestart(c);
   assert.equal(loaded.scene.tacticalMapId, id);
   assert.equal(loaded.maps.tactical[id].at.areaLocationId, 'loc_tower');
 });
