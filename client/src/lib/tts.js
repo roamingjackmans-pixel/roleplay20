@@ -31,14 +31,28 @@ export function availableVoices() { if (!voices.length) load(); return voices; }
 export const ttsSupported = () => !!synth;
 
 function gender(v) {
+  if (/^Google US English$/i.test(v.name)) return 'female'; // Chrome's US voice is a woman's, though its name doesn't say
   if (FEMALE.test(v.name)) return 'female';
   if (MALE.test(v.name)) return 'male';
   return 'unknown';
 }
 
+const NATURAL = /natural|neural|online|premium|enhanced/i;
+
+// Voices that sound like a robot: the old built-in Windows voices (Microsoft David, Mark, Zira... the ones without
+// "Online (Natural)"), eSpeak on Linux, and the novelty and old voices on Apple devices (Fred, Albert, Zarvox, Grandpa...).
+const OLD_APPLE = /\b(albert|bad news|bahh|bells|boing|bubbles|cellos|deranged|good news|hysterical|jester|junior|organ|ralph|superstar|trinoids|whisper|wobble|zarvox|fred|eddy|flo|grandma|grandpa|reed|rocko|sandy|shelley|kathy|princess|vicki|agnes|bruce)\b/i;
+export function soundsRobotic(v) {
+  if (NATURAL.test(v.name)) return false;
+  return /microsoft|espeak/i.test(v.name) || OLD_APPLE.test(v.name);
+}
+
+/** How many lifelike voices this device has (Edge on Windows has dozens; Chrome on Windows has none). */
+export function naturalVoiceCount() { return availableVoices().filter((v) => NATURAL.test(v.name)).length; }
+
 function quality(v) {
   let q = 0;
-  if (/natural|neural|online|premium|enhanced/i.test(v.name)) q += 3;
+  if (NATURAL.test(v.name)) q += 3;
   if (/google/i.test(v.name)) q += 1;
   if (v.localService === false) q += 1;
   return q;
@@ -49,8 +63,10 @@ export function pickVoice(profile = {}, key = '', avoid = null) {
   if (!list.length) return null;
   const want = profile.gender || 'neutral';
   const langs = ACCENT_LANG[profile.accent] || [];
+  const anyGood = list.some((v) => !soundsRobotic(v));
   const scored = list.map((v) => {
     let s = quality(v);
+    if (anyGood && soundsRobotic(v)) s -= 10; // a better-sounding voice of the "wrong" gender or accent beats a robot
     const g = gender(v);
     if (want === 'female' || want === 'male') s += g === want ? 6 : g === 'unknown' ? 1 : -6;
     if (langs.length) {
@@ -65,7 +81,20 @@ export function pickVoice(profile = {}, key = '', avoid = null) {
   return top[hash(key || JSON.stringify(profile)) % top.length] || list[0];
 }
 
-const AGE = { child: { p: 1.45, r: 1.08 }, young: { p: 1.12, r: 1.04 }, adult: { p: 1, r: 1 }, old: { p: 0.86, r: 0.9 }, ancient: { p: 0.74, r: 0.82 } };
+// NPCs sound different through their voice first; pitch and speed only nudge it. A browser voice pushed far from its own
+// pitch and speed sounds processed and robotic: the DM's profiles ask for pitch 0.6-1.5, and old/child multipliers on top
+// used to land 20 of 34 real NPCs between 0.48 and 1.68. Now each stays close to natural (about 0.86-1.14).
+const AGE = { child: { p: 1.08, r: 1.04 }, young: { p: 1.03, r: 1.02 }, adult: { p: 1, r: 1 }, old: { p: 0.96, r: 0.94 }, ancient: { p: 0.92, r: 0.9 } };
+const within = (x, lo, hi) => Math.max(lo, Math.min(hi, x));
+
+/** The pitch and speed an NPC (or creature) is read at: their profile and age, softened to stay natural. */
+export function npcProsody(profile = {}, { creature = false } = {}) {
+  const age = AGE[profile.age] || AGE.adult;
+  return {
+    pitch: within((1 + ((profile.pitch || 1) - 1) * 0.3) * age.p, creature ? 0.8 : 0.86, 1.14),
+    rate: within((1 + ((profile.rate || 1) - 1) * 0.5) * age.r, 0.84, 1.15),
+  };
+}
 
 function narratorProfile(prefs) {
   return { gender: prefs?.narratorGender || 'male', accent: prefs?.narratorAccent || 'british', age: 'adult', pitch: 0.92, rate: 0.96 };
@@ -139,13 +168,14 @@ function enqueue(text, profile, key, prefs, extra = {}) {
   const t = clean(text);
   if (!t) return 0;
   const before = queue.length;
-  const age = AGE[profile.age] || AGE.adult;
   const narr = pickVoice(narratorProfile(prefs), 'narrator');
   const voice = key === 'narrator' && prefs?.narratorVoice
     ? availableVoices().find((v) => v.voiceURI === prefs.narratorVoice) || narr
     : key === 'narrator' ? narr : pickVoice(profile, key, narr?.voiceURI);
-  const rate = (profile.rate || 1) * age.r * (prefs?.rate || 1);
-  const pitch = (profile.pitch || 1) * (key === 'narrator' ? 1 : age.p);
+  // the narrator keeps its own gentle settings; everyone else stays close to their voice's natural pitch and speed
+  const say = key === 'narrator' ? { pitch: profile.pitch || 1, rate: profile.rate || 1 } : npcProsody(profile, { creature: String(key).startsWith('creature:') });
+  const rate = say.rate * (prefs?.rate || 1);
+  const pitch = say.pitch;
   // long text: split on sentences so the browser doesn't cut it off
   const chunks = t.match(/[^.!?…]+[.!?…]*["”’)]*\s*/g) || [t];
   let buf = '';

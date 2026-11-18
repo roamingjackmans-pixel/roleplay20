@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useStore } from '../lib/store.js';
 import { Modal } from '../components/Toasts.jsx';
-import { availableVoices, previewVoice, ttsSupported } from '../lib/tts.js';
+import { availableVoices, previewVoice, ttsSupported, naturalVoiceCount } from '../lib/tts.js';
 import AccountSettings from '../screens/AccountSettings.jsx';
 
 export default function VoiceSettings({ onClose, onSounds }) {
@@ -10,12 +10,15 @@ export default function VoiceSettings({ onClose, onSounds }) {
   const [voices, setVoices] = useState(availableVoices());
   useEffect(() => { const t = setTimeout(() => setVoices(availableVoices()), 400); return () => clearTimeout(t); }, []);
   const [account, setAccount] = useState(false);
-  const natural = voices.filter((v) => /natural|neural|online/i.test(v.name)).length;
+  const natural = voices.length ? naturalVoiceCount() : 0;
   return (
     <Modal title="Voices & sound" onClose={onClose}>
       <div className="col" style={{ gap: 14 }}>
         {!ttsSupported() && <div className="error-text">This browser can't read aloud.</div>}
-        <div className="small muted">The narrator and every NPC are read aloud with your browser's built-in voices. {natural ? `You have ${natural} natural-sounding voices.` : 'For the best voices, open Roleplay20 in Microsoft Edge (it has dozens of natural voices) or Chrome.'}</div>
+        <div className="small muted">The narrator and every NPC are read aloud with your browser's built-in voices. {natural ? `You have ${natural} natural-sounding voices, so each character can get a lifelike voice of their own.` : null}</div>
+        {ttsSupported() && !natural && (
+          <div className="small voice-tip">This browser only has a few basic voices, so many characters share one and some sound robotic. For lifelike voices with real accents, open Roleplay20 in <b>Microsoft Edge</b> (it has dozens of natural voices). On a Mac or iPhone, download "Enhanced" voices in Settings → Accessibility → Spoken Content → Voices.</div>
+        )}
         <label className="check"><input type="checkbox" checked={prefs.readAloud !== false} onChange={(e) => setPrefs({ readAloud: e.target.checked })} /> Read the story aloud</label>
         <label className="field"><span>Who can hear this device?</span>
           <div className="tabs"><button className={prefs.alone !== false ? 'on' : ''} onClick={() => setPrefs({ alone: true })}>🎧 Just me</button><button className={prefs.alone === false ? 'on' : ''} onClick={() => setPrefs({ alone: false })}>👥 Others are here</button></div>
