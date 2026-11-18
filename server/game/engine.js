@@ -3,7 +3,7 @@
 import { randomId } from '../security.js';
 import { getUser } from '../auth.js';
 import { srd } from '../srd.js';
-import { askClaude, NoAIError, aiStatus, MODELS, EFFORTS, worldBrain } from '../ai/client.js';
+import { askClaude, NoAIError, aiStatus, MODELS, EFFORTS, worldBrain, WORLD_MAX_TOKENS } from '../ai/client.js';
 import { config } from '../config.js';
 import { DM_CORE, GENESIS_CORE, SESSION_END_CORE, CHARACTER_ASSIST_CORE, BACKBONE_CORE } from '../ai/prompts.js';
 import { TURN_SCHEMA, GENESIS_SCHEMA, SESSION_END_SCHEMA, CHARACTER_ASSIST_SCHEMA, BACKBONE_SCHEMA } from '../ai/schemas.js';
@@ -1713,7 +1713,7 @@ export async function runGenesis(c) {
   const run = randomId('g_', 4);
   genesisRuns.set(c.id, run);
   c.status = 'genesis';
-  setThinking(c, 'genesis', 'The Dungeon Master is building your world and planning the whole story. This takes several minutes…');
+  setThinking(c, 'genesis', 'The Dungeon Master is building your world and planning the whole story. This takes about 20 minutes…');
   const s = c.settings;
   const brief = [
     `Campaign name: ${c.name}`,
@@ -1727,7 +1727,7 @@ export async function runGenesis(c) {
   ].join('\n');
   try {
     // the world and its backbone are written once and followed for the whole campaign: the deepest thinking, streamed
-    const res = await askClaude({ task: 'genesis', system: GENESIS_CORE, prompt: `# THE GROUP'S BRIEF\n${brief}`, schema: GENESIS_SCHEMA, ...worldBrain(dmBrain(c).model), maxTokens: 64000, longRun: true, campaignId: c.id });
+    const res = await askClaude({ task: 'genesis', system: GENESIS_CORE, prompt: `# THE GROUP'S BRIEF\n${brief}`, schema: GENESIS_SCHEMA, ...worldBrain(dmBrain(c).model), maxTokens: WORLD_MAX_TOKENS, longRun: true, campaignId: c.id });
     trackUsage(c, res);
     if (genesisRuns.get(c.id) !== run) return { ok: false }; // overtaken: never mix it into the world
     applyGenesis(c, res.data);
@@ -1811,7 +1811,7 @@ export async function ensureBackbone(c) {
       `# WHERE THE PARTY IS NOW\n${sceneBlock(c)}`,
       (c.world.dmNotes || []).length ? `# YOUR RECENT DM NOTES\n${c.world.dmNotes.slice(-30).map((n) => `- ${n}`).join('\n')}` : '',
     ].filter(Boolean).join('\n\n');
-    const res = await askClaude({ task: 'backbone', system: BACKBONE_CORE, cachedContext: cachedCampaignContext(c), prompt, schema: BACKBONE_SCHEMA, ...worldBrain(dmBrain(c).model), maxTokens: 64000, longRun: true, campaignId: c.id });
+    const res = await askClaude({ task: 'backbone', system: BACKBONE_CORE, cachedContext: cachedCampaignContext(c), prompt, schema: BACKBONE_SCHEMA, ...worldBrain(dmBrain(c).model), maxTokens: WORLD_MAX_TOKENS, longRun: true, campaignId: c.id });
     trackUsage(c, res);
     const text = String(res.data?.backbone || '').trim();
     if (!text || c.world !== world || c.world.backbone) return { ok: false }; // the world was replaced meanwhile, or one arrived

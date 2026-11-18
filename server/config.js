@@ -49,8 +49,9 @@ export const config = {
   defaultEffort: env.DM_EFFORT || 'medium',
   // Fable is slower than Opus or Sonnet; world building at high effort can take several minutes.
   aiTimeoutMs: num(env.AI_TIMEOUT_SECONDS, 360) * 1000,
-  // World building and the story backbone think at the highest effort and write a lot: often 5-10 minutes, streamed.
-  aiLongTimeoutMs: num(env.AI_LONG_TIMEOUT_SECONDS, 1500) * 1000,
+  // World building and the story backbone think at the highest effort and write a lot, streamed: the first real build
+  // took 21 minutes, so they get up to 45.
+  aiLongTimeoutMs: num(env.AI_LONG_TIMEOUT_SECONDS, 2700) * 1000,
 
   // Email (sign-in codes, password resets, account changes). Provider: "resend" (needs RESEND_API_KEY and EMAIL_FROM,
   // an address on a domain verified in Resend), "file" (testing: emails are written to <data>/outbox) or "off" (no

@@ -84,7 +84,7 @@ export default function NewCampaign() {
             </div>
             {err && <div className="error-text">{err}</div>}
             <div className="row">
-              <span className="muted small">World-building takes several minutes: the Dungeon Master plans the whole story. You can invite friends while it works.</span>
+              <span className="muted small">World-building takes about 20 minutes: the Dungeon Master plans the whole story. You can invite friends while it works.</span>
               <div className="spacer" />
               <button className="btn primary lg" disabled={busy} onClick={create}>{busy ? <span className="spinner" /> : '✦ Build our world'}</button>
             </div>

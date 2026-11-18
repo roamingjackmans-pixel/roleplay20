@@ -123,6 +123,11 @@ export function worldBrain(model) {
   return { model: model === 'claude-fable-5-1' ? model : 'claude-opus-5-5', effort: 'xhigh' };
 }
 
+// Room for a world build's thinking and its long reply: the model's full output. The first real build at this effort
+// (The Cave of Night) used 62,791 tokens over 21 minutes, all but brushing the 64,000 it had; a reply cut off at the
+// limit is unusable and would have meant building it all again.
+export const WORLD_MAX_TOKENS = 128000;
+
 /** Send one request. A long run (world building) streams, so a reply that takes many minutes isn't cut off. */
 function send(req, useFallback, longRun) {
   const body = useFallback ? { ...req, betas: ['server-side-fallback-2026-07-01'], fallbacks: 'default' } : req;
@@ -146,6 +151,8 @@ async function callApi({ task, system, cachedContext, prompt, schema, model, eff
       if (res.stop_reason === 'max_tokens') console.warn('[ai] response hit max_tokens; trying to parse anyway');
       let data;
       try { data = extractJson(text); } catch (pe) {
+        // a long run cut off at its length limit would only be cut off again: asking again costs another long wait
+        if (longRun && res.stop_reason === 'max_tokens') throw new Error('The reply ran past its length limit before it was finished.');
         if (attempt < 3) { console.warn(`[ai] ${task}: reply was not valid JSON (${pe.message}); asking again`); retryNote = '\n\n(Your previous reply was not a valid JSON object. Reply with only the JSON object.)'; continue; }
         throw pe;
       }
