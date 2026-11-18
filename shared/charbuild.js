@@ -387,6 +387,33 @@ function classFeaturesAt(cls, subclass, classLevel, choices, ctx = {}) {
   return out;
 }
 
+/**
+ * Class feature choices a new character makes for levels 1..level: fighting style, favoured enemy and terrain,
+ * dragon ancestor, metamagic, invocations, pact boon, hunter's prey... -> [{ index, name, level, desc, choose,
+ * words, options: [{ index, name, desc }] }]. Pass the picks to buildCharacter as `featureOptions: { [index]: [..] }`.
+ * `words` = the options are plain words with no rules text (a ranger's enemy types and terrains).
+ */
+export function creationFeatureChoices(classKey, subclassKey, level, srd) {
+  const cls = get(srd, "classes", classKey);
+  if (!cls) return [];
+  const lvl = Math.max(1, Math.min(20, Number(level) || 1));
+  const sub = subclassKey && lvl >= (cls.subclassLevel || 3) ? cls.subclasses?.find((s) => s.index === subclassKey) : null;
+  const out = [];
+  for (let l = 1; l <= lvl; l++) {
+    const row = cls.levels?.[l - 1];
+    for (const f of [...(row?.features || []), ...((sub?.features || []).filter((x) => x.level === l))]) {
+      if (!f.options?.length && !f.stringOptions) continue;
+      const words = !f.options?.length;
+      out.push({
+        index: f.index, name: f.name, level: l, desc: f.desc || "", words,
+        choose: words ? f.stringOptions.choose : f.choose ?? row?.specific?.invocationsKnown ?? 1,
+        options: words ? f.stringOptions.from.map((s) => ({ index: s, name: s, desc: "" })) : f.options.map((o) => ({ index: o.index, name: o.name, desc: o.desc || "" })),
+      });
+    }
+  }
+  return out;
+}
+
 function raceFeatures(race, sub, choices, srd) {
   const out = [];
   for (const t of race?.traits || []) out.push({ name: t.name, source: race.name, level: 1, desc: t.desc, kind: "race", index: t.index });
@@ -759,7 +786,7 @@ export function levelUpPlan(char, srd, classKey) {
   // feature choices (fighting style, metamagic, pact boon, invocations, hunter's prey, ...)
   const rowFeats = [...(row?.features || []), ...((cls.subclasses?.find((s) => s.index === subclass)?.features || []).filter((f) => f.level === classLevel))];
   const featureChoices = rowFeats.filter((f) => f.options?.length || f.stringOptions).map((f) => ({
-    index: f.index, name: f.name,
+    index: f.index, name: f.name, desc: f.desc || "", words: !f.options?.length,
     choose: f.options?.length ? f.choose ?? row?.specific?.invocationsKnown - (prev?.specific?.invocationsKnown || 0) : f.stringOptions.choose,
     options: f.options?.length ? f.options.map((o) => ({ index: o.index, name: o.name, desc: o.desc })) : f.stringOptions.from.map((s) => ({ index: s, name: s, desc: "" })),
   }));

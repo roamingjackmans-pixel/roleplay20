@@ -7,6 +7,11 @@ import { ABILITIES, SKILL_NAMES } from '../../../shared/rules.js';
 import { rollDice } from '../../../shared/dice.js';
 import { Modal } from '../components/Toasts.jsx';
 import { Markdown, titleIndex } from '../lib/format.jsx';
+import { tip, TipHint } from '../components/ChoiceTip.jsx';
+import {
+  describeClassLevel, describeHpMethod, describeSubclass, describeChoiceOption, describeAsiMode, describeAsiAbility, describeSkill,
+  describeExpertise, describeSpell, optionName,
+} from '../../../shared/choiceinfo.js';
 
 /**
  * The level-up wizard. Step 1: which class gains the level - one you already have, or a new one (multiclassing, if
@@ -21,18 +26,19 @@ export default function LevelUp({ onClose }) {
   if (!ch) return null;
   const pick = classKey || options[0]?.classKey;
   if (step === 1) {
-    return <ChooseClass ch={ch} options={options} pick={pick} setPick={setClassKey} onNext={() => setStep(2)} onClose={onClose} />;
+    return <ChooseClass ch={ch} srd={srd} options={options} pick={pick} setPick={setClassKey} onNext={() => setStep(2)} onClose={onClose} />;
   }
   return <LevelDetails key={`${pick}-${ch.level}`} ch={ch} srd={srd} classKey={pick} onBack={() => setStep(1)} onClose={onClose} onAgain={() => { setClassKey(null); setStep(1); }} />;
 }
 
-function ChooseClass({ ch, options, pick, setPick, onNext, onClose }) {
+function ChooseClass({ ch, srd, options, pick, setPick, onNext, onClose }) {
   const mine = options.filter((o) => !o.multiclass);
   const others = options.filter((o) => o.multiclass);
   const [showAll, setShowAll] = useState(!!options.find((o) => o.classKey === pick)?.multiclass);
   const chosen = options.find((o) => o.classKey === pick);
   const card = (o) => (
-    <button key={o.classKey} className={`pick wide lvl-class ${pick === o.classKey ? 'on' : ''}`} disabled={!o.allowed} onClick={() => setPick(o.classKey)}>
+    <button key={o.classKey} {...tip(() => describeClassLevel(srd?.by?.classes?.get(o.classKey), o.next, o.subclass, { problems: o.problems, prereqText: o.prereqText }))}
+      className={`pick wide lvl-class ${pick === o.classKey ? 'on' : ''}`} disabled={!o.allowed} onClick={() => setPick(o.classKey)}>
       <b>{o.name} {o.multiclass ? <span className="pill">new class</span> : <span className="muted small">level {o.current} → {o.next}</span>}</b>
       <span className="small">d{o.hitDie} hit die{o.asi ? ' · ability score increase' : ''}{o.subclassAt ? ' · choose your subclass' : ''}</span>
       {o.features.length > 0 && <span className="tiny muted">Gain: {o.features.join(', ')}</span>}
@@ -42,7 +48,7 @@ function ChooseClass({ ch, options, pick, setPick, onNext, onClose }) {
   return (
     <Modal title={`${ch.name} reaches level ${ch.level + 1}`} onClose={onClose} actions={<button className="btn primary sm" disabled={!chosen?.allowed} onClick={onNext}>Continue with {chosen?.name || '…'} →</button>}>
       <div className="col" style={{ gap: 10 }}>
-        <div className="small muted">Step 1 of 2: which class gains the level?</div>
+        <div className="small muted">Step 1 of 2: which class gains the level? <TipHint className="" /></div>
         {mine.map(card)}
         <button className="btn ghost sm" onClick={() => setShowAll(!showAll)}>{showAll ? '▾' : '▸'} Multiclass into a new class instead</button>
         {showAll && (
@@ -90,6 +96,9 @@ function LevelDetails({ ch, srd, classKey, onBack, onClose, onAgain }) {
   const spellNeed = Math.min(plan.spellsToPick || 0, spellPool.length);
   const featNeed = (fc) => Math.min(Number(fc.choose) || 1, fc.options.length);
   const asiOk = !plan.asi || asi.mode === 'one' || asi.a !== asi.b;
+  // the plan lists a default pick for each feature choice (e.g. "Fighting Style: Defense"); the player's own pick is chosen below
+  const optionIdx = new Set((plan.featureChoices || []).flatMap((fc) => fc.options.map((o) => o.index)));
+  const newFeatures = (plan.features || []).filter((f) => !optionIdx.has(f.index));
 
   const missing = [
     hpMode === 'roll' && !hpRoll && 'roll your hit points',
@@ -136,12 +145,15 @@ function LevelDetails({ ch, srd, classKey, onBack, onClose, onAgain }) {
         </>
       )}>
       <div className="col" style={{ gap: 18 }}>
-        <div className="small muted">Step 2 of 2: character level {plan.newLevel}{plan.multiclass ? `, your first level as a ${titleIndex(plan.classKey)}` : ''}. Every choice below is needed before you can level up.</div>
+        <div className="small muted">Step 2 of 2: character level {plan.newLevel}{plan.multiclass ? `, your first level as a ${titleIndex(plan.classKey)}` : ''}. Every choice below is needed before you can level up. <TipHint className="" /></div>
 
         <section>
           <div className="sub-h">Hit points</div>
           <div className="row wrap">
-            <div className="tabs" style={{ width: 260 }}><button className={hpMode === 'average' ? 'on' : ''} onClick={() => setHpMode('average')}>Take {plan.hpAverage}</button><button className={hpMode === 'roll' ? 'on' : ''} onClick={() => setHpMode('roll')}>Roll d{plan.hpDie}</button></div>
+            <div className="tabs" style={{ width: 260 }}>
+              <button {...tip(() => describeHpMethod('average', plan.hpDie))} className={hpMode === 'average' ? 'on' : ''} onClick={() => setHpMode('average')}>Take {plan.hpAverage}</button>
+              <button {...tip(() => describeHpMethod('roll', plan.hpDie))} className={hpMode === 'roll' ? 'on' : ''} onClick={() => setHpMode('roll')}>Roll d{plan.hpDie}</button>
+            </div>
             {hpMode === 'roll' && <button className="btn" disabled={!!hpRoll} onClick={() => setHpRoll(rollDice(`1d${plan.hpDie}`).total)}>🎲 {hpRoll ? `Rolled ${hpRoll}` : 'Roll'}</button>}
             <span className="muted small">+ {plan.conMod} Constitution = <b>{Math.max(1, (hp || 0) + plan.conMod)}</b> more HP</span>
           </div>
@@ -151,8 +163,8 @@ function LevelDetails({ ch, srd, classKey, onBack, onClose, onAgain }) {
           <div className="tiny muted">You also gain: {['armor', 'weapons', 'tools'].flatMap((k) => plan.multiclassProficiencies[k] || []).join(', ') || 'no new proficiencies'}.</div>
         )}
 
-        {plan.features?.length > 0 && (
-          <section><div className="sub-h">New features</div>{plan.features.map((f, i) => <details key={i} className="feature" open={i < 2}><summary><b>{f.name}</b></summary><Markdown text={f.desc} className="prose small-prose" /></details>)}</section>
+        {newFeatures.length > 0 && (
+          <section><div className="sub-h">New features</div>{newFeatures.map((f, i) => <details key={i} className="feature" open={i < 2}><summary><b>{f.name}</b></summary><Markdown text={f.desc} className="prose small-prose" /></details>)}</section>
         )}
 
         {plan.subclassChoice && (
@@ -161,6 +173,7 @@ function LevelDetails({ ch, srd, classKey, onBack, onClose, onAgain }) {
             <div className="lu-cards">
               {plan.subclassOptions.map((s) => (
                 <OptionCard key={s.index} on={subclass === s.index} onClick={() => setSubclass(subclass === s.index ? null : s.index)} title={s.name}
+                  info={() => { const cls = srd?.by?.classes?.get(plan.classKey); return describeSubclass(cls?.subclasses?.find((x) => x.index === s.index) || s, cls, plan.classLevel); }}
                   meta={s.features?.length ? `At this level: ${s.features.filter((f) => f.level <= plan.classLevel).map((f) => f.name).join(', ')}` : ''} text={s.desc} />
               ))}
             </div>
@@ -174,10 +187,13 @@ function LevelDetails({ ch, srd, classKey, onBack, onClose, onAgain }) {
             <section key={fc.index}>
               <div className="sub-h row">{fc.name} <span className="spacer" />{count(list.length, need)}</div>
               <div className="lu-cards">
-                {fc.options.map((o) => (
-                  <OptionCard key={o.index} on={list.includes(o.index)} title={o.name.replace(/^.*?:\s*/, '')} text={o.desc}
-                    onClick={() => toggle(list, (v) => setFeat({ ...feat, [fc.index]: v }), o.index, need, 'options')} />
-                ))}
+                {fc.options.map((o) => {
+                  const info = describeChoiceOption(o, fc);
+                  return (
+                    <OptionCard key={o.index} on={list.includes(o.index)} title={fc.words ? titleIndex(o.name) : optionName(o.name)} text={o.desc || info?.text} info={info}
+                      onClick={() => toggle(list, (v) => setFeat({ ...feat, [fc.index]: v }), o.index, need, 'options')} />
+                  );
+                })}
               </div>
             </section>
           );
@@ -187,9 +203,25 @@ function LevelDetails({ ch, srd, classKey, onBack, onClose, onAgain }) {
           <section>
             <div className="sub-h">Ability score improvement</div>
             <div className="row wrap">
-              <div className="tabs" style={{ width: 240 }}><button className={asi.mode === 'two' ? 'on' : ''} onClick={() => setAsi({ ...asi, mode: 'two' })}>+1 / +1</button><button className={asi.mode === 'one' ? 'on' : ''} onClick={() => setAsi({ ...asi, mode: 'one' })}>+2 to one</button></div>
-              <select className="select" style={{ width: 'auto' }} value={asi.a} onChange={(e) => setAsi({ ...asi, a: e.target.value })}>{ABILITIES.map((a) => <option key={a} value={a} disabled={ch.abilities[a] >= 20}>{a.toUpperCase()} ({ch.abilities[a]})</option>)}</select>
-              {asi.mode === 'two' && <select className="select" style={{ width: 'auto' }} value={asi.b} onChange={(e) => setAsi({ ...asi, b: e.target.value })}>{ABILITIES.map((a) => <option key={a} value={a} disabled={ch.abilities[a] >= 20}>{a.toUpperCase()} ({ch.abilities[a]})</option>)}</select>}
+              <div className="tabs" style={{ width: 240 }}>
+                <button {...tip(() => describeAsiMode('two'))} className={asi.mode === 'two' ? 'on' : ''} onClick={() => setAsi({ ...asi, mode: 'two' })}>+1 / +1</button>
+                <button {...tip(() => describeAsiMode('one'))} className={asi.mode === 'one' ? 'on' : ''} onClick={() => setAsi({ ...asi, mode: 'one' })}>+2 to one</button>
+              </div>
+              <span className="tiny muted">{asi.mode === 'one' ? 'Pick one ability for +2.' : 'Pick two abilities for +1 each.'}</span>
+            </div>
+            <div className="chips" style={{ marginTop: 8 }}>
+              {ABILITIES.map((a) => {
+                const add = asi.mode === 'one' ? 2 : 1;
+                const on = asi.mode === 'one' ? asi.a === a : asi.a === a || asi.b === a;
+                const score = ch.abilities[a];
+                // +1/+1: a third pick replaces the older of the two
+                const pickAbility = () => { if (on) return; setAsi(asi.mode === 'one' ? { ...asi, a } : { ...asi, a: asi.b, b: a }); };
+                return (
+                  <button key={a} {...tip(() => describeAsiAbility(a, score, add, srd))} className={`chip ${on ? 'on' : ''}`} disabled={score >= 20 && !on} onClick={pickAbility}>
+                    {a.toUpperCase()} {score}{on ? ` → ${Math.min(20, score + add)}` : ''}
+                  </button>
+                );
+              })}
             </div>
             {!asiOk && <div className="tiny error-text">Pick two different abilities for +1 / +1 (or use +2 to one).</div>}
           </section>
@@ -199,7 +231,7 @@ function LevelDetails({ ch, srd, classKey, onBack, onClose, onAgain }) {
           <section>
             <div className="sub-h row">{mcSkills ? 'New skill' : 'Bonus skills (College of Lore)'} <span className="spacer" />{count(skills.length, skillNeed)}</div>
             <div className="lu-cards two">
-              {skillPool.map((s) => <OptionCard key={s} on={skills.includes(s)} title={SKILL_NAMES[s] || titleIndex(s)} meta={SKILL_ABILITY[s] || ''} onClick={() => toggle(skills, setSkills, s, skillNeed, 'skills')} />)}
+              {skillPool.map((s) => <OptionCard key={s} on={skills.includes(s)} title={SKILL_NAMES[s] || titleIndex(s)} meta={SKILL_ABILITY[s] || ''} info={() => describeSkill(s, srd)} onClick={() => toggle(skills, setSkills, s, skillNeed, 'skills')} />)}
             </div>
           </section>
         )}
@@ -209,7 +241,7 @@ function LevelDetails({ ch, srd, classKey, onBack, onClose, onAgain }) {
             <div className="sub-h row">Expertise <span className="spacer" />{count(expertise.length, expertNeed)}</div>
             <div className="tiny muted" style={{ marginBottom: 6 }}>Your proficiency bonus is doubled for these skills.</div>
             <div className="lu-cards two">
-              {expertPool.map((s) => <OptionCard key={s} on={expertise.includes(s)} title={SKILL_NAMES[s] || titleIndex(s)} meta={SKILL_ABILITY[s] || ''} onClick={() => toggle(expertise, setExpertise, s, expertNeed, 'skills')} />)}
+              {expertPool.map((s) => <OptionCard key={s} on={expertise.includes(s)} title={SKILL_NAMES[s] || titleIndex(s)} meta={SKILL_ABILITY[s] || ''} info={() => describeExpertise(s, srd)} onClick={() => toggle(expertise, setExpertise, s, expertNeed, 'skills')} />)}
             </div>
           </section>
         )}
@@ -245,7 +277,7 @@ const SKILL_ABILITY = {
 };
 
 /** A full-width choice card: a check, the name, a short line of details and the description, all in the bubble. */
-function OptionCard({ on, onClick, title, meta, text, children }) {
+function OptionCard({ on, onClick, title, meta, text, info, children }) {
   const [more, setMore] = useState(false);
   const [cut, setCut] = useState(false);
   const ref = useRef(null);
@@ -253,7 +285,7 @@ function OptionCard({ on, onClick, title, meta, text, children }) {
   useLayoutEffect(() => { const el = ref.current; if (el && !more) setCut(el.scrollHeight > el.clientHeight + 2); }, [text, more]);
   const long = cut || more;
   return (
-    <div role="button" tabIndex={0} aria-pressed={on} className={`lu-card ${on ? 'on' : ''}`} onClick={onClick} onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), onClick())}>
+    <div {...tip(info || (() => ({ title, meta, text })))} role="button" tabIndex={0} aria-pressed={on} className={`lu-card ${on ? 'on' : ''}`} onClick={onClick} onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), onClick())}>
       <span className="lu-check">{on ? '✓' : ''}</span>
       <div className="grow" style={{ minWidth: 0 }}>
         <div className="lu-title">{title}</div>
@@ -273,7 +305,7 @@ function SpellOption({ spell: s, on, onClick }) {
   const kind = s.level ? `${ORD(s.level)}-level ${String(s.school || '').toLowerCase()}` : `${String(s.school || '').toLowerCase()} cantrip`;
   const meta = [kind + (s.ritual ? ' (ritual)' : ''), s.castingTime, s.range + (s.area ? ` (${s.area.size}-ft ${s.area.type})` : ''), (s.components || []).join(', '), `${s.concentration ? 'concentration, ' : ''}${s.duration || ''}`].filter(Boolean).join(' · ');
   const text = [s.desc, s.higherLevel && `**At higher levels.** ${s.higherLevel}`].filter(Boolean).join('\n\n');
-  return <OptionCard on={on} onClick={onClick} title={s.name} meta={meta} text={text} />;
+  return <OptionCard on={on} onClick={onClick} title={s.name} meta={meta} text={text} info={() => describeSpell(s)} />;
 }
 
 const PRIMARY = { barbarian: 'str', bard: 'cha', cleric: 'wis', druid: 'wis', fighter: 'str', monk: 'dex', paladin: 'str', ranger: 'dex', rogue: 'dex', sorcerer: 'cha', warlock: 'cha', wizard: 'int' };

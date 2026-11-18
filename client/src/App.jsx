@@ -12,6 +12,7 @@ import CampaignHome from './screens/CampaignHome.jsx';
 import CharacterCreator from './creator/CharacterCreator.jsx';
 import GameTable from './table/GameTable.jsx';
 import Toasts from './components/Toasts.jsx';
+import { ChoiceTipLayer } from './components/ChoiceTip.jsx';
 
 export default function App() {
   const { user, route, setUser, setSrd } = useStore();
@@ -50,6 +51,7 @@ export default function App() {
     <>
       {screen}
       <Toasts />
+      <ChoiceTipLayer />
     </>
   );
 }

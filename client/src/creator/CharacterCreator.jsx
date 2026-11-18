@@ -3,26 +3,16 @@ import { api } from '../lib/api.js';
 import { useStore } from '../lib/store.js';
 import { TopNav, Splash } from '../App.jsx';
 import { Avatar, fmtMod, titleIndex, Markdown } from '../lib/format.jsx';
-import { STANDARD_ARRAY, POINT_BUY_COSTS, POINT_BUY_BUDGET, ALIGNMENTS, CLASS_COLORS, pointBuyCost, racialBonuses, startingEquipmentOptions, spellOptions, buildCharacter } from '../../../shared/charbuild.js';
+import { STANDARD_ARRAY, POINT_BUY_COSTS, POINT_BUY_BUDGET, ALIGNMENTS, CLASS_COLORS, pointBuyCost, racialBonuses, startingEquipmentOptions, spellOptions, buildCharacter, creationFeatureChoices } from '../../../shared/charbuild.js';
 import { deriveCharacter, abilityMod, ABILITIES, SKILL_NAMES } from '../../../shared/rules.js';
+import {
+  CLASS_BLURB, ABILITY_LONG as ABIL_NAMES, describeRace, describeSubrace, describeClass, describeSubclass, describeBackground, describeAlignment,
+  describeCharacterQuestion, describeNameIdea, describeAbility, describeAbilityMethod, describeBonusChoice, describeSkill, describeExpertise,
+  describeSpell, describeChoiceOption, describeEquipmentOption, describeItem, itemSummary, describeHpMethod, optionName,
+} from '../../../shared/choiceinfo.js';
 import { rollDice } from '../../../shared/dice.js';
 import SpellCard from '../sheet/SpellCard.jsx';
-
-const ABIL_NAMES = { str: 'Strength', dex: 'Dexterity', con: 'Constitution', int: 'Intelligence', wis: 'Wisdom', cha: 'Charisma' };
-const CLASS_BLURB = {
-  barbarian: 'A storm of fury and muscle. Rages to shrug off blows and hit harder.',
-  bard: 'A performer whose words and music are literal magic. Inspires allies, charms foes.',
-  cleric: 'A chosen servant of a god. Heals, protects, and smites with divine power.',
-  druid: 'A keeper of the wild who wields nature magic and takes the shapes of beasts.',
-  fighter: 'A master of weapons and armor. Reliable, versatile, and hard to kill.',
-  monk: 'A disciplined martial artist who channels ki into blinding speed and strikes.',
-  paladin: 'A holy knight bound by an oath. Heavy armor, healing hands, radiant smites.',
-  ranger: 'A hunter and tracker of the wilds, deadly with bow and blade.',
-  rogue: 'A sneak, a scout, a specialist. Strikes precisely when the foe is distracted.',
-  sorcerer: 'Magic flows in your blood. Fewer spells, but you can bend them to your will.',
-  warlock: 'Power bargained from an otherworldly patron. Eldritch blasts and dark gifts.',
-  wizard: 'A scholar of the arcane with a spellbook full of world-shaping magic.',
-};
+import { tip, TipHint } from '../components/ChoiceTip.jsx';
 const STEPS = ['Concept', 'Abilities', 'Skills', 'Spells', 'Gear', 'Personality', 'Review'];
 const CLASS_PRIORITY = {
   barbarian: ['str', 'con', 'dex', 'wis', 'cha', 'int'], bard: ['cha', 'dex', 'con', 'wis', 'int', 'str'], cleric: ['wis', 'con', 'str', 'dex', 'cha', 'int'],
@@ -50,7 +40,7 @@ export default function CharacterCreator({ campaignId }) {
   const [ch, setCh] = useState({
     name: '', race: 'human', subrace: null, class: 'fighter', subclass: null, background: 'soldier', alignment: 'Neutral Good',
     abilityMethod: 'standard', base: { str: 15, dex: 13, con: 14, int: 8, wis: 12, cha: 10 }, rolled: null, bonusChoices: [],
-    skills: [], expertise: [], equipment: [], cantrips: [], spells: [], hpMethod: 'average',
+    skills: [], expertise: [], equipment: [], cantrips: [], spells: [], featureOptions: {}, hpMethod: 'average',
     personality: { traits: '', ideals: '', bonds: '', flaws: '' }, appearance: '', backstory: '', portrait: null, color: null, prompt: '',
   });
   const up = (patch) => setCh((c) => ({ ...c, ...patch }));
@@ -86,6 +76,8 @@ function CreatorBody({ srd, camp, ch, up, step, setStep, busy, setBusy, go, toas
   const bg = srd.by.backgrounds.get(ch.background);
   const level = Number(startLevel) || 1;
   const needsSubclass = cls && level >= (cls.subclassLevel || 3);
+  const subclassKey = needsSubclass ? ch.subclass || cls?.subclasses?.[0]?.index || null : null;
+  const featureChoices = useMemo(() => { try { return creationFeatureChoices(ch.class, subclassKey, level, srd); } catch { return []; } }, [ch.class, subclassKey, level, srd]);
   const spellInfo = useMemo(() => {
     try { return spellOptions(ch.class, level, srd, { abilities: finalAbilities(), subclass: ch.subclass }); } catch { return null; }
   }, [ch.class, level, ch.subclass, ch.base, ch.race, ch.subrace, ch.bonusChoices]); // eslint-disable-line
@@ -102,9 +94,10 @@ function CreatorBody({ srd, camp, ch, up, step, setStep, busy, setBusy, go, toas
   }
   function choices() {
     return {
-      name: ch.name.trim() || 'Nameless', race: ch.race, subrace: sub?.index || null, class: ch.class, subclass: needsSubclass ? ch.subclass || cls?.subclasses?.[0]?.index : null,
+      name: ch.name.trim() || 'Nameless', race: ch.race, subrace: sub?.index || null, class: ch.class, subclass: subclassKey,
       background: ch.background, alignment: ch.alignment, level, baseAbilities: ch.base, abilityMethod: ch.abilityMethod, bonusChoices: ch.bonusChoices,
       skills: ch.skills, expertise: ch.expertise, equipment: ch.equipment, cantrips: ch.cantrips, spells: ch.spells, prepared: ch.spells, hpMethod: ch.hpMethod,
+      featureOptions: ch.featureOptions,
       personality: ch.personality, appearance: ch.appearance, backstory: ch.backstory, portrait: ch.portrait, color: ch.color || CLASS_COLORS[ch.class], playerName: user.displayName,
     };
   }
@@ -134,6 +127,7 @@ function CreatorBody({ srd, camp, ch, up, step, setStep, busy, setBusy, go, toas
             <div>
               <h1 className="title" style={{ marginBottom: 2 }}>Create your character</h1>
               <div className="muted">Level {level} · for <b>{camp.world?.title || camp.campaign.name}</b>{joining && level > 1 ? ` · joining at level ${level} to match the party` : ''}</div>
+              <TipHint />
             </div>
             <div className="stepper">
               {visibleSteps.map((s, i) => (
@@ -146,12 +140,12 @@ function CreatorBody({ srd, camp, ch, up, step, setStep, busy, setBusy, go, toas
 
           <div className="creator-grid">
             <div className="card pad creator-main fade-in" key={cur}>
-              {cur === 'Concept' && <ConceptStep {...{ srd, ch, up, cls, race, sub, bg, needsSubclass, camp }} />}
-              {cur === 'Abilities' && <AbilitiesStep {...{ ch, up, race, sub, bonuses: bonuses(), final: finalAbilities(), cls }} />}
+              {cur === 'Concept' && <ConceptStep {...{ srd, ch, up, cls, race, sub, bg, needsSubclass, camp, level, featureChoices, built: preview.c }} />}
+              {cur === 'Abilities' && <AbilitiesStep {...{ srd, ch, up, race, sub, bonuses: bonuses(), final: finalAbilities(), cls }} />}
               {cur === 'Skills' && <SkillsStep {...{ srd, ch, up, cls, bg, race, sub, level }} />}
               {cur === 'Spells' && <SpellsStep {...{ ch, up, spellInfo, cls }} />}
               {cur === 'Gear' && <GearStep {...{ srd, ch, up, cls, bg }} />}
-              {cur === 'Personality' && <PersonalityStep {...{ ch, up, bg, campaignId, toast, camp, choices }} />}
+              {cur === 'Personality' && <PersonalityStep {...{ ch, up, bg, campaignId, toast, choices }} />}
               {cur === 'Review' && <ReviewStep {...{ preview, ch, up, srd }} />}
               <div className="row" style={{ marginTop: 22 }}>
                 {step > 0 && <button className="btn" onClick={() => setStep(step - 1)}>← Back</button>}
@@ -199,14 +193,52 @@ function PreviewCard({ preview, ch }) {
   );
 }
 
-function ConceptStep({ srd, ch, up, cls, race, sub, bg, needsSubclass, camp }) {
+/** The options of a class feature choice that are picked: the player's own, else what the builder chose for them. */
+function featurePicks(fc, mine, built) {
+  const own = (mine?.[fc.index] || []).filter((x) => fc.options.some((o) => o.index === x));
+  if (own.length) return own;
+  if (fc.words) {
+    const m = /^Chosen: (.*)$/m.exec(built?.features?.find((f) => f.index === fc.index)?.desc || '');
+    return m ? m[1].split(', ') : [];
+  }
+  const ids = new Set(fc.options.map((o) => o.index));
+  return (built?.features || []).filter((f) => ids.has(f.index) && f.level === fc.level).map((f) => f.index);
+}
+
+function FeatureChoices({ featureChoices, ch, up, built, level }) {
+  return featureChoices.map((fc) => {
+    const picked = featurePicks(fc, ch.featureOptions, built);
+    const need = Math.min(fc.choose || 1, fc.options.length);
+    const pick = (o) => {
+      const on = picked.includes(o.index);
+      const next = need === 1 ? [o.index] : on ? picked.filter((x) => x !== o.index) : [...picked, o.index].slice(-need);
+      up({ featureOptions: { ...ch.featureOptions, [fc.index]: next } });
+    };
+    return (
+      <div className="field" key={fc.index}>
+        <span {...tip(() => ({ title: fc.name, meta: `Class feature${level > 1 ? ` · level ${fc.level}` : ''}`, text: fc.desc || `Choose ${need}.` }))}>
+          {fc.name}{need > 1 ? `: choose ${need}` : ''}{level > 1 ? ` (level ${fc.level})` : ''}{need > 1 && <i className="muted"> · {picked.length}/{need}</i>}
+        </span>
+        <div className="chips">
+          {fc.options.map((o) => (
+            <button key={o.index} {...tip(() => describeChoiceOption(o, fc))} className={`chip ${picked.includes(o.index) ? 'on' : ''}`} onClick={() => pick(o)}>
+              {fc.words ? titleIndex(o.name) : optionName(o.name)}
+            </button>
+          ))}
+        </div>
+      </div>
+    );
+  });
+}
+
+function ConceptStep({ srd, ch, up, cls, race, sub, bg, needsSubclass, camp, level, featureChoices, built }) {
   return (
     <div className="col" style={{ gap: 18 }}>
       <label className="field"><span>Name</span><input className="input" style={{ fontSize: 18, fontFamily: 'var(--display)' }} value={ch.name} onChange={(e) => up({ name: e.target.value })} placeholder="What do they call you?" autoFocus /></label>
       <div className="field"><span>Race</span>
         <div className="pick-grid">
           {srd.races.map((r) => (
-            <button key={r.index} className={`pick ${ch.race === r.index ? 'on' : ''}`} onClick={() => up({ race: r.index, subrace: r.subraces?.[0]?.index || null, bonusChoices: [] })}>
+            <button key={r.index} {...tip(() => describeRace(r, srd))} className={`pick ${ch.race === r.index ? 'on' : ''}`} onClick={() => up({ race: r.index, subrace: r.subraces?.[0]?.index || null, bonusChoices: [] })}>
               <b>{r.name}</b>
               <span>{Object.entries(r.abilityBonuses || {}).map(([k, v]) => `${k.toUpperCase()} +${v}`).join(', ')}{r.bonusChoices ? ` +${r.bonusChoices.amount} ×${r.bonusChoices.choose}` : ''}</span>
               <span>{r.speed} ft{r.darkvision ? ` · darkvision ${r.darkvision}` : ''}</span>
@@ -216,14 +248,14 @@ function ConceptStep({ srd, ch, up, cls, race, sub, bg, needsSubclass, camp }) {
       </div>
       {race?.subraces?.length > 0 && (
         <div className="field"><span>Subrace</span>
-          <div className="chips">{race.subraces.map((s) => <button key={s.index} className={`chip ${sub?.index === s.index ? 'on' : ''}`} onClick={() => up({ subrace: s.index })}>{s.name}</button>)}</div>
+          <div className="chips">{race.subraces.map((s) => <button key={s.index} {...tip(() => describeSubrace(s, race, srd))} className={`chip ${sub?.index === s.index ? 'on' : ''}`} onClick={() => up({ subrace: s.index })}>{s.name}</button>)}</div>
         </div>
       )}
       {race && <details className="lore"><summary>{race.name} traits</summary>{[...(race.traits || []), ...(sub?.traits || [])].map((t) => <p key={t.index}><b>{t.name}.</b> {t.desc.slice(0, 400)}</p>)}</details>}
       <div className="field"><span>Class</span>
         <div className="pick-grid">
           {srd.classes.map((c) => (
-            <button key={c.index} className={`pick ${ch.class === c.index ? 'on' : ''}`} onClick={() => up({ class: c.index, subclass: c.subclasses?.[0]?.index || null, skills: [], expertise: [], equipment: [], cantrips: [], spells: [], ...(ch.abilityMethod === 'manual' ? {} : { base: arrangeFor(c.index, ch.base) }) })} style={{ '--pc': CLASS_COLORS[c.index] }}>
+            <button key={c.index} {...tip(() => describeClass(c, srd))} className={`pick ${ch.class === c.index ? 'on' : ''}`} onClick={() => up({ class: c.index, subclass: c.subclasses?.[0]?.index || null, skills: [], expertise: [], equipment: [], cantrips: [], spells: [], featureOptions: {}, ...(ch.abilityMethod === 'manual' ? {} : { base: arrangeFor(c.index, ch.base) }) })} style={{ '--pc': CLASS_COLORS[c.index] }}>
               <b>{c.name}</b>
               <span>d{c.hitDie} · {(c.primaryAbility || '').toUpperCase()}{c.spellcasting ? ' · magic' : ''}</span>
               <span className="blurb">{CLASS_BLURB[c.index]}</span>
@@ -233,30 +265,34 @@ function ConceptStep({ srd, ch, up, cls, race, sub, bg, needsSubclass, camp }) {
       </div>
       {needsSubclass && cls?.subclasses?.length > 0 && (
         <div className="field"><span>{cls.subclassFlavor || 'Subclass'}</span>
-          <div className="chips">{cls.subclasses.map((s) => <button key={s.index} className={`chip ${(ch.subclass || cls.subclasses[0].index) === s.index ? 'on' : ''}`} onClick={() => up({ subclass: s.index })}>{s.name}</button>)}</div>
+          <div className="chips">{cls.subclasses.map((s) => <button key={s.index} {...tip(() => describeSubclass(s, cls, level))} className={`chip ${(ch.subclass || cls.subclasses[0].index) === s.index ? 'on' : ''}`} onClick={() => up({ subclass: s.index })}>{s.name}</button>)}</div>
         </div>
       )}
-      <div className="row wrap" style={{ gap: 18, alignItems: 'flex-start' }}>
-        <label className="field grow" style={{ minWidth: 220 }}><span>Background</span>
-          <select className="select" value={ch.background} onChange={(e) => up({ background: e.target.value })}>
-            {srd.backgrounds.map((b) => <option key={b.index} value={b.index}>{b.name} ({b.skills.map((s) => SKILL_NAMES[s]).join(', ')})</option>)}
-          </select>
-        </label>
-        <label className="field grow" style={{ minWidth: 200 }}><span>Alignment</span>
-          <select className="select" value={ch.alignment} onChange={(e) => up({ alignment: e.target.value })}>{ALIGNMENTS.map((a) => <option key={a}>{a}</option>)}</select>
-        </label>
+      <FeatureChoices {...{ featureChoices, ch, up, built, level }} />
+      <div className="field"><span>Background</span>
+        <div className="pick-grid">
+          {srd.backgrounds.map((b) => (
+            <button key={b.index} {...tip(() => describeBackground(b, srd))} className={`pick ${ch.background === b.index ? 'on' : ''}`} onClick={() => up({ background: b.index })}>
+              <b>{b.name}</b>
+              <span>{b.skills.map((s) => SKILL_NAMES[s]).join(', ')}</span>
+            </button>
+          ))}
+        </div>
       </div>
       {bg?.feature && <div className="lore"><b>{bg.feature.name}.</b> {bg.feature.desc}</div>}
+      <div className="field"><span>Alignment</span>
+        <div className="chips">{ALIGNMENTS.map((a) => <button key={a} {...tip(() => describeAlignment(a))} className={`chip ${ch.alignment === a ? 'on' : ''}`} onClick={() => up({ alignment: a })}>{a}</button>)}</div>
+      </div>
       {camp.world?.characterPrompts?.length > 0 && (
         <div className="field"><span>Answer one of the campaign's character questions (optional)</span>
-          <div className="col">{camp.world.characterPrompts.map((p) => <button key={p} className={`pick wide ${ch.prompt === p ? 'on' : ''}`} onClick={() => up({ prompt: ch.prompt === p ? '' : p })}><span className="story" style={{ fontSize: 15.5 }}>✦ {p}</span></button>)}</div>
+          <div className="col">{camp.world.characterPrompts.map((p) => <button key={p} {...tip(() => describeCharacterQuestion(p))} className={`pick wide ${ch.prompt === p ? 'on' : ''}`} onClick={() => up({ prompt: ch.prompt === p ? '' : p })}><span className="story" style={{ fontSize: 15.5 }}>✦ {p}</span></button>)}</div>
         </div>
       )}
     </div>
   );
 }
 
-function AbilitiesStep({ ch, up, race, sub, bonuses, final, cls }) {
+function AbilitiesStep({ srd, ch, up, race, sub, bonuses, final, cls }) {
   const method = ch.abilityMethod;
   const setBase = (a, v) => up({ base: { ...ch.base, [a]: v } });
   const cost = method === 'pointbuy' ? pointBuyCost(ch.base) : 0;
@@ -279,7 +315,7 @@ function AbilitiesStep({ ch, up, race, sub, bonuses, final, cls }) {
   return (
     <div className="col" style={{ gap: 16 }}>
       <div className="tabs">
-        {[['standard', 'Standard array'], ['pointbuy', 'Point buy'], ['roll', 'Roll 4d6'], ['manual', 'Enter my own']].map(([k, l]) => <button key={k} className={method === k ? 'on' : ''} onClick={() => setMethod(k)}>{l}</button>)}
+        {[['standard', 'Standard array'], ['pointbuy', 'Point buy'], ['roll', 'Roll 4d6'], ['manual', 'Enter my own']].map(([k, l]) => <button key={k} {...tip(() => describeAbilityMethod(k))} className={method === k ? 'on' : ''} onClick={() => setMethod(k)}>{l}</button>)}
       </div>
       <p className="muted small" style={{ margin: 0 }}>
         {method === 'standard' && 'Assign 15, 14, 13, 12, 10 and 8 - each once.'}
@@ -292,14 +328,14 @@ function AbilitiesStep({ ch, up, race, sub, bonuses, final, cls }) {
         <div className="field"><span>{race.name}: choose {race.bonusChoices.choose} abilities for +{race.bonusChoices.amount}</span>
           <div className="chips">{race.bonusChoices.from.map((a) => {
             const on = ch.bonusChoices.includes(a);
-            return <button key={a} className={`chip ${on ? 'on' : ''}`} onClick={() => up({ bonusChoices: on ? ch.bonusChoices.filter((x) => x !== a) : [...ch.bonusChoices, a].slice(-race.bonusChoices.choose) })}>{ABIL_NAMES[a]}</button>;
+            return <button key={a} {...tip(() => describeBonusChoice(a, race.bonusChoices.amount, srd))} className={`chip ${on ? 'on' : ''}`} onClick={() => up({ bonusChoices: on ? ch.bonusChoices.filter((x) => x !== a) : [...ch.bonusChoices, a].slice(-race.bonusChoices.choose) })}>{ABIL_NAMES[a]}</button>;
           })}</div>
         </div>
       )}
       <div className="abil-grid">
         {ABILITIES.map((a) => (
           <div key={a} className={`abil-box ${cls?.primaryAbility === a ? 'primary' : ''}`}>
-            <div className="abil-name">{ABIL_NAMES[a]}</div>
+            <div className="abil-name" {...tip(() => describeAbility(a, srd))}>{ABIL_NAMES[a]}</div>
             {method === 'pointbuy' ? (
               <div className="row" style={{ justifyContent: 'center' }}>
                 <button className="btn xs" disabled={ch.base[a] <= 8} onClick={() => setBase(a, ch.base[a] - 1)}>−</button>
@@ -350,8 +386,9 @@ function SkillsStep({ srd, ch, up, cls, bg, race, sub }) {
           const allowed = from.includes(s);
           const on = isFixed || ch.skills.includes(s);
           const skill = srd.skills.find?.((x) => x.key === s);
+          const why = isFixed ? `Already yours from ${bg?.skills?.includes(s) ? `your background (${bg.name})` : 'your race'}.` : !allowed ? `Not on the ${cls?.name || 'class'} skill list.` : '';
           return (
-            <button key={s} className={`skill-pick ${on ? 'on' : ''} ${isFixed ? 'fixed' : ''}`} disabled={!isFixed && !allowed} onClick={() => toggle(s)} title={skill?.desc}>
+            <button key={s} {...tip(() => { const d = describeSkill(s, srd); return d && { ...d, text: why ? `${d.text}\n\n*${why}*` : d.text }; })} className={`skill-pick ${on ? 'on' : ''} ${isFixed ? 'fixed' : ''}`} disabled={!isFixed && !allowed} onClick={() => toggle(s)}>
               <span className="dot" />{SKILL_NAMES[s]} <i>{skill?.ability?.toUpperCase()}</i>
               {isFixed && <em>{bg?.skills?.includes(s) ? bg.name : 'race'}</em>}
             </button>
@@ -363,7 +400,7 @@ function SkillsStep({ srd, ch, up, cls, bg, race, sub }) {
           <div><b>Expertise:</b> <span className="muted small">pick {expertiseN} of your proficient skills to double your proficiency bonus</span></div>
           <div className="chips">{profs.map((s) => {
             const on = ch.expertise.includes(s);
-            return <button key={s} className={`chip ${on ? 'on' : ''}`} onClick={() => up({ expertise: on ? ch.expertise.filter((x) => x !== s) : [...ch.expertise, s].slice(-expertiseN) })}>{SKILL_NAMES[s]}</button>;
+            return <button key={s} {...tip(() => describeExpertise(s, srd))} className={`chip ${on ? 'on' : ''}`} onClick={() => up({ expertise: on ? ch.expertise.filter((x) => x !== s) : [...ch.expertise, s].slice(-expertiseN) })}>{SKILL_NAMES[s]}</button>;
           })}</div>
         </>
       )}
@@ -408,7 +445,7 @@ function SpellsStep({ ch, up, spellInfo, cls }) {
 function SpellPick({ s, on, onToggle, onInfo }) {
   return (
     <div className={`spell-pick ${on ? 'on' : ''}`}>
-      <button className="spell-pick-main" onClick={onToggle}>
+      <button {...tip(() => describeSpell(s))} className="spell-pick-main" onClick={onToggle}>
         <span className="dot" />
         <span className="grow"><b>{s.name}</b><span className="tiny muted">{s.level ? `L${s.level}` : 'cantrip'} · {s.school}{s.concentration ? ' · conc.' : ''}{s.ritual ? ' · ritual' : ''}{s.damage ? ` · ${s.damage.type}` : ''}{s.heal ? ' · healing' : ''}</span></span>
       </button>
@@ -430,20 +467,21 @@ function GearStep({ srd, ch, up, cls, bg }) {
           <div key={i} className="gear-set">
             <div className="tiny muted" style={{ marginBottom: 6 }}>{set.desc}</div>
             <div className="chips">
-              {set.options.map((o, oi) => <button key={oi} className={`chip ${s.option === oi ? 'on' : ''}`} onClick={() => setSel(i, { option: oi, picks: [] })}>{o.label}{o.note ? ` (${o.note})` : ''}</button>)}
+              {set.options.map((o, oi) => <button key={oi} {...tip(() => describeEquipmentOption(o, srd))} className={`chip ${s.option === oi ? 'on' : ''}`} onClick={() => setSel(i, { option: oi, picks: [] })}>{o.label}{o.note ? ` (${o.note})` : ''}</button>)}
             </div>
             {set.options[s.option]?.picks?.map((p, pi) => (
               <div key={pi} className="row wrap" style={{ marginTop: 8, gap: 6 }}>
                 <span className="small muted">{p.desc}:</span>
                 {Array.from({ length: p.choose }).map((_, k) => (
-                  <select key={k} className="select" style={{ width: 'auto', minWidth: 160 }} value={s.picks?.[pi]?.[k] || ''} onChange={(e) => {
+                  <select key={k} {...tip(() => { const v = s.picks?.[pi]?.[k]; const it = p.from.find((f) => f.index === v); return it ? describeItem(it, srd) : { title: 'Recommended', meta: p.desc, text: 'Leave it on (recommended) and one is picked for you; for weapons, the hardest-hitting one for your ability scores. Each choice in the list shows its damage or armor.' }; })}
+                    className="select" style={{ width: 'auto', minWidth: 160 }} value={s.picks?.[pi]?.[k] || ''} onChange={(e) => {
                     const picks = (s.picks || []).map((x) => [...(x || [])]);
                     while (picks.length <= pi) picks.push([]);
                     picks[pi][k] = e.target.value;
                     setSel(i, { ...s, picks });
                   }}>
                     <option value="">(recommended)</option>
-                    {p.from.map((f) => <option key={f.index} value={f.index}>{f.name}</option>)}
+                    {p.from.map((f) => { const sum = itemSummary(f, srd); return <option key={f.index} value={f.index}>{f.name}{sum ? ` (${sum})` : ''}</option>; })}
                   </select>
                 ))}
               </div>
@@ -456,7 +494,17 @@ function GearStep({ srd, ch, up, cls, bg }) {
   );
 }
 
-function PersonalityStep({ ch, up, bg, campaignId, toast, camp, choices }) {
+// Defined out here, not inside PersonalityStep: a component made during render is a new component every render,
+// so React would swap the textarea for a fresh one on every keystroke and the field would lose focus.
+function PersonalityField({ label, value, onChange, canSuggest, onSuggest }) {
+  return (
+    <label className="field"><span className="row">{label}<span className="spacer" />{canSuggest && <button type="button" className="btn ghost xs" onClick={onSuggest}>🎲 suggest</button>}</span>
+      <textarea className="textarea" style={{ minHeight: 56 }} value={value} onChange={(e) => onChange(e.target.value)} />
+    </label>
+  );
+}
+
+function PersonalityStep({ ch, up, bg, campaignId, toast, choices }) {
   const [asking, setAsking] = useState(false);
   const [names, setNames] = useState([]);
   const sug = bg?.suggestions || {};
@@ -489,24 +537,20 @@ function PersonalityStep({ ch, up, bg, campaignId, toast, camp, choices }) {
     };
     img.src = URL.createObjectURL(f);
   }
-  const Field = ({ k, label }) => (
-    <label className="field"><span className="row">{label}<span className="spacer" />{sug[k]?.length > 0 && <button type="button" className="btn ghost xs" onClick={() => setP(k, rand(sug[k]))}>🎲 suggest</button>}</span>
-      <textarea className="textarea" style={{ minHeight: 56 }} value={ch.personality[k]} onChange={(e) => setP(k, e.target.value)} />
-    </label>
-  );
+  const field = (k, label) => <PersonalityField key={k} label={label} value={ch.personality[k]} onChange={(v) => setP(k, v)} canSuggest={sug[k]?.length > 0} onSuggest={() => setP(k, rand(sug[k]))} />;
   return (
     <div className="col" style={{ gap: 14 }}>
       <div className="assist-banner">
         <div className="grow"><b>Stuck? Ask the Dungeon Master.</b><div className="muted small">Claude reads the campaign world{ch.prompt ? ' and your chosen question' : ''}, then drafts a personality and backstory tied into it. You can edit everything.</div></div>
         <button className="btn primary" onClick={ask} disabled={asking}>{asking ? <span className="spinner" /> : '✨ Draft for me'}</button>
       </div>
-      {names.length > 0 && <div className="row wrap"><span className="small muted">Name ideas:</span>{names.map((n) => <button key={n} className="chip" onClick={() => up({ name: n })}>{n}</button>)}</div>}
+      {names.length > 0 && <div className="row wrap"><span className="small muted">Name ideas:</span>{names.map((n) => <button key={n} {...tip(() => describeNameIdea(n))} className={`chip ${ch.name === n ? 'on' : ''}`} onClick={() => up({ name: n })}>{n}</button>)}</div>}
       {ch.prompt && <div className="lore story">✦ {ch.prompt}</div>}
       <div className="two-col">
-        <Field k="traits" label="Personality traits" />
-        <Field k="ideals" label="Ideals" />
-        <Field k="bonds" label="Bonds" />
-        <Field k="flaws" label="Flaws" />
+        {field('traits', 'Personality traits')}
+        {field('ideals', 'Ideals')}
+        {field('bonds', 'Bonds')}
+        {field('flaws', 'Flaws')}
       </div>
       <label className="field"><span>Appearance</span><textarea className="textarea" style={{ minHeight: 56 }} value={ch.appearance} onChange={(e) => up({ appearance: e.target.value })} /></label>
       <label className="field"><span>Backstory</span><textarea className="textarea" style={{ minHeight: 150 }} value={ch.backstory} onChange={(e) => up({ backstory: e.target.value })} placeholder="Where do you come from? What do you want? Who do you owe?" /></label>
@@ -538,7 +582,10 @@ function ReviewStep({ preview, ch, up, srd }) {
       </div>
       {c.level > 1 && (
         <div className="row"><span className="small muted">Hit points per level after 1st:</span>
-          <div className="tabs" style={{ width: 260 }}><button className={ch.hpMethod === 'average' ? 'on' : ''} onClick={() => up({ hpMethod: 'average' })}>Average</button><button className={ch.hpMethod === 'max' ? 'on' : ''} onClick={() => up({ hpMethod: 'max' })}>Max (generous)</button></div>
+          <div className="tabs" style={{ width: 260 }}>
+            <button {...tip(() => describeHpMethod('average', srd.by.classes.get(c.class)?.hitDie))} className={ch.hpMethod === 'average' ? 'on' : ''} onClick={() => up({ hpMethod: 'average' })}>Average</button>
+            <button {...tip(() => describeHpMethod('max', srd.by.classes.get(c.class)?.hitDie))} className={ch.hpMethod === 'max' ? 'on' : ''} onClick={() => up({ hpMethod: 'max' })}>Max (generous)</button>
+          </div>
         </div>
       )}
       <div className="two-col">
