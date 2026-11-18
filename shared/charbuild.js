@@ -442,6 +442,68 @@ function languagePool(srd, from) {
   const all = srd?.languages ? [...byIndex(srd.languages).values()] : [];
   return all.length ? all.sort((a, b) => (a.type === b.type ? 0 : a.type === "Standard" ? -1 : 1)).map((l) => l.name) : STD_LANGS;
 }
+/** One choice group's picks: the player's own (in order), then defaults that aren't taken or wanted by another group. */
+function groupPicks(from, wanted, n, taken, avoid) {
+  const out = [];
+  for (const w of wanted) if (out.length < n && from.includes(w) && !taken.has(w) && !out.includes(w)) out.push(w);
+  for (const w of from) if (out.length < n && !taken.has(w) && !avoid.has(w) && !out.includes(w)) out.push(w);
+  for (const w of from) if (out.length < n && !taken.has(w) && !out.includes(w)) out.push(w);
+  return out;
+}
+
+/**
+ * The tool and language proficiencies a new character chooses (from race, subrace, class and background) and what
+ * each choice comes to. `choices` = buildCharacter's (race, subrace, class, background, tools, languages).
+ * -> { tools: [group], languages: [group], fixedTools: [name], fixedLanguages: [name] }
+ * group = { key: "class-0", kind: "tools"|"languages", source: "race"|"subrace"|"class"|"background", sourceName,
+ *           desc, choose, from: [name], picked: [name] }; `picked` = the player's picks for it, topped up with defaults.
+ * Picks go to buildCharacter as `tools: { [key]: [name] }` and `languages: { [key]: [name] }` (a plain list still
+ * works: each group takes the names on it that it offers).
+ */
+export function creationProficiencyChoices(choices = {}, srd = {}) {
+  const cls = get(srd, "classes", choices.class);
+  const race = get(srd, "races", choices.race);
+  const sub = race?.subraces?.find((s) => s.index === choices.subrace) || race?.subraces?.[0] || null;
+  const bg = get(srd, "backgrounds", choices.background) || null;
+  const fixedTools = [...(cls?.proficiencies?.tools || []), ...(race?.proficiencies?.tools || []), ...(sub?.proficiencies?.tools || []), ...(bg?.tools || [])];
+  const fixedLanguages = [...(race?.languages || []), ...(cls?.index === "druid" ? ["Druidic"] : []), ...(cls?.index === "rogue" ? ["Thieves' Cant"] : []), ...(bg?.languages || [])];
+  const tools = [];
+  const addTools = (groups, source, sourceName) => groups.forEach((g, i) => tools.push({
+    key: `${source}-${i}`, kind: "tools", source, sourceName, desc: g.desc || "Tool proficiency", choose: g.choose || 1, from: g.from || [],
+  }));
+  addTools(cls?.toolChoices || [], "class", cls?.name);
+  addTools((race?.proficiencyChoices || []).filter((p) => p.type === "tools"), "race", race?.name);
+  addTools((sub?.proficiencyChoices || []).filter((p) => p.type === "tools"), "subrace", sub?.name);
+  addTools(bg?.toolChoices || [], "background", bg?.name);
+  const languages = [[race?.languageChoices, "race", race?.name], [sub?.languageChoices, "subrace", sub?.name], [bg?.languageChoices, "background", bg?.name]]
+    .filter(([g]) => g)
+    .map(([g, source, sourceName]) => ({
+      key: `${source}-0`, kind: "languages", source, sourceName, choose: g.choose || 1, from: languagePool(srd, g.from),
+      desc: `${g.choose > 1 ? `${g.choose} languages` : "one language"} of your choice`,
+    }));
+  const resolve = (groups, input, fixed) => {
+    const flat = Array.isArray(input) || typeof input === "string";
+    const wantedFor = (key) => (flat ? asArray(input) : asArray(input?.[key]));
+    const avoid = new Set(flat ? asArray(input) : Object.values(input || {}).flatMap(asArray));
+    const taken = new Set(fixed);
+    for (const g of groups) {
+      g.picked = groupPicks(g.from, wantedFor(g.key), g.choose, taken, avoid);
+      g.picked.forEach((x) => taken.add(x));
+    }
+  };
+  resolve(tools, choices.tools, fixedTools);
+  resolve(languages, choices.languages, fixedLanguages);
+  return { tools, languages, fixedTools, fixedLanguages };
+}
+
+/** The items a background's equipment choices come to: the player's pick for each (index or name), else the first. */
+export function backgroundEquipmentPicks(bg, picks) {
+  return (bg?.equipmentChoices || []).map((g, gi) => {
+    const want = asArray(picks)[gi];
+    return g.from.find((f) => (f.index != null && f.index === want) || f.name === want) || g.from[0] || null;
+  });
+}
+
 function armorProficient(armorProfs, base) {
   if (!base || base.type !== "armor") return true;
   const set = new Set(armorProfs.map(normName));
@@ -482,14 +544,9 @@ export function buildCharacter(choices = {}, srd = {}) {
   const armor = [...(cls.proficiencies?.armor || []), ...(race.proficiencies?.armor || []), ...(sub?.proficiencies?.armor || [])];
   if (subclass?.index === "life") armor.push("Heavy Armor");
   const weapons = [...(cls.proficiencies?.weapons || []), ...(race.proficiencies?.weapons || []), ...(sub?.proficiencies?.weapons || [])];
-  const toolChoicesIn = asArray(choices.tools);
-  const tools = [...(cls.proficiencies?.tools || []), ...(race.proficiencies?.tools || []), ...(sub?.proficiencies?.tools || []), ...(bg?.tools || [])];
-  const toolGroups = [
-    ...(cls.toolChoices || []),
-    ...[...(race.proficiencyChoices || []), ...(sub?.proficiencyChoices || [])].filter((p) => p.type === "tools"),
-    ...(bg?.toolChoices || []),
-  ];
-  for (const g of toolGroups) tools.push(...fillFrom(g.from, toolChoicesIn, g.choose, new Set(tools)));
+  // tools and languages: fixed ones plus the player's picks for each choice (defaults where they made none)
+  const profChoices = creationProficiencyChoices({ ...choices, class: classKey, race: race.index, subrace: sub?.index, background: bg?.index }, srd);
+  const tools = [...profChoices.fixedTools, ...profChoices.tools.flatMap((g) => g.picked)];
 
   // skills
   const fixedSkills = uniq([...(bg?.skills || []), ...(race.proficiencies?.skills || []), ...(sub?.proficiencies?.skills || [])]);
@@ -528,13 +585,7 @@ export function buildCharacter(choices = {}, srd = {}) {
   }
 
   // languages
-  const languages = [...(race.languages || [])];
-  if (classKey === "druid") languages.push("Druidic");
-  if (classKey === "rogue") languages.push("Thieves' Cant");
-  const langWanted = asArray(choices.languages);
-  for (const g of [race.languageChoices, sub?.languageChoices, bg?.languageChoices].filter(Boolean)) {
-    languages.push(...fillFrom(languagePool(srd, g.from), langWanted, g.choose, new Set(languages)));
-  }
+  const languages = [...profChoices.fixedLanguages, ...profChoices.languages.flatMap((g) => g.picked)];
 
   // hit points
   const con = abilityMod(abilities.con);
@@ -568,11 +619,7 @@ export function buildCharacter(choices = {}, srd = {}) {
     classItems = resolveStartingEquipment(classKey, eqIn, srd, { isProficient, abilities });
   }
   const bgItems = [...(bg?.equipment || []).map((i) => ({ ...i }))];
-  (bg?.equipmentChoices || []).forEach((g, gi) => {
-    const want = asArray(choices.backgroundEquipment)[gi];
-    const found = g.from.find((f) => f.index === want || f.name === want) || g.from[0];
-    if (found) bgItems.push({ ...found });
-  });
+  for (const found of backgroundEquipmentPicks(bg, choices.backgroundEquipment)) if (found) bgItems.push({ ...found });
   const items = expandItems([...classItems, ...bgItems], srd).map((it) => ({
     id: newItemId(), name: it.name, index: it.index, qty: it.qty, equipped: false, attuned: false, notes: it.notes || "",
   }));
@@ -785,11 +832,13 @@ export function levelUpPlan(char, srd, classKey) {
   const features = classFeaturesAt(cls, subclass, classLevel, {}, { invocationsKnown: row?.specific?.invocationsKnown ?? null });
   // feature choices (fighting style, metamagic, pact boon, invocations, hunter's prey, ...)
   const rowFeats = [...(row?.features || []), ...((cls.subclasses?.find((s) => s.index === subclass)?.features || []).filter((f) => f.level === classLevel))];
-  const featureChoices = rowFeats.filter((f) => f.options?.length || f.stringOptions).map((f) => ({
-    index: f.index, name: f.name, desc: f.desc || "", words: !f.options?.length,
+  const choiceOf = (f) => ({
+    index: f.index, name: f.name, desc: f.desc || "", words: !f.options?.length, level: f.level ?? classLevel,
     choose: f.options?.length ? f.choose ?? row?.specific?.invocationsKnown - (prev?.specific?.invocationsKnown || 0) : f.stringOptions.choose,
     options: f.options?.length ? f.options.map((o) => ({ index: o.index, name: o.name, desc: o.desc })) : f.stringOptions.from.map((s) => ({ index: s, name: s, desc: "" })),
-  }));
+  });
+  const hasChoice = (f) => f.options?.length || f.stringOptions;
+  const featureChoices = rowFeats.filter(hasChoice).map(choiceOf);
   const cast = CLASS_CASTING[target];
   const mod = cast ? abilityMod(char.abilities?.[cast.ability] ?? 10) : 0;
   let cantripsToPick = 0;
@@ -823,8 +872,10 @@ export function levelUpPlan(char, srd, classKey) {
     featureChoices,
     asi: asiLevelsFor(target).includes(classLevel),
     subclassChoice,
+    // each path's own choices up to this level (a ranger 3 Hunter picks Hunter's Prey): offered once a path is chosen
     subclassOptions: subclassChoice ? (cls.subclasses || []).map((s) => ({ index: s.index, name: s.name, desc: s.desc,
-      features: s.features.filter((f) => f.level <= classLevel).map((f) => ({ name: f.name, level: f.level, desc: f.desc })) })) : [],
+      features: s.features.filter((f) => f.level <= classLevel).map((f) => ({ name: f.name, level: f.level, desc: f.desc })),
+      featureChoices: s.features.filter((f) => f.level <= classLevel && hasChoice(f)).map(choiceOf) })) : [],
     spellsToPick: Math.max(0, spellsToPick),
     cantripsToPick: Math.max(0, cantripsToPick),
     maxSpellLevel,

@@ -131,6 +131,7 @@
 .spell-pick.on { border-color: var(--gold-dim); background: #261e12; }
 .spell-pick-main { display: flex; align-items: center; gap: 8px; flex: 1; border: 0; background: transparent; padding: 7px 10px; cursor: pointer; text-align: left; min-width: 0; }
 .spell-pick-main .grow { display: flex; flex-direction: column; }
+.spell-pick-main:disabled { cursor: default; color: inherit; opacity: .85; }
 .gear-set { background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
 .assist-banner { display: flex; gap: 14px; align-items: center; padding: 12px 14px; border-radius: 12px; background: linear-gradient(90deg, #2c2140, #1e1828); border: 1px solid #4a3a66; }
 .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }

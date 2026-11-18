@@ -96,6 +96,53 @@ const GEAR_INFO = {
   waterskin: "Holds about half a gallon of water.",
 };
 
+// Tools: the SRD's text for artisan's tools, instruments and gaming sets is one shared paragraph per kind, so each
+// tool gets a line of its own here.
+const TOOL_INFO = {
+  "alchemist's supplies": "Mix acids, alchemist's fire, smoke and other concoctions, and identify potions and strange substances.",
+  "brewer's supplies": "Brew ale and beer, judge drink and spot poison in it, and purify water.",
+  "calligrapher's supplies": "Write fine documents and decorative lettering, and spot forged handwriting.",
+  "carpenter's tools": "Work wood: build and repair doors, carts and buildings, and find the weak points in wooden structures.",
+  "cartographer's tools": "Draw accurate maps, and read and judge other people's maps.",
+  "cobbler's tools": "Make and mend shoes and boots, and hide a small thing in a heel.",
+  "cook's utensils": "Cook tasty, filling meals, even from poor ingredients.",
+  "glassblower's tools": "Shape glass into bottles, lenses and vials, and judge glasswork.",
+  "jeweler's tools": "Cut and set gems, judge what they're worth and spot fakes.",
+  "leatherworker's tools": "Make and repair leather goods such as armor, packs, saddles and boots.",
+  "mason's tools": "Work stone: build and repair walls, and find weak points and hidden doors in stonework.",
+  "painter's supplies": "Paint pictures, portraits and signs, and judge artwork.",
+  "potter's tools": "Make pots and ceramics, and read a place's history from its pottery.",
+  "smith's tools": "Work metal: forge, repair and sharpen weapons, armor and other metal goods.",
+  "tinker's tools": "Mend small gadgets and household things, and make simple ones.",
+  "weaver's tools": "Weave cloth, and mend clothes, sails and nets.",
+  "woodcarver's tools": "Carve wood into arrows, bows, small figures and tools.",
+  "dice set": "Bone or wooden dice for games of chance.",
+  "playing card set": "A deck of cards for games such as Three-Dragon Ante.",
+  bagpipes: "Droning pipes blown through a bag: loud, and heard a long way off.",
+  drum: "A hand or stick drum for rhythms, marches and signals.",
+  dulcimer: "Strings struck with small hammers, bright and ringing.",
+  flute: "A light flute of wood or bone.",
+  lute: "The stringed instrument of travelling minstrels, plucked with the fingers.",
+  lyre: "A small hand-held harp.",
+  horn: "A horn of brass or bone, for music, signals and fanfares.",
+  "pan flute": "A row of reed pipes of different lengths.",
+  shawm: "A loud wind instrument with a double reed, like an early oboe.",
+  viol: "A bowed string instrument, like an early viola.",
+  "land vehicles": "Drive carts, wagons and chariots, and handle the animals pulling them.",
+  "water vehicles": "Handle rowing boats, keelboats, sailing ships and the like.",
+};
+const TOOL_KIND = { "artisans-tools": "Artisan's tools", "gaming-sets": "Gaming set", "musical-instruments": "Musical instrument", kits: "Kit" };
+const TOOL_USE = {
+  "artisans-tools": "With proficiency you add your proficiency bonus to ability checks you make using them in your craft.",
+  "gaming-sets": "With proficiency you add your proficiency bonus to ability checks you make to play a game with it.",
+  "musical-instruments": "With proficiency you add your proficiency bonus to ability checks you make to play music with it. A bard can use a musical instrument as a spellcasting focus.",
+};
+const TOOL_RULE = "With proficiency you add your proficiency bonus to ability checks you make with it.";
+const LANGUAGE_INFO = {
+  Druidic: "The secret language of druids. You can leave hidden messages in it that only another druid can spot and read.",
+  "Thieves' Cant": "A secret mix of slang, jargon and signs that lets rogues hide messages in ordinary-seeming talk.",
+};
+
 // ─── helpers ─────────────────────────────────────────────────────────────────────────────
 const list = (a) => a.filter(Boolean).join(", ");
 const sentence = (s) => (s ? String(s)[0].toUpperCase() + String(s).slice(1) : "");
@@ -232,6 +279,65 @@ export function describeBackground(bg, srd) {
   };
 }
 
+/** A dragonborn's draconic ancestry: the breath weapon and the resistance it gives. */
+export function describeDraconicAncestry(anc, race) {
+  if (!anc) return null;
+  const area = anc.area?.type === "line" ? `5 by ${anc.area.size} ft line` : `${anc.area?.size || 15} ft cone`;
+  const save = ABILITY_LONG[anc.save] || "Dexterity";
+  return {
+    title: `${anc.name} dragon`,
+    meta: `${race?.name || "Dragonborn"} ancestry · ${anc.damageType} · ${area}`,
+    text: para(
+      `**Breath weapon.** As an action, exhale ${anc.damageType} in a ${area}. Each creature in it makes a ${save} saving throw (DC 8 + your Constitution modifier + your proficiency bonus), taking 2d6 ${anc.damageType} damage on a failure or half on a success. The damage grows to 3d6 at 6th level, 4d6 at 11th and 5d6 at 16th. Once per short or long rest.`,
+      `**Damage resistance.** You take half damage from ${anc.damageType}.`,
+    ),
+  };
+}
+
+/** The cantrip a subrace lets you choose (high elf): the spell, cast with the subrace's ability. */
+export function describeRaceCantrip(spell, sub) {
+  const d = describeSpell(spell);
+  if (!d) return null;
+  return { ...d, meta: `${d.meta} · ${sub?.name || "racial"} cantrip, cast with ${ABILITY_LONG[sub?.cantripChoice?.ability] || "Intelligence"}` };
+}
+
+/** A tool proficiency: what the tool is for and what proficiency with it does. */
+export function describeTool(name, srd) {
+  if (!name) return null;
+  const key = String(name).toLowerCase();
+  const e = (srd?.equipment || []).find?.((x) => String(x.name).toLowerCase() === key);
+  const kind = e?.toolCategory || e?.gearCategory;
+  const own = TOOL_INFO[key] || (e?.desc ? brief(e.desc, 320) : "");
+  const rule = TOOL_USE[kind] || (/proficiency/i.test(own) ? "" : TOOL_RULE);
+  return { title: e?.name || name, meta: `${TOOL_KIND[kind] || "Tool"} proficiency`, text: para(own, rule) || TOOL_RULE };
+}
+
+/** A language: who speaks it and its script. */
+export function describeLanguage(name, srd) {
+  if (!name) return null;
+  const l = (srd?.languages || []).find?.((x) => String(x.name).toLowerCase() === String(name).toLowerCase());
+  return {
+    title: l?.name || name,
+    meta: l?.type ? `${l.type} language` : "Language",
+    text: para(
+      LANGUAGE_INFO[name] || (l?.speakers?.length ? `**Spoken by:** ${list(l.speakers)}` : ""),
+      l?.script ? `**Script:** ${l.script}` : "",
+      "You can speak, read and write it.",
+    ),
+  };
+}
+
+/** A tool or language choice from creationProficiencyChoices (shared/charbuild.js). */
+export function describeProficiencyChoice(group) {
+  if (!group) return null;
+  const tools = group.kind === "tools";
+  return {
+    title: sentence(group.desc),
+    meta: `${group.sourceName || "Choice"} · ${tools ? "tool proficiency" : "language"}`,
+    text: para(`Choose ${group.choose}.`, tools ? TOOL_RULE : "You can speak, read and write each language you know."),
+  };
+}
+
 export function describeAlignment(name) {
   if (!name) return null;
   return {
@@ -354,7 +460,7 @@ export function describeItem(ref, srd) {
   if (!ref) return null;
   const e = find(srd, "equipment", ref.index);
   const name = `${ref.qty > 1 ? `${ref.qty} × ` : ""}${e?.name || ref.name || titled(ref.index)}`;
-  if (!e) return { title: name, meta: "Starting gear", text: "Part of your starting kit." };
+  if (!e) return { title: name, meta: "Starting gear", text: "Part of your starting kit. It has no special rules: bring it into your story." };
   if (e.type === "weapon") {
     const facts = [
       e.damage ? `**Damage:** ${e.damage} ${e.damageType}${e.versatile ? ` (${e.versatile} with two hands)` : ""}` : "**Damage:** none",

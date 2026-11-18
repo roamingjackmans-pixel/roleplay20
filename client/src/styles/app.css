@@ -145,6 +145,10 @@ h2.section::after { content: ''; flex: 1; height: 1px; background: linear-gradie
 .chip { border: 1px solid var(--line-2); background: var(--panel-2); border-radius: 999px; padding: 6px 13px; cursor: pointer; font-weight: 500; font-size: 13px; color: var(--text-2); transition: all .15s; }
 .chip:hover { border-color: #5a4c66; }
 .chip.on { background: rgba(217, 164, 65, .14); border-color: var(--gold); color: var(--gold-2); }
+/* a suggested pick: what you get unless you choose another */
+.chip.on.auto { border-style: dashed; background: rgba(217, 164, 65, .07); }
+.chip:disabled { opacity: .42; cursor: not-allowed; }
+.chip:disabled:hover { border-color: var(--line-2); }
 
 .prose { font-family: var(--story); font-size: 17px; line-height: 1.6; color: var(--text-2); }
 .prose h1, .prose h2, .prose h3 { font-family: var(--display); color: var(--text); letter-spacing: .03em; margin: 1.2em 0 .4em; line-height: 1.25; }

@@ -70,9 +70,9 @@ export function loadSrd(name) {
 let srdAll = null;
 export function loadAllSrd() {
   if (!srdAll) {
-    srdAll = Promise.all(['classes', 'races', 'backgrounds', 'spells', 'equipment', 'features', 'conditions', 'skills'].map((n) => loadSrd(n).catch(() => [])))
-      .then(([classes, races, backgrounds, spells, equipment, features, conditions, skills]) => {
-        const d = { classes, races, backgrounds, spells, equipment, features, conditions, skills };
+    srdAll = Promise.all(['classes', 'races', 'backgrounds', 'spells', 'equipment', 'features', 'conditions', 'skills', 'languages'].map((n) => loadSrd(n).catch(() => [])))
+      .then(([classes, races, backgrounds, spells, equipment, features, conditions, skills, languages]) => {
+        const d = { classes, races, backgrounds, spells, equipment, features, conditions, skills, languages };
         d.by = {};
         for (const [k, v] of Object.entries(d)) {
           if (k === 'by') continue;

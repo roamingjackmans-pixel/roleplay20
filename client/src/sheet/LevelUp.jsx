@@ -96,6 +96,9 @@ function LevelDetails({ ch, srd, classKey, onBack, onClose, onAgain }) {
   const spellNeed = Math.min(plan.spellsToPick || 0, spellPool.length);
   const featNeed = (fc) => Math.min(Number(fc.choose) || 1, fc.options.length);
   const asiOk = !plan.asi || asi.mode === 'one' || asi.a !== asi.b;
+  // feature choices of this level, plus those of the path chosen this level (a ranger 3 Hunter picks Hunter's Prey)
+  const pathChoices = (plan.subclassChoice && plan.subclassOptions?.find((s) => s.index === subclass)?.featureChoices) || [];
+  const featureChoices = [...(plan.featureChoices || []), ...pathChoices];
   // the plan lists a default pick for each feature choice (e.g. "Fighting Style: Defense"); the player's own pick is chosen below
   const optionIdx = new Set((plan.featureChoices || []).flatMap((fc) => fc.options.map((o) => o.index)));
   const newFeatures = (plan.features || []).filter((f) => !optionIdx.has(f.index));
@@ -103,7 +106,7 @@ function LevelDetails({ ch, srd, classKey, onBack, onClose, onAgain }) {
   const missing = [
     hpMode === 'roll' && !hpRoll && 'roll your hit points',
     plan.subclassChoice && !subclass && 'your path',
-    ...(plan.featureChoices || []).filter((fc) => (feat[fc.index] || []).length < featNeed(fc)).map((fc) => fc.name),
+    ...featureChoices.filter((fc) => (feat[fc.index] || []).length < featNeed(fc)).map((fc) => fc.name),
     !asiOk && 'two different abilities for +1 / +1',
     skills.length < skillNeed && `${skillNeed - skills.length} more skill${skillNeed - skills.length === 1 ? '' : 's'}`,
     expertise.length < expertNeed && `${expertNeed - expertise.length} more expertise`,
@@ -125,7 +128,9 @@ function LevelDetails({ ch, srd, classKey, onBack, onClose, onAgain }) {
     const choices = {
       class: plan.classKey, hp: Math.max(1, (hp || plan.hpAverage)), hpMethod: hpMode,
       asi: plan.asi ? (asi.mode === 'one' ? { [asi.a]: 2 } : { [asi.a]: 1, [asi.b]: 1 }) : undefined,
-      subclass: plan.subclassChoice ? subclass : undefined, cantrips, spells, featureOptions: feat, skills, expertise,
+      subclass: plan.subclassChoice ? subclass : undefined, cantrips, spells, skills, expertise,
+      // only the choices on screen (not a pick left over from a path the player switched away from)
+      featureOptions: Object.fromEntries(featureChoices.map((fc) => [fc.index, feat[fc.index] || []])),
     };
     try {
       const r = await api(`characters/${ch.id}/level-up`, { method: 'POST', body: choices });
@@ -180,12 +185,13 @@ function LevelDetails({ ch, srd, classKey, onBack, onClose, onAgain }) {
           </section>
         )}
 
-        {plan.featureChoices?.map((fc) => {
+        {featureChoices.map((fc) => {
           const need = featNeed(fc);
           const list = feat[fc.index] || [];
+          const path = pathChoices.includes(fc) ? plan.subclassOptions.find((s) => s.index === subclass)?.name : null;
           return (
             <section key={fc.index}>
-              <div className="sub-h row">{fc.name} <span className="spacer" />{count(list.length, need)}</div>
+              <div className="sub-h row">{fc.name}{path && <span className="tiny muted">&nbsp;· {path}{fc.level && fc.level < plan.classLevel ? `, level ${fc.level}` : ''}</span>} <span className="spacer" />{count(list.length, need)}</div>
               <div className="lu-cards">
                 {fc.options.map((o) => {
                   const info = describeChoiceOption(o, fc);

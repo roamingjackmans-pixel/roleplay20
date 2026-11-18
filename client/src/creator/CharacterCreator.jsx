@@ -3,12 +3,16 @@ import { api } from '../lib/api.js';
 import { useStore } from '../lib/store.js';
 import { TopNav, Splash } from '../App.jsx';
 import { Avatar, fmtMod, titleIndex, Markdown } from '../lib/format.jsx';
-import { STANDARD_ARRAY, POINT_BUY_COSTS, POINT_BUY_BUDGET, ALIGNMENTS, CLASS_COLORS, pointBuyCost, racialBonuses, startingEquipmentOptions, spellOptions, buildCharacter, creationFeatureChoices } from '../../../shared/charbuild.js';
+import {
+  STANDARD_ARRAY, POINT_BUY_COSTS, POINT_BUY_BUDGET, ALIGNMENTS, CLASS_COLORS, pointBuyCost, racialBonuses, startingEquipmentOptions, spellOptions, buildCharacter,
+  creationFeatureChoices, creationProficiencyChoices, backgroundEquipmentPicks,
+} from '../../../shared/charbuild.js';
 import { deriveCharacter, abilityMod, ABILITIES, SKILL_NAMES } from '../../../shared/rules.js';
 import {
   CLASS_BLURB, ABILITY_LONG as ABIL_NAMES, describeRace, describeSubrace, describeClass, describeSubclass, describeBackground, describeAlignment,
   describeCharacterQuestion, describeNameIdea, describeAbility, describeAbilityMethod, describeBonusChoice, describeSkill, describeExpertise,
   describeSpell, describeChoiceOption, describeEquipmentOption, describeItem, itemSummary, describeHpMethod, optionName,
+  describeDraconicAncestry, describeRaceCantrip, describeTool, describeLanguage, describeProficiencyChoice,
 } from '../../../shared/choiceinfo.js';
 import { rollDice } from '../../../shared/dice.js';
 import SpellCard from '../sheet/SpellCard.jsx';
@@ -28,6 +32,11 @@ function arrangeFor(cls, base) {
   order.forEach((a, i) => { out[a] = vals[i]; });
   return out;
 }
+/** Tool or language picks without those for the given sources ("race", "subrace", "class", "background"). */
+const dropPicks = (picks, ...sources) => Object.fromEntries(Object.entries(picks || {}).filter(([k]) => !sources.some((s) => k.startsWith(`${s}-`))));
+/** A choice's tip with a note on why it's on or can't be picked. */
+const withNote = (info, note) => (info && note ? { ...info, text: `${info.text}\n\n*${note}*` } : info);
+const SUGGESTED = 'Suggested: yours unless you pick another.';
 
 export default function CharacterCreator({ campaignId }) {
   const srd = useStore((s) => s.srd);
@@ -41,6 +50,7 @@ export default function CharacterCreator({ campaignId }) {
     name: '', race: 'human', subrace: null, class: 'fighter', subclass: null, background: 'soldier', alignment: 'Neutral Good',
     abilityMethod: 'standard', base: { str: 15, dex: 13, con: 14, int: 8, wis: 12, cha: 10 }, rolled: null, bonusChoices: [],
     skills: [], expertise: [], equipment: [], cantrips: [], spells: [], featureOptions: {}, hpMethod: 'average',
+    draconicAncestry: null, raceCantrip: null, tools: {}, languages: {}, backgroundEquipment: [],
     personality: { traits: '', ideals: '', bonds: '', flaws: '' }, appearance: '', backstory: '', portrait: null, color: null, prompt: '',
   });
   const up = (patch) => setCh((c) => ({ ...c, ...patch }));
@@ -97,13 +107,17 @@ function CreatorBody({ srd, camp, ch, up, step, setStep, busy, setBusy, go, toas
       name: ch.name.trim() || 'Nameless', race: ch.race, subrace: sub?.index || null, class: ch.class, subclass: subclassKey,
       background: ch.background, alignment: ch.alignment, level, baseAbilities: ch.base, abilityMethod: ch.abilityMethod, bonusChoices: ch.bonusChoices,
       skills: ch.skills, expertise: ch.expertise, equipment: ch.equipment, cantrips: ch.cantrips, spells: ch.spells, prepared: ch.spells, hpMethod: ch.hpMethod,
-      featureOptions: ch.featureOptions,
+      featureOptions: ch.featureOptions, draconicAncestry: ch.draconicAncestry, raceCantrip: ch.raceCantrip,
+      tools: ch.tools, languages: ch.languages, backgroundEquipment: ch.backgroundEquipment,
       personality: ch.personality, appearance: ch.appearance, backstory: ch.backstory, portrait: ch.portrait, color: ch.color || CLASS_COLORS[ch.class], playerName: user.displayName,
     };
   }
   const preview = useMemo(() => {
     try { const c = buildCharacter(choices(), srd); return { c, d: deriveCharacter(c, srd) }; } catch (e) { return { err: e.message }; }
   }, [ch, level]); // eslint-disable-line
+  const profChoices = useMemo(() => { try { return creationProficiencyChoices(choices(), srd); } catch { return null; } }, [ch, level]); // eslint-disable-line
+  // the subrace's cantrip (high elf) as built: the player's pick, else the suggested one
+  const raceCantrip = sub?.cantripChoice ? preview.c?.spellcasting?.innate?.find((i) => i.level === 0 && i.source === sub.name)?.spell || null : null;
 
   const visibleSteps = STEPS.filter((s) => s !== 'Spells' || isCaster);
   const cur = visibleSteps[Math.min(step, visibleSteps.length - 1)];
@@ -140,10 +154,10 @@ function CreatorBody({ srd, camp, ch, up, step, setStep, busy, setBusy, go, toas
 
           <div className="creator-grid">
             <div className="card pad creator-main fade-in" key={cur}>
-              {cur === 'Concept' && <ConceptStep {...{ srd, ch, up, cls, race, sub, bg, needsSubclass, camp, level, featureChoices, built: preview.c }} />}
+              {cur === 'Concept' && <ConceptStep {...{ srd, ch, up, cls, race, sub, bg, needsSubclass, camp, level, featureChoices, built: preview.c, raceCantrip }} />}
               {cur === 'Abilities' && <AbilitiesStep {...{ srd, ch, up, race, sub, bonuses: bonuses(), final: finalAbilities(), cls }} />}
-              {cur === 'Skills' && <SkillsStep {...{ srd, ch, up, cls, bg, race, sub, level }} />}
-              {cur === 'Spells' && <SpellsStep {...{ ch, up, spellInfo, cls }} />}
+              {cur === 'Skills' && <SkillsStep {...{ srd, ch, up, cls, bg, race, sub, level, profChoices }} />}
+              {cur === 'Spells' && <SpellsStep {...{ ch, up, spellInfo, cls, raceCantrip, sub }} />}
               {cur === 'Gear' && <GearStep {...{ srd, ch, up, cls, bg }} />}
               {cur === 'Personality' && <PersonalityStep {...{ ch, up, bg, campaignId, toast, choices }} />}
               {cur === 'Review' && <ReviewStep {...{ preview, ch, up, srd }} />}
@@ -231,14 +245,18 @@ function FeatureChoices({ featureChoices, ch, up, built, level }) {
   });
 }
 
-function ConceptStep({ srd, ch, up, cls, race, sub, bg, needsSubclass, camp, level, featureChoices, built }) {
+function ConceptStep({ srd, ch, up, cls, race, sub, bg, needsSubclass, camp, level, featureChoices, built, raceCantrip }) {
+  // the dragonborn ancestry as built: the player's pick, else the suggested one
+  const ancestry = race?.draconicAncestry?.find((a) => a.name.toLowerCase() === built?.draconicAncestry) || null;
+  const ownAncestry = !!ch.draconicAncestry && ancestry?.index === ch.draconicAncestry;
+  const ownCantrip = !!ch.raceCantrip && raceCantrip === ch.raceCantrip;
   return (
     <div className="col" style={{ gap: 18 }}>
       <label className="field"><span>Name</span><input className="input" style={{ fontSize: 18, fontFamily: 'var(--display)' }} value={ch.name} onChange={(e) => up({ name: e.target.value })} placeholder="What do they call you?" autoFocus /></label>
       <div className="field"><span>Race</span>
         <div className="pick-grid">
           {srd.races.map((r) => (
-            <button key={r.index} {...tip(() => describeRace(r, srd))} className={`pick ${ch.race === r.index ? 'on' : ''}`} onClick={() => up({ race: r.index, subrace: r.subraces?.[0]?.index || null, bonusChoices: [] })}>
+            <button key={r.index} {...tip(() => describeRace(r, srd))} className={`pick ${ch.race === r.index ? 'on' : ''}`} onClick={() => ch.race !== r.index && up({ race: r.index, subrace: r.subraces?.[0]?.index || null, bonusChoices: [], draconicAncestry: null, raceCantrip: null, tools: dropPicks(ch.tools, 'race', 'subrace'), languages: dropPicks(ch.languages, 'race', 'subrace') })}>
               <b>{r.name}</b>
               <span>{Object.entries(r.abilityBonuses || {}).map(([k, v]) => `${k.toUpperCase()} +${v}`).join(', ')}{r.bonusChoices ? ` +${r.bonusChoices.amount} ×${r.bonusChoices.choose}` : ''}</span>
               <span>{r.speed} ft{r.darkvision ? ` · darkvision ${r.darkvision}` : ''}</span>
@@ -248,14 +266,33 @@ function ConceptStep({ srd, ch, up, cls, race, sub, bg, needsSubclass, camp, lev
       </div>
       {race?.subraces?.length > 0 && (
         <div className="field"><span>Subrace</span>
-          <div className="chips">{race.subraces.map((s) => <button key={s.index} {...tip(() => describeSubrace(s, race, srd))} className={`chip ${sub?.index === s.index ? 'on' : ''}`} onClick={() => up({ subrace: s.index })}>{s.name}</button>)}</div>
+          <div className="chips">{race.subraces.map((s) => <button key={s.index} {...tip(() => describeSubrace(s, race, srd))} className={`chip ${sub?.index === s.index ? 'on' : ''}`} onClick={() => sub?.index !== s.index && up({ subrace: s.index, raceCantrip: null, tools: dropPicks(ch.tools, 'subrace'), languages: dropPicks(ch.languages, 'subrace') })}>{s.name}</button>)}</div>
+        </div>
+      )}
+      {race?.draconicAncestry?.length > 0 && (
+        <div className="field">
+          <span {...tip(() => ({ title: 'Draconic ancestry', meta: race.name, text: 'Choose the kind of dragon in your blood. It sets the damage, shape and saving throw of your breath weapon, and the damage you resist.' }))}>Draconic ancestry</span>
+          <div className="chips">{race.draconicAncestry.map((a) => {
+            const on = ancestry?.index === a.index;
+            return <button key={a.index} {...tip(() => withNote(describeDraconicAncestry(a, race), on && !ownAncestry ? SUGGESTED : ''))} className={`chip ${on ? 'on' : ''} ${on && !ownAncestry ? 'auto' : ''}`} onClick={() => up({ draconicAncestry: a.index })}>{a.name} <i className="muted">{a.damageType}</i></button>;
+          })}</div>
+        </div>
+      )}
+      {sub?.cantripChoice && (
+        <div className="field">
+          <span {...tip(() => ({ title: `${sub.name} cantrip`, meta: sub.name, text: `You know one cantrip of your choice from the wizard spell list, cast with ${ABIL_NAMES[sub.cantripChoice.ability] || 'Intelligence'}.` }))}>{sub.name} cantrip <i className="muted">· cast with {ABIL_NAMES[sub.cantripChoice.ability] || 'Intelligence'}</i></span>
+          <div className="chips">{sub.cantripChoice.from.map((idx) => {
+            const s = srd.by.spells.get(idx);
+            const on = raceCantrip === idx;
+            return <button key={idx} {...tip(() => withNote(describeRaceCantrip(s, sub), on && !ownCantrip ? SUGGESTED : ''))} className={`chip ${on ? 'on' : ''} ${on && !ownCantrip ? 'auto' : ''}`} onClick={() => up({ raceCantrip: idx, cantrips: ch.cantrips.filter((c) => c !== idx) })}>{s?.name || titleIndex(idx)}</button>;
+          })}</div>
         </div>
       )}
       {race && <details className="lore"><summary>{race.name} traits</summary>{[...(race.traits || []), ...(sub?.traits || [])].map((t) => <p key={t.index}><b>{t.name}.</b> {t.desc.slice(0, 400)}</p>)}</details>}
       <div className="field"><span>Class</span>
         <div className="pick-grid">
           {srd.classes.map((c) => (
-            <button key={c.index} {...tip(() => describeClass(c, srd))} className={`pick ${ch.class === c.index ? 'on' : ''}`} onClick={() => up({ class: c.index, subclass: c.subclasses?.[0]?.index || null, skills: [], expertise: [], equipment: [], cantrips: [], spells: [], featureOptions: {}, ...(ch.abilityMethod === 'manual' ? {} : { base: arrangeFor(c.index, ch.base) }) })} style={{ '--pc': CLASS_COLORS[c.index] }}>
+            <button key={c.index} {...tip(() => describeClass(c, srd))} className={`pick ${ch.class === c.index ? 'on' : ''}`} onClick={() => up({ class: c.index, subclass: c.subclasses?.[0]?.index || null, skills: [], expertise: [], equipment: [], cantrips: [], spells: [], featureOptions: {}, tools: dropPicks(ch.tools, 'class'), ...(ch.abilityMethod === 'manual' ? {} : { base: arrangeFor(c.index, ch.base) }) })} style={{ '--pc': CLASS_COLORS[c.index] }}>
               <b>{c.name}</b>
               <span>d{c.hitDie} · {(c.primaryAbility || '').toUpperCase()}{c.spellcasting ? ' · magic' : ''}</span>
               <span className="blurb">{CLASS_BLURB[c.index]}</span>
@@ -272,7 +309,7 @@ function ConceptStep({ srd, ch, up, cls, race, sub, bg, needsSubclass, camp, lev
       <div className="field"><span>Background</span>
         <div className="pick-grid">
           {srd.backgrounds.map((b) => (
-            <button key={b.index} {...tip(() => describeBackground(b, srd))} className={`pick ${ch.background === b.index ? 'on' : ''}`} onClick={() => up({ background: b.index })}>
+            <button key={b.index} {...tip(() => describeBackground(b, srd))} className={`pick ${ch.background === b.index ? 'on' : ''}`} onClick={() => ch.background !== b.index && up({ background: b.index, backgroundEquipment: [], tools: dropPicks(ch.tools, 'background'), languages: dropPicks(ch.languages, 'background') })}>
               <b>{b.name}</b>
               <span>{b.skills.map((s) => SKILL_NAMES[s]).join(', ')}</span>
             </button>
@@ -365,7 +402,51 @@ function AbilitiesStep({ srd, ch, up, race, sub, bonuses, final, cls }) {
   );
 }
 
-function SkillsStep({ srd, ch, up, cls, bg, race, sub }) {
+/**
+ * Tool or language choices from race, class and background: a row of chips per choice. The choice as it will be built
+ * shows as picked; a suggested pick (not the player's own) has a dashed outline until they choose.
+ */
+function ProficiencyChoices({ title, groups, fixed, value, onChange, describe }) {
+  const known = [...new Set(fixed)];
+  if (!groups.length) return <div className="small"><b>{title}:</b> <span className="muted">{known.length ? `${known.join(', ')} (no choices to make)` : 'none'}</span></div>;
+  return (
+    <div className="col" style={{ gap: 10 }}>
+      <div><b>{title}</b>{known.length > 0 && <span className="muted small"> · already yours: {known.join(', ')}</span>}</div>
+      {groups.map((g) => {
+        const need = Math.min(g.choose, g.from.length);
+        const own = (value[g.key] || []).filter((x) => g.picked.includes(x));
+        // a name another choice of yours already has (a suggestion elsewhere gives way to your pick here)
+        const elsewhere = (name) => groups.find((o) => o.key !== g.key && o.picked.includes(name) && (value[o.key] || []).includes(name));
+        const pick = (name) => {
+          let next;
+          if (need === 1) next = [name];
+          else if (g.picked.includes(name)) { if (!own.includes(name)) return; next = own.filter((x) => x !== name); }
+          else next = own.length < need ? [...own, name] : [...own.slice(1), name];
+          onChange({ ...value, [g.key]: next });
+        };
+        return (
+          <div className="field" key={g.key}>
+            <span {...tip(() => describeProficiencyChoice(g))}>{g.sourceName}: {g.desc}{need > 1 && <i className="muted"> · {own.length}/{need} chosen</i>}</span>
+            <div className="chips">
+              {g.from.map((name) => {
+                const on = g.picked.includes(name);
+                const suggested = on && !own.includes(name);
+                const other = !on && elsewhere(name);
+                const isFixed = !on && known.includes(name);
+                const note = isFixed ? 'You already have this.' : other ? `Already chosen for ${other.sourceName}.` : suggested ? SUGGESTED : '';
+                return (
+                  <button key={name} {...tip(() => withNote(describe(name), note))} className={`chip ${on ? 'on' : ''} ${suggested ? 'auto' : ''}`} disabled={isFixed || !!other} onClick={() => pick(name)}>{name}</button>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function SkillsStep({ srd, ch, up, cls, bg, race, sub, profChoices }) {
   const fixed = new Set([...(bg?.skills || []), ...(race?.proficiencies?.skills || []), ...(sub?.proficiencies?.skills || [])]);
   const n = cls?.skillChoices?.choose || 2;
   const from = cls?.skillChoices?.from || [];
@@ -404,12 +485,17 @@ function SkillsStep({ srd, ch, up, cls, bg, race, sub }) {
           })}</div>
         </>
       )}
-      <p className="muted small" style={{ margin: 0 }}>Tools and languages from your race, class and background are added automatically.</p>
+      {profChoices && (
+        <>
+          <ProficiencyChoices title="Tools" groups={profChoices.tools} fixed={profChoices.fixedTools} value={ch.tools} onChange={(tools) => up({ tools })} describe={(n) => describeTool(n, srd)} />
+          <ProficiencyChoices title="Languages" groups={profChoices.languages} fixed={profChoices.fixedLanguages} value={ch.languages} onChange={(languages) => up({ languages })} describe={(n) => describeLanguage(n, srd)} />
+        </>
+      )}
     </div>
   );
 }
 
-function SpellsStep({ ch, up, spellInfo, cls }) {
+function SpellsStep({ ch, up, spellInfo, cls, raceCantrip, sub }) {
   const [q, setQ] = useState('');
   const [open, setOpen] = useState(null);
   if (!spellInfo) return null;
@@ -426,7 +512,9 @@ function SpellsStep({ ch, up, spellInfo, cls }) {
       {spellInfo.cantripsToPick > 0 && (
         <>
           <div><b>Cantrips</b> <span className="muted small">({ch.cantrips.length}/{spellInfo.cantripsToPick}) - cast at will, forever</span></div>
-          <div className="spell-pick-grid">{filt(spellInfo.cantrips).map((s) => <SpellPick key={s.index} s={s} on={ch.cantrips.includes(s.index)} onToggle={() => toggle('cantrips', s.index, spellInfo.cantripsToPick)} onInfo={() => setOpen(s)} />)}</div>
+          <div className="spell-pick-grid">{filt(spellInfo.cantrips).map((s) => (s.index === raceCantrip
+            ? <SpellPick key={s.index} s={s} on fixed={`your ${sub?.name || 'racial'} cantrip`} onInfo={() => setOpen(s)} />
+            : <SpellPick key={s.index} s={s} on={ch.cantrips.includes(s.index)} onToggle={() => toggle('cantrips', s.index, spellInfo.cantripsToPick)} onInfo={() => setOpen(s)} />))}</div>
         </>
       )}
       {spellInfo.spellsToPick > 0 && (
@@ -442,12 +530,13 @@ function SpellsStep({ ch, up, spellInfo, cls }) {
   );
 }
 
-function SpellPick({ s, on, onToggle, onInfo }) {
+/** A spell to learn; `fixed` = a reason it's already known (a high elf's cantrip), so it can't be picked again. */
+function SpellPick({ s, on, onToggle, onInfo, fixed }) {
   return (
     <div className={`spell-pick ${on ? 'on' : ''}`}>
-      <button {...tip(() => describeSpell(s))} className="spell-pick-main" onClick={onToggle}>
+      <button {...tip(() => withNote(describeSpell(s), fixed ? `Already known: ${fixed}. It doesn't count toward these picks.` : ''))} className="spell-pick-main" disabled={!!fixed} onClick={onToggle}>
         <span className="dot" />
-        <span className="grow"><b>{s.name}</b><span className="tiny muted">{s.level ? `L${s.level}` : 'cantrip'} · {s.school}{s.concentration ? ' · conc.' : ''}{s.ritual ? ' · ritual' : ''}{s.damage ? ` · ${s.damage.type}` : ''}{s.heal ? ' · healing' : ''}</span></span>
+        <span className="grow"><b>{s.name}</b><span className="tiny muted">{fixed ? `${fixed} · ` : ''}{s.level ? `L${s.level}` : 'cantrip'} · {s.school}{s.concentration ? ' · conc.' : ''}{s.ritual ? ' · ritual' : ''}{s.damage ? ` · ${s.damage.type}` : ''}{s.heal ? ' · healing' : ''}</span></span>
       </button>
       <button className="btn ghost xs" onClick={onInfo} title="Read spell">?</button>
     </div>
@@ -458,6 +547,8 @@ function GearStep({ srd, ch, up, cls, bg }) {
   const sets = useMemo(() => { try { return startingEquipmentOptions(ch.class, srd); } catch { return []; } }, [ch.class, srd]);
   const sel = (i) => ch.equipment[i] ?? { option: 0, picks: [] };
   const setSel = (i, v) => { const e = [...ch.equipment]; while (e.length < sets.length) e.push({ option: 0, picks: [] }); e[i] = v; up({ equipment: e }); };
+  const bgPicks = backgroundEquipmentPicks(bg, ch.backgroundEquipment);
+  const setBgPick = (gi, v) => { const e = [...ch.backgroundEquipment]; while (e.length <= gi) e.push(null); e[gi] = v; up({ backgroundEquipment: e }); };
   return (
     <div className="col" style={{ gap: 16 }}>
       {(cls?.startingEquipment || []).length > 0 && <div className="muted small">Always: {cls.startingEquipment.map((i) => `${i.qty > 1 ? `${i.qty}× ` : ''}${i.name}`).join(', ')}</div>}
@@ -490,6 +581,22 @@ function GearStep({ srd, ch, up, cls, bg }) {
         );
       })}
       {bg && <div className="muted small">From your background ({bg.name}): {(bg.equipment || []).map((i) => i.name).join(', ')}{bg.gold ? `, ${bg.gold} gp` : ''}</div>}
+      {(bg?.equipmentChoices || []).map((g, gi) => {
+        const cur = bgPicks[gi];
+        const own = ch.backgroundEquipment[gi] != null && cur && (cur.index || cur.name) === ch.backgroundEquipment[gi];
+        return (
+          <div key={gi} className="gear-set">
+            <div className="tiny muted" style={{ marginBottom: 6 }}>{bg.name}: {g.desc}</div>
+            <div className="chips">
+              {g.from.map((f) => {
+                const v = f.index || f.name;
+                const on = !!cur && (cur.index || cur.name) === v;
+                return <button key={v} {...tip(() => withNote(describeItem(f, srd), on && !own ? SUGGESTED : ''))} className={`chip ${on ? 'on' : ''} ${on && !own ? 'auto' : ''}`} onClick={() => setBgPick(gi, v)}>{f.name}</button>;
+              })}
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -592,6 +699,7 @@ function ReviewStep({ preview, ch, up, srd }) {
         <div><div className="tiny muted">SKILLS</div><div className="small">{Object.keys(c.skillProfs || {}).map((s) => `${SKILL_NAMES[s]} ${fmtMod(d.skills[s])}${c.skillProfs[s] === 2 ? '★' : ''}`).join(' · ')}</div></div>
         <div><div className="tiny muted">ATTACKS</div><div className="small">{d.attacks.map((a) => `${a.name} ${fmtMod(a.bonus)} (${a.damage} ${a.damageType})`).join(' · ')}</div></div>
         <div><div className="tiny muted">EQUIPMENT</div><div className="small">{c.equipment.map((i) => `${i.qty > 1 ? `${i.qty}× ` : ''}${i.name}`).join(', ')} · {c.currency.gp} gp</div></div>
+        <div><div className="tiny muted">TOOLS AND LANGUAGES</div><div className="small">{[...(c.otherProfs?.tools || []), ...(c.otherProfs?.languages || [])].join(', ') || 'none'}</div></div>
         {c.spellcasting && <div><div className="tiny muted">SPELLS</div><div className="small">{[...(c.spellcasting.cantrips || []), ...(c.spellcasting.prepared?.length ? c.spellcasting.prepared : c.spellcasting.known || [])].map((s) => srd.by.spells.get(s)?.name || s).join(', ')}</div></div>}
       </div>
       <div><div className="tiny muted">FEATURES</div><div className="small">{(c.features || []).map((f) => f.name).join(' · ')}</div></div>
