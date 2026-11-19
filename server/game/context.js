@@ -45,6 +45,7 @@ export function cachedCampaignContext(c) {
     s.inspiration ? `Inspiration (borrow tone/structure only): ${s.inspiration}` : '',
     `Lines (never include): ${s.lines || 'none stated'}`,
     `Veils (fade to black): ${s.veils || 'none stated'}`,
+    s.namingStyle ? `NAMING STYLE for new names: ${s.namingStyle}` : '',
     '',
     storyPaceBlock(c),
     '',

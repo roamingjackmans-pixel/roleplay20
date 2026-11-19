@@ -1826,8 +1826,9 @@ export async function runGenesis(c) {
     `Magic level: ${s.magicLevel}; lethality: ${s.lethality}; campaign shape: ${s.shape}; focus: ${s.pacing}; starting level: ${s.startLevel}`,
     storyPaceBlock(c),
     `Lines (never include): ${s.lines || 'none stated'}; veils (fade to black): ${s.veils || 'none stated'}`,
+    s.namingStyle ? `NAMING STYLE (for the starting region): ${s.namingStyle}` : '',
     `Number of players expected: ${Math.max(1, c.members.length)}-${Math.max(4, c.members.length)}`,
-  ].join('\n');
+  ].filter(Boolean).join('\n');
   try {
     // the world and its backbone are written once and followed for the whole campaign: the deepest thinking, streamed
     const res = await askClaude({ task: 'genesis', system: GENESIS_CORE, prompt: `# THE GROUP'S BRIEF\n${brief}`, schema: GENESIS_SCHEMA, ...worldBrain(dmBrain(c).model), maxTokens: WORLD_MAX_TOKENS, longRun: true, campaignId: c.id });
@@ -1943,6 +1944,7 @@ export async function characterAssist(c, userId, p) {
     `# WORLD BIBLE\n${c.world.bible || '(none)'}`,
     `# NPC ROSTER\n${npcBlock(c)}`,
     c.world.characterPrompts?.length ? `# CHARACTER PROMPTS\n${c.world.characterPrompts.map((x) => `- ${x}`).join('\n')}` : '',
+    c.settings.namingStyle ? `# NAMING STYLE\n${c.settings.namingStyle}` : '',
     `# THE PLAYER'S CHOICES SO FAR\n${JSON.stringify(p, null, 1).slice(0, 3000)}`,
     `# OTHER CHARACTERS IN THE PARTY\n${partyCharacters(c).map((ch) => `- ${ch.name}, ${ch.race} ${ch.class}: ${String(ch.backstory || '').slice(0, 200)}`).join('\n') || '(none yet)'}`,
   ].filter(Boolean).join('\n\n');

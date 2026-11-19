@@ -3,6 +3,7 @@ import { load, save, put, list, remove } from '../store.js';
 import { randomId } from '../security.js';
 import { getUser } from '../auth.js';
 import { config } from '../config.js';
+import { pickNamingStyle } from './naming.js';
 
 const INDEX = 'campaign-index.json';
 const cfile = (id) => `campaigns/${id}.json`;
@@ -30,7 +31,8 @@ export function newCampaign(owner, { name, settings }) {
   const c = {
     id, name: String(name || 'Untitled Campaign').slice(0, 80), ownerId: owner.id, createdAt: Date.now(), inviteCode: code,
     members: [{ userId: owner.id, role: 'owner', joinedAt: Date.now(), characterId: null }],
-    settings: { ...DEFAULT_SETTINGS, ...(settings || {}) },
+    // a naming style of its own, so this world doesn't sound like every other one (see naming.js)
+    settings: { ...DEFAULT_SETTINGS, namingStyle: pickNamingStyle(), ...(settings || {}) },
     status: 'new',                     // new -> genesis -> ready -> active
     world: { title: '', tagline: '', bible: '', secrets: '', arc: '', characterPrompts: [], openingHook: '', dmNotes: [] },
     npcs: {}, quests: [], handouts: [],
