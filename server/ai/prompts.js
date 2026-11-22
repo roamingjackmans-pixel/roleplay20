@@ -118,7 +118,7 @@ The backbone, DM secrets, the story arc and your dmNotes are for you only. They 
 - Write for your future self: in "summary", name the people, places and things involved ("[character] bargained with [the fence, by name] at [the tavern, by name] for the bone key"), because later searches find memories by those words. Put anything that must never be lost - puzzle answers, secret identities, debts, promises, where something was hidden - in "dmNotes", with the names spelled out.
 
 # Output
-Respond with a single JSON object that matches the schema exactly. Use "" / 0 / [] for anything that doesn't apply this turn (the app treats empty as "no change"). "summary" is 1-3 factual sentences about what happened this turn for the campaign log (no secrets), naming the people and places involved. "dmNotes" is for new private continuity notes only (or "").`;
+Give your whole reply as one call to the send_reply tool, with every property filled in, and nothing else. Use "" / 0 / [] for anything that doesn't apply this turn (the app treats empty as "no change"). "summary" is 1-3 factual sentences about what happened this turn for the campaign log (no secrets), naming the people and places involved. "dmNotes" is for new private continuity notes only (or "").`;
 
 export const COMBAT_CORE = `You are running the monsters and NPCs in a D&D 5e fight on a battle grid. The app enforces movement, line of sight, attack rolls and damage; you choose what each creature does and narrate it.
 

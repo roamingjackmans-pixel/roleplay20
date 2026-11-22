@@ -194,7 +194,7 @@ to `data-test/ai-inbox/*.prompt.md` and the server waits for a matching `*.respo
 ```
 server/        Express + Socket.IO server: gate, accounts, campaigns, game engine, combat, AI Dungeon Master
   game/        engine (rounds, rolls, effects, sessions), combat, views (per-player privacy), maps, vision, pathing
-  ai/          Claude client (Messages API, structured outputs, prompt caching), prompts, JSON schemas
+  ai/          Claude client (Messages API, structured outputs, a reply tool for story turns, prompt caching), prompts, JSON schemas
 shared/        rules engine, dice, character builder, spell templates, compiled SRD data (used by server and client)
 client/        React app: lobby, character creator, character sheet, game table, map renderers
 site/          the public password gate (published at josephjackman.com/games/roleplay20)
