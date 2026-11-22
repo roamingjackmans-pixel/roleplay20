@@ -253,6 +253,8 @@ api.put('/characters/:cid', (req, res) => {
   try { preparedMax = deriveCharacter(ch, srd()).spellcasting?.preparedMax ?? null; } catch { /* rules data missing: no cap */ }
   const blocked = sheetPatchError(ch, patch, { sessionError: c ? E.canAct(c)?.error || null : 'This character has no campaign.', inCombat: !!c?.combat, preparedMax });
   if (blocked) return res.status(403).json({ error: blocked });
+  // ending concentration from the sheet ends the spell properly: its effects on others stop and the table hears it
+  if (c && patch.concentration === null && ch.concentration) K.dropConcentration(c, ch, 'stops concentrating');
   applySheetPatch(ch, patch);
   C.saveCharacter(ch);
   if (c) {
@@ -434,6 +436,8 @@ io.on('connection', (socket) => {
   // battle-map pings are grid cells; town and region map pings are 0-1 positions on that map
   socket.on('ping', wrap((p) => need() || (p.mapId ? E.ping(c, userId, Math.min(1, Math.max(0, Number(p.x) || 0)), Math.min(1, Math.max(0, Number(p.y) || 0)), String(p.mapId).slice(0, 80)) : E.ping(c, userId, p.x | 0, p.y | 0), { ok: true })));
   socket.on('chat', wrap((p) => need() || E.chat(c, userId, p.text, p.to ? String(p.to) : null)));
+  // ❤️ 😆 😮 😢 😠 👍 on another player's action or table talk (any time, like chat)
+  socket.on('react', wrap((p) => need() || E.react(c, userId, String(p.entryId || ''), p.emoji ? String(p.emoji) : '')));
   // DM Chat: a private question to the DM, answered only to the one who asked (never uses a turn)
   socket.on('dm:ask', wrap((p) => need() || DC.askDm(c, userId, p.text)));
   // private notes: saved with the campaign (they survive sessions, restarts and closing the app); the answer tells the

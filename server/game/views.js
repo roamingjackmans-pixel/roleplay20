@@ -215,7 +215,7 @@ export function buildView(c, userId, cache = {}) {
     },
     members: c.members.map((x) => {
       const u = getUser(x.userId);
-      return { userId: x.userId, role: x.role, displayName: u?.displayName || '?', color: u?.color, online: online.has(x.userId), characterId: x.characterId, away: x.away && !online.has(x.userId) ? { mode: x.away.mode, reason: x.away.reason || '' } : null, submitted: !!c.round.actions[x.userId], required: need.includes(x.userId), rebuilding: !!(x.rebuilding && !x.characterId) };
+      return { userId: x.userId, role: x.role, displayName: u?.displayName || '?', color: u?.color, online: online.has(x.userId), characterId: x.characterId, away: x.away && !online.has(x.userId) ? { mode: x.away.mode, reason: x.away.reason || '' } : null, submitted: !!c.round.actions[x.userId], watching: !!c.round.actions[x.userId]?.watch, required: need.includes(x.userId), rebuilding: !!(x.rebuilding && !x.characterId) };
     }),
     party: partyView(c),
     formerParty: formerPartyView(c),

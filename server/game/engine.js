@@ -10,6 +10,7 @@ import { TURN_SCHEMA, GENESIS_SCHEMA, SESSION_END_SCHEMA, CHARACTER_ASSIST_SCHEM
 import { saveCampaign, getCharacter, saveCharacter, partyCharacters, characterOwner, member } from './campaign.js';
 import { cachedCampaignContext, turnPromptParts, safeDerive, partyBlock, npcBlock, questBlock, historyBlock, sceneBlock, sessionIndex, storyPaceBlock, prologuePrompt } from './context.js';
 import { isPace, paceOf } from '../../shared/pace.js';
+import { REACTION_EMOJI, REACTABLE_KINDS } from '../../shared/reactions.js';
 import { generateTacticalMap, placeCreatures, addKeyObjectsToMap, removeObjectsFromMap } from './mapgen.js';
 import { rollDice, rollD20, manualD20 } from '../../shared/dice.js';
 import { SKILL_NAMES, levelForXp, xpForLevel } from '../../shared/rules.js';
@@ -297,6 +298,32 @@ export function addLog(c, entry) {
   }
   for (const fn of logListeners) { try { fn(c, entry); } catch (e) { console.error('[log listener]', e); } }
   return entry;
+}
+
+/**
+ * React to another player's action or table-talk message, like in Messenger: one reaction each, picking another one
+ * swaps it, and the same one again (or none) takes it back. Everyone who can see the message sees the reactions.
+ */
+export function react(c, userId, entryId, emoji) {
+  if (!member(c, userId)) return { error: 'Join this campaign first.' };
+  const e = c.log.find((x) => x.id === entryId);
+  if (!e || !REACTABLE_KINDS.includes(e.kind) || !logVisibleTo(c, e, userId)) return { error: 'That message is no longer here.' };
+  if (e.userId === userId) return { error: "You can't react to your own message." };
+  if (emoji && !REACTION_EMOJI.includes(emoji)) return { error: 'Pick one of the reactions.' };
+  const r = { ...(e.reactions || {}) };
+  if (!emoji || r[userId] === emoji) delete r[userId];
+  else r[userId] = emoji;
+  if (Object.keys(r).length) e.reactions = r;
+  else delete e.reactions;
+  if (io) {
+    const sockets = io.sockets.adapter.rooms.get(room(c));
+    if (sockets) for (const sid of sockets) {
+      const sock = io.sockets.sockets.get(sid);
+      if (sock?.data?.userId && logVisibleTo(c, e, sock.data.userId)) sock.emit('log:react', { id: e.id, reactions: e.reactions || null });
+    }
+  }
+  saveCampaign(c);
+  return { ok: true, reactions: e.reactions || null };
 }
 
 const logListeners = new Set();
@@ -935,7 +962,8 @@ function applyEffect(c, e) {
       if (chars.length) system(c, `⬆️ ${chars.map((x) => x.name).join(', ')} can level up! Open the character sheet.`, 'all', { tone: 'good' });
       break;
     }
-    case 'rest_short': for (const ch of targetChars()) shortRest(ch); system(c, '☕ Short rest: short-rest abilities and pact slots recharge. Tell the DM if you spend Hit Dice to heal.'); break;
+    case 'rest_short': for (const ch of targetChars()) shortRest(ch); system(c, '☕ Short rest: short-rest abilities and pact slots recharge. Tell the DM if you spend Hit Dice to heal.'); combat.passTime(c, 60, targetChars()); break;
+    case 'end_concentration': for (const ch of targetChars()) combat.dropConcentration(c, ch, 'stops concentrating'); break;
     case 'hit_dice': for (const ch of targetChars()) { const r = spendHitDice(c, ch, amount || 1); if (r.spent) system(c, `🎲 ${ch.name} spends ${r.spent} Hit ${r.spent === 1 ? 'Die' : 'Dice'} and regains ${r.healed} HP.`, 'all', { tone: 'good' }); } break;
     case 'rest_long': for (const ch of targetChars()) longRest(ch); system(c, '🌙 Long rest: hit points, spell slots and abilities are restored.'); break;
     case 'inspiration': for (const ch of targetChars()) {
@@ -1030,11 +1058,30 @@ export function tidySpeakerName(s) {
   return m[2].replace(/[_-]+/g, ' ').replace(/\b\w/g, (x) => x.toUpperCase());
 }
 
-function postNarration(c, narration, { kind = 'narration' } = {}) {
+/**
+ * The DM's narration as tidy segments, whatever shape the model wrote it in: a list of { to, parts }, or one segment on
+ * its own, parts as one part or a bare string, a segment with speaker and text and no parts, or a plain string (the
+ * narrator, to everyone). Parts with no text are dropped, and segments left with no parts.
+ */
+export function narrationSegments(narration) {
+  const list = Array.isArray(narration) ? narration : narration ? [narration] : [];
+  const out = [];
+  for (const seg of list) {
+    if (typeof seg === 'string') { if (seg.trim()) out.push({ to: ['all'], parts: [{ speaker: 'narrator', text: seg }] }); continue; }
+    if (!seg || typeof seg !== 'object') continue;
+    const raw = seg.parts ?? (seg.text ? { speaker: seg.speaker, text: seg.text } : []);
+    const parts = (Array.isArray(raw) ? raw : [raw])
+      .map((p) => (typeof p === 'string' ? { speaker: 'narrator', text: p } : p))
+      .filter((p) => p && typeof p === 'object' && String(p.text ?? '').trim());
+    if (parts.length) out.push({ to: seg.to, parts });
+  }
+  return out;
+}
+
+export function postNarration(c, narration, { kind = 'narration' } = {}) {
   const posted = [];
-  for (const seg of narration || []) {
-    const parts = (seg.parts || []).filter((p) => p && p.text && String(p.text).trim());
-    if (!parts.length) continue;
+  for (const seg of narrationSegments(narration)) {
+    const parts = seg.parts;
     const to = audience(c, seg.to);
     const out = parts.map((p) => {
       const who = resolveSpeaker(c, p.speaker);
@@ -1103,6 +1150,8 @@ export function applyTurnResult(c, data, input = {}) {
     c.phase = 'rolls';
     c.round.rollRequests = reqs;
   } else {
+    // the scene has moved on (not while it waits on dice): about a minute passes for concentration spells
+    combat.passTime(c, 1);
     openActions(c, { waitFor: waitForUsers(c, data.waitFor) });
   }
 }
@@ -1179,17 +1228,21 @@ export function openActions(c, { waitFor = [] } = {}) {
 
 // ---------------------------------------------------------------- the action round
 
-export function submitAction(c, userId, { text, private: priv }) {
+/** What a player who chose "Just watch" did this round, as the DM's history and the round's actions record it. */
+export const WATCH_TEXT = '(just watching)';
+
+export function submitAction(c, userId, { text, private: priv, watch }) {
   const m = member(c, userId);
   if (!m?.characterId) return { error: 'Create a character for this campaign first.' };
   const me = getCharacter(m.characterId);
   if (me?.dead) return { error: `${me.name} has died. Retire them at the bottom of your character sheet to make a new character.` };
   if (c.phase !== 'actions') return { error: c.phase === 'thinking' ? 'The DM is still narrating.' : 'Not the time for that right now.' };
-  const t = String(text || '').trim().slice(0, 2000);
+  // "Just watch": ready for the round without doing anything
+  const t = watch ? WATCH_TEXT : String(text || '').trim().slice(0, 2000);
   if (!t) return { error: 'Describe what your character does.' };
   const revising = !!c.round.revise?.[userId];
   if (revising) delete c.round.revise[userId];
-  c.round.actions[userId] = { text: t, private: !!priv, at: Date.now(), ...(revising ? { revised: true } : {}) };
+  c.round.actions[userId] = { text: t, private: watch ? false : !!priv, at: Date.now(), ...(watch ? { watch: true } : {}), ...(revising ? { revised: true } : {}) };
   pushViews(c);
   maybeResolve(c);
   return { ok: true };
@@ -1212,13 +1265,17 @@ export function maybeResolve(c, force = false) {
 
 function resolveActions(c) {
   const acts = [];
+  const watchers = [];
   const revised = c.round.revised || [];
   for (const [uid, a] of Object.entries(c.round.actions)) {
     const m = member(c, uid);
     const ch = getCharacter(m?.characterId);
     if (!ch) continue;
     const cast = c.round.casts?.[uid] || [];
-    const text = cast.length ? `${a.text}\n[Already cast through the app this round (any spell slot is already spent${cast.some((x) => x.heal) ? ', healing already applied' : ''}) - do not spend_slot for these: ${cast.map((x) => x.label).join(', ')}]` : a.text;
+    // a player who chose "Just watch" does nothing this round (unless they cast a spell from the sheet after all)
+    if (a.watch && !cast.length) { watchers.push({ name: ch.name, characterId: ch.id, text: WATCH_TEXT, watch: true, userId: uid }); continue; }
+    const own = a.watch ? 'Nothing else this round.' : a.text;
+    const text = cast.length ? `${own}\n[Already cast through the app this round (any spell slot is already spent${cast.some((x) => x.heal) ? ', healing already applied' : ''}) - do not spend_slot for these: ${cast.map((x) => x.label).join(', ')}]` : own;
     acts.push({ name: ch.name, characterId: ch.id, text, private: a.private, userId: uid, revised: revised.includes(uid) });
     // an action kept from a round that paused for someone else's question is already in the log
     if (!a.logged) addLog(c, { kind: 'action', userId: uid, characterId: ch.id, name: ch.name, text: a.text, private: a.private, to: a.private ? [uid] : 'all' });
@@ -1226,14 +1283,18 @@ function resolveActions(c) {
   const asked = (c.round.waitFor || []).map((u) => getCharacter(member(c, u)?.characterId)?.name).filter(Boolean);
   const played = awayUsers(c, 'npc').map((u) => getCharacter(member(c, u)?.characterId)).filter((ch) => ch && !ch.dead);
   const playedText = played.length ? `\n\nYou play ${played.map((ch) => `${ch.name} (${ch.id})`).join(' and ')} this round: their player${played.length > 1 ? 's are' : ' is'} away and the table did not wait. Decide what ${played.length > 1 ? 'each does' : 'they do'}, in character and alongside the party, and include it in the narration. Keep it modest: no big choices for them, no spending their money, no deals or promises. If you had asked one of them something, answer for them in character.` : '';
-  const text = acts.map((a) => `${a.name} (${a.characterId})${a.private ? ' [PRIVATE - only this player knows]' : ''}${a.revised ? ' [REVISED after you asked them a question - do not ask them again]' : ''}: ${a.text}`).join('\n') +
+  const watchText = watchers.length ? `\n\n${listNames(watchers.map((w) => `${w.name} (${w.characterId})`))} ${watchers.length > 1 ? 'are' : 'is'} just watching this round: no action. Don't have them do or say anything, and don't ask them anything. They see and hear what happens like everyone else; ask them for a roll only if the scene itself reaches them (a trap springs, an ambush, a spell that targets them).` : '';
+  const declared = acts.length
+    ? acts.map((a) => `${a.name} (${a.characterId})${a.private ? ' [PRIVATE - only this player knows]' : ''}${a.revised ? ' [REVISED after you asked them a question - do not ask them again]' : ''}: ${a.text}`).join('\n')
+    : 'Nobody declares an action this round: the whole table is just watching. Let the scene move on by itself: the people and the world around the party act, a little time passes, and end on something the party can respond to.';
+  const text = declared + watchText +
     (asked.length ? `\n\n(This round waited only for ${asked.join(' and ')} to answer; anyone else listed chimed in on their own. Everyone else is watching and listening.)` : '') + playedText +
     '\n\nResolve these actions together as one shared narration for the whole table (private segments only where something truly cannot be shared; a PRIVATE action that could not logically go unnoticed happens in the open). Move tokens on the battle map to match where people go. Ask for a roll only where the outcome is uncertain and could change the story, from the character doing it (others only if they face the risk too); routine things for a character just happen. If any character declared more than their turn allows, or wrote something so unclear you would have to guess what they mean (which item, which person, which door), and has not already revised, use "clarify" to ask them instead of resolving anything.';
   c.round.actions = {};
   c.round.casts = {};
   // prepared spells can change only in the round right after a long rest
   for (const ch of partyCharacters(c)) if (ch.mayPrepare) { delete ch.mayPrepare; saveCharacter(ch); }
-  runTurn(c, { kind: 'actions', actions: acts.map(({ name, text, private: p, userId, characterId }) => ({ name, text, private: p, userId, characterId })), revised, text });
+  runTurn(c, { kind: 'actions', actions: [...acts.map(({ name, text, private: p, userId, characterId }) => ({ name, text, private: p, userId, characterId })), ...watchers], revised, text });
 }
 
 /**
@@ -1245,11 +1306,12 @@ function clarifyTargets(c, data, input) {
   const list = (data.clarify || []).filter((q) => q && String(q.message || '').trim());
   if (!list.length) return null;
   const already = new Set(input.revised || []);
+  const watching = new Set((input.actions || []).filter((a) => a.watch).map((a) => a.userId)); // nothing to revise
   const out = [];
   for (const q of list) {
     const ch = findCharacter(c, q.characterId);
     const uid = ch && characterOwner(c, ch.id);
-    if (!uid || already.has(uid) || awayOf(c, uid) || out.some((x) => x.uid === uid)) continue;
+    if (!uid || already.has(uid) || watching.has(uid) || awayOf(c, uid) || out.some((x) => x.uid === uid)) continue;
     out.push({ uid, ch, message: String(q.message).trim().slice(0, 700) });
   }
   return out.length ? out : 'retry';
@@ -1275,7 +1337,7 @@ function askToRevise(c, targets, input) {
   for (const a of input.actions || []) {
     if (!a.userId) continue;
     if (asked.has(a.userId)) c.round.revise[a.userId] = { question: targets.find((t) => t.uid === a.userId).message, text: a.text, private: !!a.private };
-    else c.round.actions[a.userId] = { text: a.text, private: !!a.private, at: Date.now(), logged: true };
+    else c.round.actions[a.userId] = { text: a.text, private: !!a.private, at: Date.now(), logged: true, ...(a.watch ? { watch: true } : {}) };
   }
   c.round.revised = [...new Set([...(c.round.revised || []), ...asked])];
 }
@@ -1582,6 +1644,8 @@ export function startSession(c, { without = null, byUserId = null, isHost = fals
   c.sessionActive = true;
   c.sessionNumber += 1;
   c.status = 'active';
+  // a spell left running from before (time has passed since) is over
+  for (const ch of partyCharacters(c)) combat.dropConcentration(c, ch, '', { quiet: true });
   c.sessions.push({ n: c.sessionNumber, startedAt: Date.now(), endedAt: null, recap: '', logEntry: '' });
   addLog(c, { kind: 'session', text: `Session ${c.sessionNumber}`, n: c.sessionNumber });
   applyAway(c, picks, byUserId);
@@ -1725,6 +1789,8 @@ export async function endSession(c) {
   if (c.combat) return { error: 'Finish or end the fight first.' };
   c.sessionActive = false;
   c.phase = 'idle';
+  // time passes between sessions: no spell is still being concentrated on next time
+  for (const ch of partyCharacters(c)) combat.dropConcentration(c, ch, '', { quiet: true });
   for (const m of c.members) m.away = null;
   c.awayNews = [];
   const sess = c.sessions[c.sessions.length - 1];

@@ -5,6 +5,7 @@ import { useCharacter, saveChar, useLive } from './CharacterSheet.jsx';
 import { spellOptions } from '../../../shared/charbuild.js';
 import { fmtMod, titleIndex } from '../lib/format.jsx';
 import SpellCard from './SpellCard.jsx';
+import Concentration from './Concentration.jsx';
 import { Modal } from '../components/Toasts.jsx';
 
 /** Uses you have left (read-only: casting through the app or the DM spends them; rests bring them back). */
@@ -20,7 +21,7 @@ export default function SpellsPage() {
   const { ch, d, srd } = useCharacter();
   const view = useStore((s) => s.view);
   const ui = useUI();
-  const { live, inCombat: fighting } = useLive();
+  const { live, inCombat: fighting, why } = useLive();
   const [open, setOpen] = useState(null);
   const [chooseLevel, setChooseLevel] = useState(null);
   const [preparing, setPreparing] = useState(false);
@@ -72,6 +73,7 @@ export default function SpellsPage() {
 
   return (
     <div className="sheet">
+      <Concentration ch={ch} srd={srd} live={live && !ch.dead} why={why} onEnd={() => saveChar(ch, { concentration: null })} banner />
       <div className="sub-h">Abilities with limited uses</div>
       {d.resources?.length ? d.resources.map((r) => (
         <div key={r.key} className="res-row">

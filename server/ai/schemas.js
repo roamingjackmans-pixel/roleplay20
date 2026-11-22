@@ -15,7 +15,7 @@ export const EFFECT_TYPES = [
   'xp', 'level_up', 'rest_short', 'rest_long', 'hit_dice', 'inspiration', 'spend_slot', 'spend_resource',
   'give_map', 'discover_location', 'move_party', 'move_token', 'reveal_token', 'hide_token', 'remove_token',
   'door_open', 'door_close', 'door_lock', 'door_unlock', 'ambient', 'exhaustion', 'npc_join_party', 'npc_leave_party',
-  'place_object', 'remove_object', 'spell_add', 'spell_remove',
+  'place_object', 'remove_object', 'spell_add', 'spell_remove', 'end_concentration',
 ];
 
 const narration = arr(obj({

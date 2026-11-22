@@ -79,6 +79,10 @@ export const useStore = create((set, get) => ({
       if (entry.kind === 'clarify' || (entry.kind === 'dmchat' && entry.role === 'dm')) sounds.request();
       if (entry.kind === 'chat' && entry.toUserId && entry.userId !== get().view?.me?.userId) sounds.ping();
     });
+    // someone reacted to an action or table talk (or took a reaction back)
+    socket.on('log:react', ({ id, reactions }) => {
+      set((s) => ({ log: s.log.map((e) => (e.id === id ? { ...e, reactions: reactions || undefined } : e)) }));
+    });
     // the host pressed Read: the narration that was waiting is read now, on every device at once, oldest first
     socket.on('narration:play', ({ ids }) => {
       const log = get().log;

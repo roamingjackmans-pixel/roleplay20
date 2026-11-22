@@ -7,6 +7,7 @@ import { deriveCharacter, ABILITIES, SKILLS, SKILL_NAMES, xpForLevel } from '../
 import { Avatar, fmtMod, titleIndex, Markdown } from '../lib/format.jsx';
 import LevelUp from './LevelUp.jsx';
 import DicePicker from './DicePicker.jsx';
+import Concentration from './Concentration.jsx';
 
 const ABIL = { str: 'Strength', dex: 'Dexterity', con: 'Constitution', int: 'Intelligence', wis: 'Wisdom', cha: 'Charisma' };
 
@@ -43,7 +44,7 @@ export function sheetRoll(p) {
 }
 
 export default function CharacterSheet() {
-  const { ch, d } = useCharacter();
+  const { ch, d, srd } = useCharacter();
   const view = useStore((s) => s.view);
   const { live, inCombat, why } = useLive();
   const [showLevel, setShowLevel] = useState(false);
@@ -117,7 +118,7 @@ export default function CharacterSheet() {
         <span className="tiny muted" style={{ marginLeft: 6 }}>PASSIVE</span><span className="pill" title="Passive Perception">👁 {d.passive.perception}</span><span className="pill" title="Passive Insight">💭 {d.passive.insight}</span><span className="pill" title="Passive Investigation">🔎 {d.passive.investigation}</span>
         {ch.darkvision ? <span className="pill blue">Darkvision {ch.darkvision} ft</span> : null}
         <button className={`pill ${torch ? 'gold' : ''}`} style={{ cursor: live ? 'pointer' : 'default' }} disabled={!live || ch.dead} title={live ? '' : 'Only during a session'} onClick={() => saveChar(ch, { light: torch ? { bright: 0, dim: 0 } : { bright: 20, dim: 20 } })}>🔥 {torch ? 'Torch lit' : 'Light a torch'}</button>
-        {ch.concentration && <span className="pill gold" title="Concentrating">◎ {titleIndex(ch.concentration)} {live && <button className="btn ghost xs" onClick={() => saveChar(ch, { concentration: null })}>end</button>}</span>}
+        <Concentration ch={ch} srd={srd} live={live && !ch.dead} why={why} onEnd={() => saveChar(ch, { concentration: null })} />
       </div>
 
       <div className="cond-row">

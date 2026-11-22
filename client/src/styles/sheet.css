@@ -203,3 +203,10 @@
 .lu-footer { position: sticky; bottom: -18px; margin: 0 -18px -18px; padding: 10px 18px; display: flex; align-items: center; gap: 10px; justify-content: space-between; background: var(--panel); border-top: 1px solid var(--line); font-size: 13px; color: var(--muted); z-index: 1; }
 .lu-footer b { color: var(--red, #e05a4f); font-weight: 600; }
 .lu-footer.ready { color: var(--green, #7bd88f); }
+
+/* concentration: what's being held, how long is left, and ending it */
+.conc-pill { display: inline-flex; align-items: center; gap: 6px; }
+.conc-pill .btn { padding: 1px 8px; }
+.conc-ask { display: inline-flex; align-items: center; gap: 4px; }
+.conc-banner { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 12px; margin-bottom: 6px; border: 1px solid rgba(217, 164, 65, .45); border-radius: var(--radius-sm); background: rgba(217, 164, 65, .08); }
+.conc-banner b { color: var(--gold-2); }

@@ -77,6 +77,25 @@ function schemaInstructions(schema) {
   return `\n\n# OUTPUT FORMAT\nRespond with ONE JSON object and nothing else (no prose, no code fences). It must match this JSON Schema exactly - every listed property present, "" / 0 / [] when not used:\n${JSON.stringify(schema)}`;
 }
 
+/**
+ * Bend a reply into its schema's lists. A reply written from a schema in the prompt isn't checked by the API, and models
+ * differ in how strictly they follow it: one writes a list of one as the item itself ("parts": {...} or "parts": "...").
+ * Here a lone item becomes a list of one and null or "" becomes an empty list, at every depth. Nothing else changes.
+ */
+export function conformToSchema(value, schema) {
+  if (!schema || value === undefined) return value;
+  if (schema.type === 'array') {
+    if (value === null || value === '') return [];
+    return (Array.isArray(value) ? value : [value]).map((v) => conformToSchema(v, schema.items));
+  }
+  if (schema.type === 'object' && schema.properties && value && typeof value === 'object' && !Array.isArray(value)) {
+    const out = { ...value };
+    for (const [k, s] of Object.entries(schema.properties)) if (k in out) out[k] = conformToSchema(out[k], s);
+    return out;
+  }
+  return value;
+}
+
 function missingKeys(data, schema) {
   if (!schema?.required || !data || typeof data !== 'object') return [];
   return schema.required.filter((k) => !(k in data));
@@ -214,6 +233,7 @@ export async function askClaude({ task, system, cachedContext = '', prompt, sche
   if (config.aiProvider === 'api') out = await callApi({ task, system, cachedContext, prompt, schema, model: m, effort: eff, maxTokens, cacheTtl, longRun });
   else if (config.aiProvider === 'file') out = await callFile({ task, system, cachedContext, prompt, schema });
   else throw new NoAIError();
+  if (schema) out.data = conformToSchema(out.data, schema);
   const ms = Date.now() - t0;
   const costUsd = costOf(m, out.usage);
   appendLine('ai-calls.jsonl', { at: t0, task, campaignId, model: out.model, ms, usage: out.usage, costUsd });

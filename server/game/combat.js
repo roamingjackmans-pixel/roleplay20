@@ -9,6 +9,7 @@ import { cachedCampaignContext, safeDerive, partyBlock, npcBlock } from './conte
 import { generateTacticalMap, placeCreatures, describeMapForAI } from './mapgen.js';
 import { computeLight, computeVisibility } from './vision.js';
 import { findPath, distanceFeet, cellCost } from './pathing.js';
+import { concentrationMinutes } from '../../shared/concentration.js';
 import { templateCells } from '../../shared/templates.js';
 import { rollDice, rollD20, manualD20 } from '../../shared/dice.js';
 import { abilityMod, spellDamage, spellHealing, monsterSaveBonus, throwProfile } from '../../shared/rules.js';
@@ -404,7 +405,10 @@ function beginTurn(c) {
   const k = c.combat;
   if (!k) return;
   for (let guard = 0; guard < k.order.length * 2 + 2; guard++) {
-    if (k.turnIndex >= k.order.length) { k.turnIndex = 0; k.round += 1; E.addLog(c, { kind: 'combat', text: `— Round ${k.round} —`, tone: 'round' }); }
+    if (k.turnIndex >= k.order.length) {
+      k.turnIndex = 0; k.round += 1; E.addLog(c, { kind: 'combat', text: `— Round ${k.round} —`, tone: 'round' });
+      passTime(c, 0.1); // six seconds: a 1-minute spell lasts 10 rounds
+    }
     const cb = current(c);
     if (!cb || !alive(cb)) { k.turnIndex++; continue; }
     resetEconomy(c, cb);
@@ -536,15 +540,43 @@ export function requestConcentration(c, ch, damage) {
   if (req) c.combat.rollRequests.push(req);
 }
 
-export function dropConcentration(c, ch, why) {
+/**
+ * End a character's concentration spell. `why` finishes "<name> ...: <spell> ends." (or `text` says it all); `quiet`
+ * ends it without a line in the story (a session ending: time has passed).
+ */
+export function dropConcentration(c, ch, why, { text = '', quiet = false } = {}) {
   const spell = ch.concentration;
   if (!spell) return;
   ch.concentration = null;
+  delete ch.concentrationTime;
   saveCharacter(ch);
   if (c.combat) for (const x of Object.values(c.combat.combatants)) {
     if (x.conditionSources) for (const [cond, src] of Object.entries(x.conditionSources)) if (src === `${ch.id}:${spell}`) { x.conditions = (x.conditions || []).filter((y) => y !== cond); delete x.conditionSources[cond]; }
   }
-  E.system(c, `${ch.name} ${why}: ${spellName(spell)} ends.`, 'all', { tone: 'warn' });
+  if (!quiet) E.system(c, text || `${ch.name} ${why}: ${spellName(spell)} ends.`, 'all', { tone: 'warn' });
+}
+
+/** Start concentrating on a spell (ending any other one) with its clock at zero. */
+export function startConcentration(c, ch, spell) {
+  if (ch.concentration) dropConcentration(c, ch, 'switched concentration');
+  ch.concentration = spell.index;
+  ch.concentrationTime = { minutes: concentrationMinutes(spell), used: 0 };
+  saveCharacter(ch);
+}
+
+/**
+ * Time passes in the story (a combat round is 0.1 minute; a story turn out of a fight about a minute; a short rest an
+ * hour): every concentration spell whose duration has run out ends.
+ */
+export function passTime(c, minutes, chars = partyCharacters(c)) {
+  for (const ch of chars) {
+    if (!ch?.concentration) continue;
+    const t = ch.concentrationTime || { minutes: concentrationMinutes(srd().by.spells.get(ch.concentration)), used: 0 };
+    t.used = Math.round((t.used + minutes) * 10) / 10;
+    ch.concentrationTime = t;
+    if (t.used >= t.minutes) dropConcentration(c, ch, '', { text: `⌛ ${ch.name}'s ${spellName(ch.concentration)} ends: its time is up.` });
+    else saveCharacter(ch);
+  }
 }
 
 const spellName = (index) => srd().by.spells.get(index)?.name || index;
@@ -1073,11 +1105,7 @@ export async function castSpell(c, userId, p) {
     noteDone(c, cb, `cast ${spell.name}${cost === 'bonus' ? ' (bonus action)' : cost === 'reaction' ? ' (reaction)' : ''}`);
   }
   if (lvl > 0 && !(p.ritual && spell.ritual && !inCombat) && !spendSlot(ch, slotLevel)) return { error: `No level ${slotLevel} spell slots left.` };
-  if (spell.concentration) {
-    if (ch.concentration) dropConcentration(c, ch, `switched concentration`);
-    ch.concentration = spell.index;
-    saveCharacter(ch);
-  }
+  if (spell.concentration) startConcentration(c, ch, spell);
   const label = `${spell.name}${slotLevel > lvl ? ` (level ${slotLevel})` : ''}`;
   const sm = spellMod(ch);
 
@@ -1578,12 +1606,7 @@ async function runEnemyPhase(c, stretch) {
     c.thinking = null;
   }
   if (!c.combat || c.combat !== k) return;
-  if (plan?.narration?.length) {
-    for (const seg of plan.narration) {
-      const parts = (seg.parts || []).filter((p) => p.text);
-      if (parts.length) E.addLog(c, { kind: 'narration', parts: parts.map((p) => { const who = E.resolveSpeaker(c, p.speaker); return { speaker: who.speaker, ...(who.speakerName ? { speakerName: who.speakerName } : {}), ...(who.color ? { color: who.color } : {}), text: p.text }; }), to: E.audience(c, seg.to) });
-    }
-  }
+  E.postNarration(c, plan?.narration);
   k.events = [];
   E.pushViews(c);
   for (const cb of stretch) {

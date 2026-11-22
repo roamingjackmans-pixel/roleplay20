@@ -139,6 +139,23 @@ function ActionBox() {
     );
   }
 
+  if (mine?.watch) {
+    // "Just watch": ready for this round without doing anything; unticking it goes back to writing an action
+    return (
+      <div className="composer-body col">
+        <div className="submitted">
+          <div className="story">👀 {name} is just watching this round.</div>
+          <div className="tiny muted">You're ready. The DM won't have {name} do anything or ask you anything. Untick "Just watch" to act after all.</div>
+        </div>
+        <div className="row">
+          <label className="check small" title="Untick to write an action instead"><input type="checkbox" checked onChange={() => emit('action:withdraw')} /> 👀 Just watch</label>
+          <ReadyRow view={view} />
+        </div>
+        {waitingOn.length > 0 && isOwner && <button className="btn xs ghost" onClick={() => emit('force')}>Continue without {waitingOn.map((m) => m.displayName).join(', ')}</button>}
+      </div>
+    );
+  }
+
   if (mine) {
     return (
       <div className="composer-body col">
@@ -164,6 +181,13 @@ function ActionBox() {
     if (r.ok) setDraft({ action: '', priv: false });
     setBusy(false);
   }
+  // ready up without doing anything: whatever is in the box stays there for later
+  async function watch() {
+    dict.stop();
+    setBusy(true);
+    await emit('action', { watch: true });
+    setBusy(false);
+  }
   return (
     <div className="composer-body col">
       {asked.length > 0 && !rev && (
@@ -182,9 +206,10 @@ function ActionBox() {
       )}
       <textarea className="textarea action-input" value={text} onChange={(e) => setText(e.target.value)} placeholder={`What does ${name} do? Say it, try it, ask it…${dict.supported ? ' (or press 🎤 and speak)' : ''}`} onKeyDown={(e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) submit(); }} rows={3} />
       {dict.listening && <div className="dictating small">🎤 Listening… {dict.interim ? <i>{dict.interim}</i> : <span className="muted">speak now</span>}</div>}
-      <div className="row">
+      <div className="row wrap action-opts">
         <MicButton dict={dict} small />
         <label className="check small" title="Only you and the DM see this action. Use it for things your character can do unnoticed; everyone else sees what's outwardly visible."><input type="checkbox" checked={priv} onChange={(e) => setPriv(e.target.checked)} /> Private</label>
+        <label className="check small" title={`Ready up without doing anything: ${name} just watches and listens this round. The DM won't ask you anything.`}><input type="checkbox" checked={false} disabled={busy} onChange={(e) => e.target.checked && watch()} /> 👀 Just watch</label>
         <ReadyRow view={view} />
         <div className="spacer" />
         <button className="btn primary" disabled={busy || !text.trim()} onClick={submit}>{rev ? 'Send revised action ✓' : 'Ready ✓'}</button>
@@ -200,7 +225,7 @@ function ReadyRow({ view }) {
     <div className="ready-row" title="Who has declared an action">
       {req.map((m) => {
         const p = view.party.find((x) => x.userId === m.userId);
-        return <span key={m.userId} className={`ready-av ${m.submitted ? 'done' : ''}`}><Avatar name={p?.name || m.displayName} color={p?.color || m.color} img={p?.portrait} title={`${m.displayName}: ${m.submitted ? 'ready' : 'thinking…'}`} /></span>;
+        return <span key={m.userId} className={`ready-av ${m.submitted ? 'done' : ''} ${m.watching ? 'watching' : ''}`}><Avatar name={p?.name || m.displayName} color={p?.color || m.color} img={p?.portrait} title={`${m.displayName}: ${m.watching ? 'just watching' : m.submitted ? 'ready' : 'thinking…'}`} />{m.watching && <i className="ready-eye" aria-label="just watching">👀</i>}</span>;
       })}
       <span className="tiny muted">{view.round.submittedCount}/{Math.max(view.round.requiredCount, view.round.submittedCount)} ready</span>
     </div>

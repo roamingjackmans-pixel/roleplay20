@@ -5,6 +5,7 @@ import { inline } from '../lib/format.jsx';
 import { feedFlourish } from '../lib/rollFx.js';
 import { useStoryLock } from '../lib/voice.js';
 import { speakerLabel } from '../lib/speakers.js';
+import Reactions from './Reactions.jsx';
 
 export default function StoryFeed() {
   const log = useStore((s) => s.log);
@@ -13,11 +14,13 @@ export default function StoryFeed() {
   const [stick, setStick] = useState(true);
   const [speakingId, setSpeakingId] = useState(null);
   useEffect(() => onSpeaking((u) => setSpeakingId(u?.entryId || null)), []);
+  // reactions arriving on the latest messages make them taller: keep the newest line in view
+  const latestReactions = log.slice(-6).map((e) => Object.keys(e.reactions || {}).length).join();
 
   useLayoutEffect(() => {
     const el = ref.current;
     if (el && stick) el.scrollTop = el.scrollHeight;
-  }, [log.length, stick, view?.thinking]);
+  }, [log.length, stick, view?.thinking, latestReactions]);
 
   const onScroll = () => {
     const el = ref.current;
@@ -97,6 +100,7 @@ function Entry({ e, view, speaking }) {
         <div className={`entry action fade-in ${e.private ? 'private' : ''}`} style={{ '--pc': view.party.find((p) => p.id === e.characterId)?.color || '#888' }}>
           <div className="speaker">{e.name}{e.private ? <span className="private-tag inline">private to the DM</span> : null}</div>
           <div className="line">{e.text}</div>
+          <Reactions e={e} view={view} />
         </div>
       );
     case 'clarify':
@@ -114,10 +118,11 @@ function Entry({ e, view, speaking }) {
         return (
           <div className="entry chat whisper fade-in">
             <b style={{ color: e.color }}>{mine ? 'You' : e.name}</b> <span className="tiny whisper-tag">🔒 {mine ? `to ${e.toName} only` : 'to you only'}</span> {e.text}
+            <Reactions e={e} view={view} />
           </div>
         );
       }
-      return <div className="entry chat fade-in"><b style={{ color: e.color }}>{e.name}</b> <span className="tiny faint">(table talk)</span> {e.text}</div>;
+      return <div className="entry chat fade-in"><b style={{ color: e.color }}>{e.name}</b> <span className="tiny faint">(table talk)</span> {e.text}<Reactions e={e} view={view} /></div>;
     case 'dmchat':
       return e.role === 'dm' ? (
         <div className={`entry dmchat answer fade-in ${e.error ? 'error' : ''}`}>

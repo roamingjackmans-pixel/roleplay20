@@ -7,6 +7,13 @@ import { getUser } from '../auth.js';
 import { partyCharacters, characterOwner, getCharacter } from './campaign.js';
 import { searchMemory, memoryOf, tokens } from './memory.js';
 import { paceOf } from '../../shared/pace.js';
+import { concentrationLeft, timeLeftText } from '../../shared/concentration.js';
+
+/** "Bless (bless, about 4 rounds left)": what a character is concentrating on, for the DM. */
+function concentrationText(ch) {
+  const spell = srd().by.spells.get(ch.concentration);
+  return `${spell?.name || ch.concentration} (${ch.concentration}, ${timeLeftText(concentrationLeft(ch, spell))})`;
+}
 
 const clip = (s, n) => {
   s = String(s || '').trim();
@@ -92,7 +99,7 @@ export function actionsSinceRoll(c, ch) {
   for (let i = turns.length - 1; i >= 0; i--) {
     const t = turns[i];
     if ((t.rolls || []).some((r) => String(r).includes(`(${ch.id})`) || String(r).startsWith(`${ch.name} `))) return n;
-    if ((t.actions || []).some((a) => a.characterId === ch.id || (!a.characterId && a.name === ch.name))) n++;
+    if ((t.actions || []).some((a) => !a.watch && (a.characterId === ch.id || (!a.characterId && a.name === ch.name)))) n++;
   }
   return turns.length ? null : 0; // null: no roll in all the turns kept
 }
@@ -120,7 +127,7 @@ export function partyBlock(c, online) {
       `  Level ${ch.level}, XP ${ch.xp || 0}${ch.level < 20 ? ` (next level at ${xpForLevel(ch.level + 1)})` : ''}${ch.pendingLevelUp ? ' - LEVEL-UP WAITING' : ''} | Inspiration: ${ch.inspiration ? 'yes' : 'no'} | Hit Dice ${(ch.hitDice?.total || 0) - (ch.hitDice?.used || 0)}/${ch.hitDice?.total || 0} d${ch.hitDice?.die || 8} | coins: ${coins(ch)}`,
       usesLeft(ch, d) ? `  Limited uses left: ${usesLeft(ch, d)}` : '',
       `  HP ${ch.hp.current}/${ch.hp.max}${ch.hp.temp ? ` (+${ch.hp.temp} temp)` : ''} | AC ${d?.ac ?? '?'} | speed ${d?.speed ?? ch.speed} ft | darkvision ${ch.darkvision || 0} ft | passive Perception ${d?.passive?.perception ?? '?'}, Insight ${d?.passive?.insight ?? '?'}, Investigation ${d?.passive?.investigation ?? '?'}`,
-      `  Conditions: ${[...(ch.conditions || []), ch.exhaustion ? `exhaustion ${ch.exhaustion}` : ''].filter(Boolean).join(', ') || 'none'}${ch.concentration ? ` | concentrating on ${ch.concentration}` : ''}${tok ? ` | token at ${tok.x},${tok.y}` : ''}`,
+      `  Conditions: ${[...(ch.conditions || []), ch.exhaustion ? `exhaustion ${ch.exhaustion}` : ''].filter(Boolean).join(', ') || 'none'}${ch.concentration ? ` | concentrating on ${concentrationText(ch)}` : ''}${tok ? ` | token at ${tok.x},${tok.y}` : ''}`,
       `  Actions since their last roll: ${rollPace(c, ch)}`,
       skills ? `  Proficient skills: ${skills}` : '',
       `  Languages: ${(ch.otherProfs?.languages || []).join(', ') || 'Common'}`,
