@@ -18,7 +18,7 @@ import { buildView, visibleLog } from './game/views.js';
 import { srd, srdFile } from './srd.js';
 import { aiStatus, MODELS } from './ai/client.js';
 import { startTunnel } from './tunnel.js';
-import { buildCharacter, applyLevelUp, levelUpPlan } from '../shared/charbuild.js';
+import { buildCharacter, applyLevelUp, levelUpPlan, levelUpProblems } from '../shared/charbuild.js';
 import { deriveCharacter, levelForXp, xpForLevel } from '../shared/rules.js';
 import { isPace } from '../shared/pace.js';
 import { randomId } from './security.js';
@@ -279,6 +279,9 @@ api.post('/characters/:cid/level-up', (req, res) => {
     const plan = levelUpPlan(ch, srd(), req.body?.class);
     if (plan.maxed) return res.status(400).json({ error: `${ch.name} is already level 20.` });
     if (plan.multiclass && !plan.prereqOk) return res.status(400).json({ error: `Can't multiclass yet: ${plan.prereqProblems.join('; ')}.` });
+    // every choice of the level is the player's: nothing is picked for them
+    const missing = levelUpProblems(ch, req.body || {}, srd());
+    if (missing.length) return res.status(400).json({ error: `Still to choose: ${missing.join(', ')}.`, missing });
     const next = applyLevelUp(ch, req.body || {}, srd());
     Object.assign(ch, next);
     ch.xp = Math.max(Number(ch.xp) || 0, xpForLevel(ch.level));

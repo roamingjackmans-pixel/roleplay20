@@ -1,4 +1,6 @@
 // Small synthesized sound effects (no audio files): dice clatter, page turn, your-turn chime, ping.
+// They play on the speaker picked in Settings (routeContext), where the browser allows it.
+import { routeContext, onSpeakerChange } from './audioDevices.js';
 let ctx = null;
 let enabled = true;
 try { enabled = JSON.parse(localStorage.getItem('rp20.prefs') || '{}').sounds !== false; } catch { /* default on */ }
@@ -17,6 +19,7 @@ function ac() {
   if (ctx.state === 'suspended') ctx.resume();
   return ctx;
 }
+onSpeakerChange(() => { if (ctx) routeContext(ctx); });
 
 function noiseBurst(t0, dur, freq, gain) {
   const c = ac();
@@ -32,7 +35,7 @@ function noiseBurst(t0, dur, freq, gain) {
   bp.Q.value = 2.5;
   const g = c.createGain();
   g.gain.value = gain;
-  src.connect(bp).connect(g).connect(c.destination);
+  src.connect(bp).connect(g).connect(routeContext(c));
   src.start(t0);
 }
 
@@ -45,9 +48,18 @@ function tone(t0, freq, dur, gain = 0.08, type = 'sine') {
   g.gain.setValueAtTime(0, t0);
   g.gain.linearRampToValueAtTime(gain, t0 + 0.01);
   g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
-  o.connect(g).connect(c.destination);
+  o.connect(g).connect(routeContext(c));
   o.start(t0);
   o.stop(t0 + dur + 0.02);
+}
+
+/** A short chime on the chosen speaker, for the Test button in Settings (plays even with sound effects off). */
+export function testSpeaker() {
+  if (!ac()) return;
+  const t = ctx.currentTime;
+  tone(t, 523.25, 0.5, 0.09, 'triangle');
+  tone(t + 0.12, 659.25, 0.5, 0.09, 'triangle');
+  tone(t + 0.24, 783.99, 0.8, 0.09, 'triangle');
 }
 
 export const sounds = {
@@ -143,7 +155,7 @@ function brass(t0, freq, dur, gain, { wah = false, vibrato = false, bend = 0 } =
   g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur + 0.12);
   o1.connect(f);
   o2.connect(f);
-  f.connect(g).connect(c.destination);
+  f.connect(g).connect(routeContext(c));
   for (const o of [o1, o2, lfo].filter(Boolean)) { o.start(t0); o.stop(t0 + dur + 0.15); }
 }
 
@@ -161,7 +173,7 @@ function swell(t0, dur, freq, gain) {
   hp.frequency.setValueAtTime(freq, t0);
   const g = c.createGain();
   g.gain.setValueAtTime(gain, t0);
-  src.connect(hp).connect(g).connect(c.destination);
+  src.connect(hp).connect(g).connect(routeContext(c));
   src.start(t0);
 }
 

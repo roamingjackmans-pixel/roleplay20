@@ -5,7 +5,7 @@ import { getCharacter, partyCharacters, characterOwner, member } from './campaig
 import { computeLight, computeVisibility, encodeCells } from './vision.js';
 import { safeDerive } from './context.js';
 import * as combat from './combat.js';
-import { onlineUsers, requiredUsers, roundNeeds, joinLevel, partyWhereabouts, dmBrain } from './engine.js';
+import { onlineUsers, requiredUsers, roundNeeds, joinLevel, partyWhereabouts, dmBrain, rollAdvantage } from './engine.js';
 import { aiStatus, PRICES } from '../ai/client.js';
 import { roster as voiceRoster } from './voice.js';
 import { waitingNarration } from './readgate.js';
@@ -202,7 +202,9 @@ export function buildView(c, userId, cache = {}) {
   const online = onlineUsers(c);
   const need = requiredUsers(c);
   const rollPool = [...(c.round.rollRequests || []), ...(c.combat?.rollRequests || [])];
-  const myRolls = rollPool.filter((r) => r.userId === userId && r.status === 'pending').map((r) => ({ id: r.id, kind: r.kind, key: r.key, dc: r.secret || r.purpose === 'turn' || r.purpose === 'combat_ask' ? 0 : r.dc, advantage: r.advantage, reason: r.reason, purpose: r.purpose, label: r.label, contestWith: r.contest ? rollPool.filter((o) => o.contest === r.contest && o.id !== r.id).map((o) => o.characterName) : [] }));
+  // how each roll is made: what the DM asked for, with the character's own conditions (shown, never changeable)
+  const rollMode = (r) => { const a = rollAdvantage(getCharacter(r.characterId), r.kind, r.key, r.advantage); return { mode: a.mode, modeWhy: a.why }; };
+  const myRolls = rollPool.filter((r) => r.userId === userId && r.status === 'pending').map((r) => ({ id: r.id, kind: r.kind, key: r.key, dc: r.secret || r.purpose === 'turn' || r.purpose === 'combat_ask' ? 0 : r.dc, advantage: r.advantage || 'none', ...rollMode(r), reason: r.reason, purpose: r.purpose, label: r.label, contestWith: r.contest ? rollPool.filter((o) => o.contest === r.contest && o.id !== r.id).map((o) => o.characterName) : [] }));
   const waitingRolls = rollPool.filter((r) => r.status === 'pending').map((r) => ({ characterName: r.characterName, userId: r.userId, label: r.secret ? 'a secret roll' : r.reason?.slice(0, 60) }));
   const view = {
     at: Date.now(),

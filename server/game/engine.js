@@ -1461,15 +1461,29 @@ export function rollModifier(ch, kind, key) {
 
 /** Advantage from the character's own conditions (exhaustion, poisoned...). Combined with the requested mode. */
 function autoAdvantage(ch, kind, key, requested) {
+  return rollAdvantage(ch, kind, key, requested).mode;
+}
+
+/**
+ * How a roll is made: the mode the DM asked for combined with the character's own conditions -> { mode, why }.
+ * `why` lists what changed it ("poisoned", "exhaustion"); advantage and disadvantage together cancel out (5e).
+ */
+export function rollAdvantage(ch, kind, key, requested) {
   let adv = requested === 'adv' ? 1 : 0;
   let dis = requested === 'dis' ? 1 : 0;
-  const cond = new Set(ch.conditions || []);
-  const ex = ch.exhaustion || 0;
-  if (['skill', 'ability', 'initiative'].includes(kind) && (ex >= 1 || cond.has('poisoned') || cond.has('frightened'))) dis++;
-  if (kind === 'save' && ex >= 3) dis++;
-  if (kind === 'save' && key === 'dex' && cond.has('restrained')) dis++;
-  if (adv && dis) return 'none';
-  return adv ? 'adv' : dis ? 'dis' : 'none';
+  const why = [];
+  if (kind === 'death' || kind === 'custom' || kind === 'damage') return { mode: 'none', why };
+  const cond = new Set(ch?.conditions || []);
+  const ex = ch?.exhaustion || 0;
+  if (['skill', 'ability', 'initiative'].includes(kind)) {
+    if (ex >= 1) why.push('exhaustion');
+    for (const k of ['poisoned', 'frightened']) if (cond.has(k)) why.push(k);
+    if (why.length) dis++;
+  }
+  if (kind === 'save' && ex >= 3) { dis++; why.push('exhaustion'); }
+  if (kind === 'save' && key === 'dex' && cond.has('restrained')) { dis++; why.push('restrained'); }
+  const mode = adv && dis ? 'none' : adv ? 'adv' : dis ? 'dis' : 'none';
+  return { mode, why };
 }
 
 /** Roll for a character: mode "auto" (server rolls) or "manual" (player typed their natural d20 or a total). */
@@ -1506,7 +1520,8 @@ export function respondRoll(c, userId, reqId, payload = {}) {
   if (req.status !== 'pending') return { error: 'Already rolled.' };
   const ch = getCharacter(req.characterId);
   if (!ch) return { error: 'Character not found.' };
-  const r = performRoll(ch, { kind: req.kind, key: req.key, advantage: payload.advantage || req.advantage, mode: payload.mode, natural: payload.natural, total: payload.total, expr: req.expr });
+  // advantage is the DM's call (and the character's conditions'): a player can't change it from their screen
+  const r = performRoll(ch, { kind: req.kind, key: req.key, advantage: req.advantage, mode: payload.mode, natural: payload.natural, total: payload.total, expr: req.expr });
   completeRoll(c, req, r);
   return { ok: true, result: r };
 }

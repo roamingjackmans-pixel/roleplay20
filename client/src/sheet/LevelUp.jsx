@@ -2,7 +2,7 @@ import React, { useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../lib/api.js';
 import { useStore } from '../lib/store.js';
 import { useCharacter } from './CharacterSheet.jsx';
-import { levelUpPlan, levelUpOptions, spellOptions } from '../../../shared/charbuild.js';
+import { levelUpPlan, levelUpOptions, levelUpPools, levelUpProblems } from '../../../shared/charbuild.js';
 import { ABILITIES, SKILL_NAMES } from '../../../shared/rules.js';
 import { rollDice } from '../../../shared/dice.js';
 import { Modal } from '../components/Toasts.jsx';
@@ -64,21 +64,22 @@ function ChooseClass({ ch, srd, options, pick, setPick, onNext, onClose }) {
 
 function LevelDetails({ ch, srd, classKey, onBack, onClose, onAgain }) {
   const toast = useStore((s) => s.toast);
-  const plan = useMemo(() => { try { return levelUpPlan(ch, srd, classKey); } catch (e) { return { error: e.message }; } }, [ch, srd, classKey]);
+  const [subclass, setSubclass] = useState(null);
+  // the plan follows the path chosen (an Eldritch Knight learns spells the moment the path is picked)
+  const plan = useMemo(() => { try { return levelUpPlan(ch, srd, classKey, { subclass }); } catch (e) { return { error: e.message }; } }, [ch, srd, classKey, subclass]);
   const [hpMode, setHpMode] = useState('average');
   const [hpRoll, setHpRoll] = useState(null);
   const [asi, setAsi] = useState({ mode: 'two', a: bestAbility(ch, classKey), b: 'con' });
-  const [subclass, setSubclass] = useState(null);
+  const [filter, setFilter] = useState({});
   const [feat, setFeat] = useState({});
   const [cantrips, setCantrips] = useState([]);
   const [spells, setSpells] = useState([]);
   const [skills, setSkills] = useState([]);
   const [expertise, setExpertise] = useState([]);
   const [busy, setBusy] = useState(false);
-  const opts = useMemo(() => { try { return spellOptions(plan.classKey, plan.classLevel, srd, { abilities: ch.abilities, subclass }); } catch { return null; } }, [plan, srd, ch, subclass]);
+  const pools = useMemo(() => { try { return plan.error ? null : levelUpPools(ch, plan, srd, subclass); } catch { return null; } }, [plan, srd, ch, subclass]);
   if (plan.error) return <Modal title="Level up" onClose={onClose}><p className="error-text">{plan.error}</p></Modal>;
 
-  const known = new Set([...(ch.spellcasting?.cantrips || []), ...(ch.spellcasting?.known || []), ...(ch.spellcasting?.prepared || [])]);
   const hp = hpMode === 'average' ? plan.hpAverage : hpRoll;
   const haveSkill = (s) => (ch.skillProfs?.[s] || 0) > 0;
 
@@ -90,10 +91,10 @@ function LevelDetails({ ch, srd, classKey, onBack, onClose, onAgain }) {
   const expertPool = Object.keys(ch.skillProfs || {}).filter((s) => ch.skillProfs[s] === 1);
   const expertNeed = Math.min(plan.expertiseToPick || 0, expertPool.length);
   const maxSpell = plan.classMaxSpellLevel || plan.maxSpellLevel;
-  const cantripPool = (opts?.cantrips || []).filter((s) => !known.has(s.index));
-  const spellPool = (opts?.spells || []).filter((s) => !known.has(s.index) && s.level <= maxSpell);
-  const cantripNeed = Math.min(plan.cantripsToPick || 0, cantripPool.length);
-  const spellNeed = Math.min(plan.spellsToPick || 0, spellPool.length);
+  const cantripPool = pools?.cantrips || [];
+  const spellPool = pools?.spells || [];
+  const cantripNeed = pools?.cantripNeed || 0;
+  const spellNeed = pools?.spellNeed || 0;
   const featNeed = (fc) => Math.min(Number(fc.choose) || 1, fc.options.length);
   const asiOk = !plan.asi || asi.mode === 'one' || asi.a !== asi.b;
   // feature choices of this level, plus those of the path chosen this level (a ranger 3 Hunter picks Hunter's Prey)
@@ -103,16 +104,20 @@ function LevelDetails({ ch, srd, classKey, onBack, onClose, onAgain }) {
   const optionIdx = new Set((plan.featureChoices || []).flatMap((fc) => fc.options.map((o) => o.index)));
   const newFeatures = (plan.features || []).filter((f) => !optionIdx.has(f.index));
 
+  // the level-up as it would be sent; the same check the server makes decides what's still missing
+  const choices = {
+    class: plan.classKey, hp: Math.max(1, (hp || plan.hpAverage)), hpMethod: hpMode,
+    asi: plan.asi ? (asi.mode === 'one' ? { [asi.a]: 2 } : { [asi.a]: 1, [asi.b]: 1 }) : undefined,
+    subclass: plan.subclassChoice ? subclass : undefined, cantrips, spells, skills, expertise,
+    // only the choices on screen (not a pick left over from a path the player switched away from)
+    featureOptions: Object.fromEntries(featureChoices.map((fc) => [fc.index, feat[fc.index] || []])),
+  };
+  const problems = (() => { try { return levelUpProblems(ch, choices, srd); } catch (e) { return [e.message]; } })();
   const missing = [
     hpMode === 'roll' && !hpRoll && 'roll your hit points',
-    plan.subclassChoice && !subclass && 'your path',
-    ...featureChoices.filter((fc) => (feat[fc.index] || []).length < featNeed(fc)).map((fc) => fc.name),
-    !asiOk && 'two different abilities for +1 / +1',
-    skills.length < skillNeed && `${skillNeed - skills.length} more skill${skillNeed - skills.length === 1 ? '' : 's'}`,
-    expertise.length < expertNeed && `${expertNeed - expertise.length} more expertise`,
-    cantrips.length < cantripNeed && `${cantripNeed - cantrips.length} more cantrip${cantripNeed - cantrips.length === 1 ? '' : 's'}`,
-    spells.length < spellNeed && `${spellNeed - spells.length} more spell${spellNeed - spells.length === 1 ? '' : 's'}`,
+    ...problems.map((p) => (p === 'your ability score improvement' && !asiOk ? 'two different abilities for +1 / +1' : p)),
   ].filter(Boolean);
+  const offSchool = (list) => (pools?.schools ? list.filter((i) => !pools.schools.includes(String(srd?.by?.spells?.get(i)?.school || '').toLowerCase())).length : 0);
 
   // pick one: switch; pick several: add until full, then ask to unpick one first
   function toggle(list, set, value, need, what) {
@@ -125,13 +130,6 @@ function LevelDetails({ ch, srd, classKey, onBack, onClose, onAgain }) {
   async function apply() {
     if (missing.length) return;
     setBusy(true);
-    const choices = {
-      class: plan.classKey, hp: Math.max(1, (hp || plan.hpAverage)), hpMethod: hpMode,
-      asi: plan.asi ? (asi.mode === 'one' ? { [asi.a]: 2 } : { [asi.a]: 1, [asi.b]: 1 }) : undefined,
-      subclass: plan.subclassChoice ? subclass : undefined, cantrips, spells, skills, expertise,
-      // only the choices on screen (not a pick left over from a path the player switched away from)
-      featureOptions: Object.fromEntries(featureChoices.map((fc) => [fc.index, feat[fc.index] || []])),
-    };
     try {
       const r = await api(`characters/${ch.id}/level-up`, { method: 'POST', body: choices });
       toast(`${ch.name} is now level ${plan.newLevel}${plan.multiclass ? ` (${titleIndex(plan.classKey)} 1)` : ''}!`, 'good');
@@ -177,7 +175,7 @@ function LevelDetails({ ch, srd, classKey, onBack, onClose, onAgain }) {
             <div className="sub-h row">Choose your path <span className="spacer" />{count(subclass ? 1 : 0, 1)}</div>
             <div className="lu-cards">
               {plan.subclassOptions.map((s) => (
-                <OptionCard key={s.index} on={subclass === s.index} onClick={() => setSubclass(subclass === s.index ? null : s.index)} title={s.name}
+                <OptionCard key={s.index} on={subclass === s.index} onClick={() => { setSubclass(subclass === s.index ? null : s.index); setCantrips([]); setSpells([]); }} title={s.name}
                   info={() => { const cls = srd?.by?.classes?.get(plan.classKey); return describeSubclass(cls?.subclasses?.find((x) => x.index === s.index) || s, cls, plan.classLevel); }}
                   meta={s.features?.length ? `At this level: ${s.features.filter((f) => f.level <= plan.classLevel).map((f) => f.name).join(', ')}` : ''} text={s.desc} />
               ))}
@@ -189,17 +187,28 @@ function LevelDetails({ ch, srd, classKey, onBack, onClose, onAgain }) {
           const need = featNeed(fc);
           const list = feat[fc.index] || [];
           const path = pathChoices.includes(fc) ? plan.subclassOptions.find((s) => s.index === subclass)?.name : null;
+          const pick = (o) => toggle(list, (v) => setFeat({ ...feat, [fc.index]: v }), o.index, need, 'options');
+          // long lists (Magical Secrets offers every spell) get a search box; picked ones always stay in view
+          const q = (filter[fc.index] || '').trim().toLowerCase();
+          const shown = q ? fc.options.filter((o) => list.includes(o.index) || o.name.toLowerCase().includes(q)) : fc.options;
           return (
             <section key={fc.index}>
               <div className="sub-h row">{fc.name}{path && <span className="tiny muted">&nbsp;· {path}{fc.level && fc.level < plan.classLevel ? `, level ${fc.level}` : ''}</span>} <span className="spacer" />{count(list.length, need)}</div>
+              {fc.options.length > 12 && (
+                <input className="input lu-filter" type="search" value={filter[fc.index] || ''} placeholder={`Search ${fc.options.length} options`} aria-label={`Search the options for ${fc.name}`}
+                  onChange={(e) => setFilter({ ...filter, [fc.index]: e.target.value })} />
+              )}
               <div className="lu-cards">
-                {fc.options.map((o) => {
+                {shown.map((o) => {
+                  const spell = o.spell && srd?.by?.spells?.get(o.spell);
+                  if (spell) return <SpellOption key={o.index} spell={spell} on={list.includes(o.index)} onClick={() => pick(o)} />;
                   const info = describeChoiceOption(o, fc);
                   return (
                     <OptionCard key={o.index} on={list.includes(o.index)} title={fc.words ? titleIndex(o.name) : optionName(o.name)} text={o.desc || info?.text} info={info}
-                      onClick={() => toggle(list, (v) => setFeat({ ...feat, [fc.index]: v }), o.index, need, 'options')} />
+                      onClick={() => pick(o)} />
                   );
                 })}
+                {!shown.length && <div className="tiny muted">Nothing matches "{filter[fc.index]}".</div>}
               </div>
             </section>
           );
@@ -261,7 +270,9 @@ function LevelDetails({ ch, srd, classKey, onBack, onClose, onAgain }) {
 
         {spellNeed > 0 && (
           <section>
-            <div className="sub-h row">New spells <span className="tiny muted">&nbsp;up to level {maxSpell}</span><span className="spacer" />{count(spells.length, spellNeed)}</div>
+            <div className="sub-h row">{plan.spellMode === 'prepared' ? 'Spells to prepare' : 'New spells'} <span className="tiny muted">&nbsp;up to level {maxSpell}</span><span className="spacer" />{count(spells.length, spellNeed)}</div>
+            {plan.spellMode === 'prepared' && <div className="tiny muted" style={{ marginBottom: 6 }}>Fill every place you have for prepared spells. You can change them after a long rest as usual.</div>}
+            {pools?.schools && <div className="tiny muted" style={{ marginBottom: 6 }}>Your spells come from the {pools.schools.join(' and ')} schools; {pools.offSchoolLeft === 1 ? 'one' : pools.offSchoolLeft} may come from any school{offSchool(spells) ? ` (you've picked ${offSchool(spells)})` : ''}.</div>}
             <div className="lu-cards">{spellPool.map((s) => <SpellOption key={s.index} spell={s} on={spells.includes(s.index)} onClick={() => toggle(spells, setSpells, s.index, spellNeed, 'spells')} />)}</div>
           </section>
         )}

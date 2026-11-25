@@ -87,7 +87,8 @@ function CreatorBody({ srd, camp, ch, up, step, setStep, busy, setBusy, go, toas
   const level = Number(startLevel) || 1;
   const needsSubclass = cls && level >= (cls.subclassLevel || 3);
   const subclassKey = needsSubclass ? ch.subclass || cls?.subclasses?.[0]?.index || null : null;
-  const featureChoices = useMemo(() => { try { return creationFeatureChoices(ch.class, subclassKey, level, srd); } catch { return []; } }, [ch.class, subclassKey, level, srd]);
+  // later levels leave out what earlier ones picked, and invocations wait for eldritch blast: the picks go in too
+  const featureChoices = useMemo(() => { try { return creationFeatureChoices(ch.class, subclassKey, level, srd, { featureOptions: ch.featureOptions, cantrips: ch.cantrips }); } catch { return []; } }, [ch.class, subclassKey, level, srd, ch.featureOptions, ch.cantrips]);
   const spellInfo = useMemo(() => {
     try { return spellOptions(ch.class, level, srd, { abilities: finalAbilities(), subclass: ch.subclass }); } catch { return null; }
   }, [ch.class, level, ch.subclass, ch.base, ch.race, ch.subrace, ch.bonusChoices]); // eslint-disable-line

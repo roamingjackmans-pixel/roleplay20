@@ -26,8 +26,42 @@ export function defaultRng() {
   return Math.random();
 }
 
-/** Roll one die with `sides` faces using rng() in [0,1). */
+// 32-bit random words from the system's cryptographic generator, fetched 256 at a time.
+const POOL = 256;
+let pool = null;
+let poolAt = POOL;
+function randomWord() {
+  if (poolAt >= POOL) {
+    pool = pool || new Uint32Array(POOL);
+    globalThis.crypto.getRandomValues(pool);
+    poolAt = 0;
+  }
+  return pool[poolAt++];
+}
+
+/**
+ * A fair whole number from 1 to `sides`: cryptographic random words with rejection sampling, so every face has
+ * exactly the same chance (2^32 isn't a multiple of 20, so the few words past the last full set of `sides` are
+ * thrown away and drawn again instead of being folded onto the low faces).
+ */
+export function fairDie(sides) {
+  const n = Math.floor(Number(sides));
+  if (!(n >= 1)) return 1;
+  if (typeof globalThis.crypto?.getRandomValues !== "function") return Math.floor(Math.random() * n) + 1;
+  let face;
+  do face = faceFromWord(randomWord(), n); while (face === null);
+  return face;
+}
+
+/** The face a 32-bit random word gives on an n-sided die, or null when the word must be thrown away and redrawn. */
+export function faceFromWord(word, n) {
+  const limit = 4294967296 - (4294967296 % n);
+  return word >= limit ? null : (word % n) + 1;
+}
+
+/** Roll one die with `sides` faces: fairDie by default, or from rng() in [0,1) when a custom rng is given (tests). */
 export function rollDie(sides, rng = defaultRng) {
+  if (rng === defaultRng) return fairDie(sides);
   let r = rng();
   if (!(r >= 0)) r = 0;
   if (r >= 1) r = 0.999999999;

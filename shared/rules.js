@@ -176,6 +176,9 @@ export function hasJackOfAllTrades(char) {
 // ─── spell slots ───────────────────────────────────────────────────────────────────────────
 function castingFor(classKey, subclass, srd) {
   if (CLASS_CASTING[classKey]) return CLASS_CASTING[classKey];
+  // a subclass that casts (Eldritch Knight, Arcane Trickster) carries its own table
+  const subCast = subclass ? get(srd, "classes", classKey)?.subclasses?.find((s) => s.index === subclass)?.casting : null;
+  if (subCast) return { type: subCast.type || "third", mode: subCast.mode || "known", ability: subCast.ability || "int", from: subCast.from || 3, cantrips: subCast.cantrips, known: subCast.known };
   const sc = get(srd, "classes", classKey)?.spellcasting;
   if (sc) return { type: sc.type || "full", mode: sc.mode || "prepared", ability: sc.ability, from: sc.level || 1, prepared: sc.prepared };
   // third casters (Eldritch Knight / Arcane Trickster are not SRD, but support them if present)
@@ -307,6 +310,7 @@ export function classResources(classKey, classLevel, char = {}) {
         const n = l >= 18 ? 3 : l >= 6 ? 2 : 1;
         const opts = ["Turn Undead"];
         if (subclass === "life") opts.push("Preserve Life (restore 5 x cleric level HP split among creatures within 30 ft, up to half their max)");
+        for (const [lv, o] of DOMAIN_CHANNEL[subclass] || []) if (l >= lv) opts.push(o);
         add("channelDivinity", "Channel Divinity", n, "short", `Options: ${opts.join("; ")}. Turn Undead: undead within 30 ft make a Wisdom save (DC ${8 + prof + m.wis}) or are turned for 1 minute.`);
       }
       if (l >= 10) add("divineIntervention", "Divine Intervention", 1, "long", `Roll d100; if the roll is ${l >= 20 ? "anything (automatic at 20th level)" : `${l} or lower`}, your deity intervenes. On success, can't use again for 7 days.`);
@@ -334,7 +338,7 @@ export function classResources(classKey, classLevel, char = {}) {
       add("divineSense", "Divine Sense", Math.max(1, 1 + m.cha), "long", "Action: until the end of your next turn, know the location of celestials, fiends and undead within 60 ft not behind total cover.");
       add("layOnHands", "Lay on Hands", 5 * l, "long", "Action: touch a creature to restore hit points from this pool, or spend 5 points to cure one disease or neutralize one poison.");
       if (l >= 3) {
-        const opts = subclass === "devotion" || !subclass ? "Sacred Weapon (add CHA to attack rolls for 1 minute), Turn the Unholy" : "see your Sacred Oath";
+        const opts = OATH_CHANNEL[subclass] || (subclass === "devotion" || !subclass ? "Sacred Weapon (add CHA to attack rolls for 1 minute), Turn the Unholy" : "see your Sacred Oath");
         add("channelDivinity", "Channel Divinity", 1, "short", `Options: ${opts}. Save DC ${8 + prof + m.cha}.`);
       }
       break;
@@ -360,7 +364,59 @@ export function classResources(classKey, classLevel, char = {}) {
     default:
       break;
   }
+  subclassResources(classKey, subclass, l, m, prof, add);
   return out;
+}
+
+// Channel Divinity options a domain or oath adds (from the class level they come at).
+const DOMAIN_CHANNEL = {
+  knowledge: [[2, "Knowledge of the Ages (proficiency with one skill or tool for 10 minutes)"], [6, "Read Thoughts (Wisdom save; read surface thoughts, then cast suggestion on it)"]],
+  light: [[2, "Radiance of the Dawn (dispel magical darkness; 2d10 + cleric level radiant in 30 ft, Con save for half)"]],
+  nature: [[2, "Charm Animals and Plants (beasts and plants within 30 ft: Wisdom save or charmed for 1 minute)"]],
+  tempest: [[2, "Destructive Wrath (maximum lightning or thunder damage instead of rolling)"]],
+  trickery: [[2, "Invoke Duplicity (an illusory double for 1 minute, concentration)"], [6, "Cloak of Shadows (invisible until the end of your next turn)"]],
+  war: [[2, "Guided Strike (+10 to one attack roll)"], [6, "War God's Blessing (reaction: +10 to an ally's attack roll within 30 ft)"]],
+};
+const OATH_CHANNEL = {
+  ancients: "Nature's Wrath (spectral vines restrain a creature within 10 ft: Str or Dex save), Turn the Faithless (fey and fiends within 30 ft: Wisdom save or turned)",
+  vengeance: "Abjure Enemy (a creature within 60 ft: Wisdom save or frightened and speed 0 for 1 minute), Vow of Enmity (advantage on attacks against one creature within 10 ft for 1 minute)",
+};
+
+/** Limited uses a subclass adds: superiority dice, Portent, Arcane Ward, Tides of Chaos, Fey Presence... */
+function subclassResources(classKey, subclass, l, m, prof, add) {
+  if (!subclass) return;
+  const wisUses = Math.max(1, m.wis);
+  switch (`${classKey}/${subclass}`) {
+    case "cleric/light": add("wardingFlare", "Warding Flare", wisUses, "long", "Reaction: impose disadvantage on an attack roll against you (or, from 6th level, a creature within 30 ft) by a creature you can see within 30 ft."); break;
+    case "cleric/tempest": add("wrathOfTheStorm", "Wrath of the Storm", wisUses, "long", `Reaction when a creature within 5 ft hits you: 2d8 lightning or thunder damage, Dexterity save (DC ${8 + prof + m.wis}) for half.`); break;
+    case "cleric/war": add("warPriest", "War Priest", wisUses, "long", "When you take the Attack action, make one weapon attack as a bonus action."); break;
+    case "druid/land": if (l >= 2) add("naturalRecovery", "Natural Recovery", 1, "long", `During a short rest, recover spell slots with a combined level of up to ${Math.ceil(l / 2)} (none of 6th level or higher).`); break;
+    case "druid/moon": if (l >= 2) add("circleForms", `Circle Forms (beasts up to CR ${l >= 6 ? Math.floor(l / 3) : 1})`, null, null, `Wild Shape as a bonus action into a beast of CR ${l >= 6 ? Math.floor(l / 3) : 1} or lower; while transformed, spend a spell slot as a bonus action to regain 1d8 hit points per slot level.${l >= 10 ? " Elemental Wild Shape: spend two uses to become an air, earth, fire or water elemental." : ""}`); break;
+    case "fighter/battle-master": if (l >= 3) {
+      const die = l >= 18 ? 12 : l >= 10 ? 10 : 8;
+      add("superiorityDice", `Superiority Dice (d${die})`, l >= 15 ? 6 : l >= 7 ? 5 : 4, "short", `Fuel your maneuvers: one die per maneuver. Maneuver save DC ${8 + prof + Math.max(m.str, m.dex)}.${l >= 15 ? " Relentless: regain one when you roll initiative with none left." : ""}`);
+    } break;
+    case "monk/open-hand": if (l >= 6) add("wholenessOfBody", "Wholeness of Body", 1, "long", `Action: regain ${3 * l} hit points.`); break;
+    case "paladin/ancients": if (l >= 15) add("undyingSentinel", "Undying Sentinel", 1, "long", "When you drop to 0 hit points and aren't killed outright, drop to 1 hit point instead."); break;
+    case "sorcerer/wild-magic": add("tidesOfChaos", "Tides of Chaos", 1, "long", "Gain advantage on one attack roll, ability check or saving throw. The DM can restore it by having you roll on the Wild Magic Surge table after you cast a leveled spell."); break;
+    case "warlock/fiend":
+      if (l >= 6) add("darkOnesOwnLuck", "Dark One's Own Luck", 1, "short", "Add a d10 to an ability check or saving throw, after seeing the roll.");
+      if (l >= 14) add("hurlThroughHell", "Hurl Through Hell", 1, "long", "When you hit a creature, send it through the lower planes until the end of your next turn: it takes 10d10 psychic damage if it isn't a fiend.");
+      break;
+    case "warlock/archfey":
+      add("feyPresence", "Fey Presence", 1, "short", `Action: creatures in a 10-ft cube from you make a Wisdom save (DC ${8 + prof + m.cha}) or are charmed or frightened (your choice) until the end of your next turn.`);
+      if (l >= 6) add("mistyEscape", "Misty Escape", 1, "short", "Reaction when you take damage: turn invisible and teleport up to 60 ft; invisible until the start of your next turn or until you attack or cast.");
+      if (l >= 14) add("darkDelirium", "Dark Delirium", 1, "short", `Action: a creature within 60 ft makes a Wisdom save (DC ${8 + prof + m.cha}) or is charmed or frightened for up to 1 minute (concentration), lost in an illusory realm.`);
+      break;
+    case "warlock/great-old-one": if (l >= 6) add("entropicWard", "Entropic Ward", 1, "short", "Reaction: impose disadvantage on an attack roll against you; if it misses, your next attack against that creature has advantage."); break;
+    case "wizard/abjuration": add("arcaneWard", "Arcane Ward", 2 * l + m.int, "long", `A ward of ${2 * l + m.int} hit points that takes damage for you; it forms when you cast an abjuration spell of 1st level or higher, and each such spell restores twice its level.`); break;
+    case "wizard/conjuration": if (l >= 6) add("benignTransposition", "Benign Transposition", 1, "long", "Action: teleport up to 30 ft, or swap places with a willing Small or Medium creature. Comes back after a long rest or when you cast a conjuration spell of 1st level or higher."); break;
+    case "wizard/divination": add("portent", "Portent", l >= 14 ? 3 : 2, "long", `Roll ${l >= 14 ? "three" : "two"} d20s after each long rest and use them in place of any attack roll, saving throw or ability check you can see.`); break;
+    case "wizard/illusion": if (l >= 10) add("illusorySelf", "Illusory Self", 1, "short", "Reaction: an illusory duplicate makes an attack against you miss."); break;
+    case "wizard/transmutation": if (l >= 10) add("shapechanger", "Shapechanger", 1, "short", "Cast polymorph on yourself without a spell slot, becoming a beast of CR 1 or lower."); break;
+    case "wizard/evocation": if (l >= 14) add("overchannel", "Overchannel", 1, "long", "Deal maximum damage with a wizard spell of 5th level or lower (using it again before a long rest costs necrotic damage)."); break;
+    default: break;
+  }
 }
 
 function racialResources(char, srd, mods, prof) {
@@ -578,7 +634,8 @@ export function deriveCharacter(char, srd = {}) {
   }
   const extraAttacks = Math.max(
     lv("fighter") >= 20 ? 3 : lv("fighter") >= 11 ? 2 : lv("fighter") >= 5 ? 1 : 0,
-    ["barbarian", "monk", "paladin", "ranger"].some((k) => lv(k) >= 5) ? 1 : 0
+    ["barbarian", "monk", "paladin", "ranger"].some((k) => lv(k) >= 5) ? 1 : 0,
+    classes.some((c) => c.class === "bard" && c.subclass === "valor" && c.level >= 6) ? 1 : 0
   );
 
   // spellcasting
@@ -650,8 +707,9 @@ function deriveSpellcasting(char, srd, classes, mods, prof) {
     const ability = cast.ability;
     const mod = mods[ability];
     const row = levelRow(srd, c.class, c.level);
-    const cantrips = row ? row.cantrips ?? 0 : CANTRIPS[c.class]?.[Math.min(c.level, 10) - 1] ?? 0;
-    const known = cast.mode === "known" || cast.mode === "pact"
+    const atLevel = (t) => Object.keys(t).map(Number).sort((a, b) => a - b).reduce((v, k) => (c.level >= k ? t[k] : v), 0);
+    const cantrips = cast.cantrips ? atLevel(cast.cantrips) : row ? row.cantrips ?? 0 : CANTRIPS[c.class]?.[Math.min(c.level, 10) - 1] ?? 0;
+    const known = cast.known ? atLevel(cast.known) : cast.mode === "known" || cast.mode === "pact"
       ? row ? row.spellsKnown ?? 0 : SPELLS_KNOWN[c.class]?.[c.level - 1] ?? 0
       : null;
     let preparedMax = null;
@@ -680,8 +738,9 @@ function deriveSpellcasting(char, srd, classes, mods, prof) {
     attack: prof + mod,
     slots,
     pact,
-    cantripsKnown: perClass.reduce((a, p) => a + p.cantripsKnown, 0),
-    spellsKnown: sum("spellsKnown"),
+    // plus what features gave (a Land druid's bonus cantrip, Magical Secrets of a Lore bard, Mystic Arcanum...)
+    cantripsKnown: perClass.reduce((a, p) => a + p.cantripsKnown, 0) + (char.spellcasting?.fromFeatures?.cantrips?.length || 0),
+    spellsKnown: sum("spellsKnown") == null ? null : sum("spellsKnown") + (char.spellcasting?.fromFeatures?.spells?.length || 0),
     preparedMax: sum("preparedMax"),
     mode: primary?.mode ?? "innate",
     maxSpellLevel,

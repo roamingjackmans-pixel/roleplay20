@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useStore, emit } from '../lib/store.js';
 import { useUI } from './ui.js';
 import CharacterSheet from '../sheet/CharacterSheet.jsx';
@@ -7,6 +7,7 @@ import Inventory from '../sheet/Inventory.jsx';
 import { Avatar, Markdown, titleIndex, timeAgo } from '../lib/format.jsx';
 import { previewVoice, voiceLabel } from '../lib/tts.js';
 import ReadAloud from '../components/ReadAloud.jsx';
+import { parseQuery, searchMarkdown } from '../../../shared/journalSearch.js';
 
 const TABS = [
   ['sheet', '🛡', 'Sheet'], ['spells', '✨', 'Spells & abilities'], ['bag', '🎒', 'Bag'], ['notes', '📝', 'My notes'],
@@ -235,11 +236,58 @@ function People() {
   );
 }
 
+/**
+ * Search the journal: only the paragraphs (and list items, headings, recaps) that mention every word, with the
+ * matches marked. hand finds hand and handle; "hand" in quotes finds only the word hand.
+ */
+function JournalResults({ j, terms }) {
+  const places = [];
+  const add = (key, title, date, text, sub = '') => {
+    const found = searchMarkdown(text, terms);
+    if (found.length) places.push({ key, title, date, sub, found });
+  };
+  add('sofar', 'The story so far', '', j.storySoFar);
+  for (const s of j.sessions.slice().reverse()) {
+    const date = s.startedAt ? new Date(s.startedAt).toLocaleDateString() : '';
+    add(`s${s.n}-recap`, `Session ${s.n}`, date, s.recap, 'recap');
+    add(`s${s.n}-log`, `Session ${s.n}`, date, s.logEntry);
+    add(`s${s.n}-party`, `Session ${s.n}`, date, s.partyState, 'party state at the end');
+  }
+  add('world', 'World bible', '', j.worldBible);
+  const total = places.reduce((a, p) => a + p.found.length, 0);
+  if (!total) return <div className="empty">Nothing in the journal mentions {terms.map((t) => (t.whole ? `"${t.text}"` : t.text)).join(' and ')}.</div>;
+  return (
+    <div className="col journal-results">
+      <div className="tiny muted" role="status">{total} {total === 1 ? 'passage' : 'passages'} in {places.length} {places.length === 1 ? 'place' : 'places'}</div>
+      {places.map((p) => (
+        <div key={p.key} className="journal-hit">
+          <div className="row"><b className="display">{p.title}</b>{p.sub && <span className="tiny muted">&nbsp;· {p.sub}</span>}<div className="spacer" />{p.date && <span className="tiny muted">{p.date}</span>}</div>
+          {p.found.map((x, i) => (
+            <div key={i} className="journal-passage">
+              {x.heading && x.kind !== 'h' && <div className="tiny muted jp-where">§ {x.heading}</div>}
+              <Markdown text={p.sub === 'recap' ? `“${x.text}”` : x.text} highlight={terms} />
+            </div>
+          ))}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function Journal() {
   const j = useStore((s) => s.view.journal);
   const [tab, setTab] = useState(j.sessions.some((s) => s.logEntry) ? 'log' : 'world');
+  const [q, setQ] = useState('');
+  const terms = useMemo(() => parseQuery(q), [q]);
   return (
     <div className="col">
+      <div className="journal-search">
+        <input className="input" type="search" value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === 'Escape' && setQ('')}
+          placeholder="🔎 Search the journal" aria-label="Search the journal" />
+        {q && <button className="btn xs ghost" onClick={() => setQ('')} aria-label="Clear the search">✕</button>}
+      </div>
+      {q && <div className="tiny muted">hand finds hand and handle · "hand" in quotes finds only the word hand</div>}
+      {terms.length > 0 ? <JournalResults j={j} terms={terms} /> : (<>
       <div className="tabs"><button className={tab === 'log' ? 'on' : ''} onClick={() => setTab('log')}>Sessions</button><button className={tab === 'world' ? 'on' : ''} onClick={() => setTab('world')}>World bible</button></div>
       {tab === 'world' && (
         <div className="col">
@@ -271,6 +319,7 @@ function Journal() {
           ))}
         </div>
       )}
+      </>)}
     </div>
   );
 }

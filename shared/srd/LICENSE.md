@@ -32,3 +32,10 @@ The structured JSON was obtained from **5e-bits/5e-database** (<https://github.c
 Folk Hero, Guild Artisan, Hermit, Noble, Outlander, Sage, Sailor, Soldier, Urchin). Only their game mechanics
 (skill/tool/language proficiencies, equipment, gold, feature names) follow the 5e rules; the feature descriptions and
 all personality suggestions (for every background, including Acolyte) are original text written for Roleplay20.
+
+`classes.json` also holds the Player's Handbook subclasses that SRD 5.1 leaves out (Totem Warrior, Valor, six cleric
+domains, Moon, Battle Master, Eldritch Knight, Shadow, Four Elements, Ancients, Vengeance, Beast Master, Assassin,
+Arcane Trickster, Wild Magic, Archfey, Great Old One and seven arcane traditions), and `spells.json` the 42
+Player's Handbook spells it leaves out. They are marked `srd: false`. Only their names and game mechanics follow the 5e rules;
+every description is original text written for Roleplay20 (sources in
+`scripts/srd-extras/`).

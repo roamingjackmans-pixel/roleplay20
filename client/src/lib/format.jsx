@@ -1,4 +1,5 @@
 import React from 'react';
+import { highlightPieces } from '../../../shared/journalSearch.js';
 
 export const fmtMod = (n) => (n == null || Number.isNaN(n) ? '—' : n >= 0 ? `+${n}` : `${n}`);
 export const cap = (s) => String(s || '').replace(/(^|[\s-])(\w)/g, (m, a, b) => a + b.toUpperCase());
@@ -13,36 +14,44 @@ export function timeAgo(ts) {
   return new Date(ts).toLocaleDateString();
 }
 
-function inline(text, key = 0) {
+/** Plain text with the search terms marked (<mark>), or the text as it is without terms. */
+function marked(str, terms, key) {
+  if (!terms?.length) return str;
+  return highlightPieces(str, terms).map((p, i) => (p.hit ? <mark key={`${key}-m${i}`} className="hl">{p.text}</mark> : p.text));
+}
+
+function inline(text, key = 0, terms = null) {
   // **bold**, *italic*, `code` - escaped by React
   const out = [];
   const re = /(\*\*[^*]+\*\*|\*[^*\n]+\*|_[^_\n]+_|`[^`]+`)/g;
   let last = 0, m, i = 0;
+  const plain = (s) => { const r = marked(s, terms, `${key}-p${i++}`); if (Array.isArray(r)) out.push(...r); else out.push(r); };
   while ((m = re.exec(text))) {
-    if (m.index > last) out.push(text.slice(last, m.index));
+    if (m.index > last) plain(text.slice(last, m.index));
     const t = m[0];
-    if (t.startsWith('**')) out.push(<strong key={`${key}-${i++}`}>{t.slice(2, -2)}</strong>);
-    else if (t.startsWith('`')) out.push(<code key={`${key}-${i++}`}>{t.slice(1, -1)}</code>);
-    else out.push(<em key={`${key}-${i++}`}>{t.slice(1, -1)}</em>);
+    const k = `${key}-${i++}`;
+    if (t.startsWith('**')) out.push(<strong key={k}>{marked(t.slice(2, -2), terms, k)}</strong>);
+    else if (t.startsWith('`')) out.push(<code key={k}>{marked(t.slice(1, -1), terms, k)}</code>);
+    else out.push(<em key={k}>{marked(t.slice(1, -1), terms, k)}</em>);
     last = m.index + t.length;
   }
-  if (last < text.length) out.push(text.slice(last));
+  if (last < text.length) plain(text.slice(last));
   return out;
 }
 export { inline };
 
-/** A small, safe markdown renderer (headings, lists, paragraphs, bold/italic). */
-export function Markdown({ text, className = 'prose' }) {
+/** A small, safe markdown renderer (headings, lists, paragraphs, bold/italic). `highlight` = search terms to mark. */
+export function Markdown({ text, className = 'prose', highlight = null }) {
   const lines = String(text || '').replace(/\r/g, '').split('\n');
   const blocks = [];
   let list = null, para = [];
-  const flushPara = () => { if (para.length) { blocks.push(<p key={blocks.length}>{inline(para.join(' '), blocks.length)}</p>); para = []; } };
-  const flushList = () => { if (list) { blocks.push(<ul key={blocks.length}>{list.map((l, i) => <li key={i}>{inline(l, i)}</li>)}</ul>); list = null; } };
+  const flushPara = () => { if (para.length) { blocks.push(<p key={blocks.length}>{inline(para.join(' '), blocks.length, highlight)}</p>); para = []; } };
+  const flushList = () => { if (list) { blocks.push(<ul key={blocks.length}>{list.map((l, i) => <li key={i}>{inline(l, i, highlight)}</li>)}</ul>); list = null; } };
   for (const raw of lines) {
     const line = raw.trimEnd();
     const h = /^(#{1,4})\s+(.*)$/.exec(line);
     const li = /^\s*[-*•]\s+(.*)$/.exec(line) || /^\s*\d+[.)]\s+(.*)$/.exec(line);
-    if (h) { flushPara(); flushList(); const L = Math.min(3, h[1].length); const Tag = `h${L}`; blocks.push(<Tag key={blocks.length}>{inline(h[2], blocks.length)}</Tag>); }
+    if (h) { flushPara(); flushList(); const L = Math.min(3, h[1].length); const Tag = `h${L}`; blocks.push(<Tag key={blocks.length}>{inline(h[2], blocks.length, highlight)}</Tag>); }
     else if (li) { flushPara(); (list ||= []).push(li[1]); }
     else if (!line.trim()) { flushPara(); flushList(); }
     else if (/^---+$/.test(line.trim())) { flushPara(); flushList(); blocks.push(<hr key={blocks.length} className="hr" />); }

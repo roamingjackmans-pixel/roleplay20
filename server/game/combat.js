@@ -397,6 +397,7 @@ function extraAttacks(ch) {
   for (const k of ch.classes || [{ class: ch.class, level: ch.level }]) {
     if (k.class === 'fighter') n = Math.max(n, k.level >= 20 ? 3 : k.level >= 11 ? 2 : k.level >= 5 ? 1 : 0);
     else if (['barbarian', 'paladin', 'ranger', 'monk'].includes(k.class) && k.level >= 5) n = Math.max(n, 1);
+    else if (k.class === 'bard' && k.subclass === 'valor' && k.level >= 6) n = Math.max(n, 1); // College of Valor
   }
   return n;
 }
@@ -988,7 +989,18 @@ function damageOptions(ch, eco, { melee, weapon }) {
   if (lv('paladin') >= 2 && melee && weapon && ch.spellcasting) opts.push({ key: 'smite', label: 'Divine Smite (spend a slot: +2d8, +1d8 per slot level above 1st)', slot: true });
   if ((ch.conditions || []).includes('raging') && melee) { const b = lv('barbarian') >= 16 ? 4 : lv('barbarian') >= 9 ? 3 : 2; opts.push({ key: 'rage', label: `Rage (+${b})`, flat: b, auto: true }); }
   if (ch.concentration === 'hunters-mark' || ch.concentration === 'hex') opts.push({ key: 'mark', label: `${ch.concentration === 'hex' ? 'Hex' : "Hunter's Mark"} (+1d6)`, dice: '1d6', auto: true });
+  // Battle Master: a maneuver that adds a superiority die to the damage (trip, push, disarm, menace...)
+  const sup = superiority(ch);
+  if (sup && weapon) opts.push({ key: 'maneuver', label: `Maneuver (+1d${sup.die}, ${sup.left} superiority ${sup.left === 1 ? 'die' : 'dice'} left)`, dice: `1d${sup.die}` });
   return opts;
+}
+
+/** A Battle Master's superiority dice: { die, left } or null (none, or all spent). */
+function superiority(ch) {
+  const r = safeDerive(ch)?.resources?.find((x) => x.key === 'superiorityDice');
+  if (!r?.max) return null;
+  const left = r.max - (ch.resources?.superiorityDice?.used || 0);
+  return left > 0 ? { die: Number(/d(\d+)/.exec(r.name)?.[1]) || 8, left } : null;
 }
 
 function doubleDice(expr) {
@@ -1008,6 +1020,14 @@ export function damage(c, userId, p) {
     if (o === 'sneak' && !eco.sneakUsed) { const n = Math.ceil(((ch.classes || []).find((x) => x.class === 'rogue')?.level || ch.level) / 2); expr += `+${n}d6`; eco.sneakUsed = true; extras.push('Sneak Attack'); }
     if (o === 'rage') { const lvl = (ch.classes || []).find((x) => x.class === 'barbarian')?.level || 1; expr += `+${lvl >= 16 ? 4 : lvl >= 9 ? 3 : 2}`; extras.push('Rage'); }
     if (o === 'mark') { expr += '+1d6'; extras.push(ch.concentration === 'hex' ? 'Hex' : "Hunter's Mark"); }
+    if (o === 'maneuver') {
+      const sup = superiority(ch);
+      if (!sup) return { error: 'No superiority dice left until you rest.' };
+      (ch.resources.superiorityDice ||= { used: 0 }).used += 1;
+      saveCharacter(ch);
+      expr += `+1d${sup.die}`;
+      extras.push('Maneuver');
+    }
     if (o === 'smite') {
       const lvl = Math.max(1, Math.min(5, p.smiteLevel || lowestSlot(ch) || 1));
       if (!spendSlot(ch, lvl)) return { error: 'No spell slot left for Divine Smite.' };

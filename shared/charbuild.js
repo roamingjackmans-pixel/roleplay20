@@ -27,7 +27,7 @@
 // }
 
 import {
-  ABILITIES, SKILLS, abilityMod, profBonus, byIndex, classResources, spellSlots, normName, CLASS_CASTING,
+  ABILITIES, SKILLS, SKILL_NAMES, abilityMod, profBonus, byIndex, classResources, spellSlots, normName, CLASS_CASTING,
   asiLevelsFor, characterClasses, totalLevel, lookupEquipment,
 } from "./rules.js";
 
@@ -253,11 +253,33 @@ const prefRank = (idx) => {
   const i = SPELL_PREF.indexOf(idx);
   return i < 0 ? 999 : i;
 };
-function classSpellList(srd, classKey) {
-  return (srd?.spells ? [...byIndex(srd.spells).values()] : []).filter((s) => (s.classes || []).includes(classKey));
+// ─── spellcasting by class, or by subclass (Eldritch Knight, Arcane Trickster) ──────────────
+const subclassOf = (srd, classKey, sub) => (sub ? get(srd, "classes", classKey)?.subclasses?.find((s) => s.index === (sub.index || sub)) || null : null);
+function tableAt(t, level) {
+  let v = 0;
+  for (const k of Object.keys(t || {}).map(Number).sort((a, b) => a - b)) if (level >= k) v = t[k];
+  return v;
 }
-function maxSpellLevelAt(classKey, level, srd) {
-  const { slots, pact } = spellSlots([{ class: classKey, level }], srd);
+/** How a class casts, with its subclass (a fighter casts only as an Eldritch Knight): CLASS_CASTING + `list`, or null. */
+export function castFor(classKey, sub, srd) {
+  if (CLASS_CASTING[classKey]) return { ...CLASS_CASTING[classKey], list: classKey };
+  const c = subclassOf(srd, classKey, sub)?.casting;
+  if (!c) return null;
+  return {
+    type: c.type || "third", mode: c.mode || "known", ability: c.ability || "int", from: c.from || 3, list: c.list || "wizard",
+    schools: c.schools || null, anySchoolAt: c.anySchoolAt || [], cantripsAt: c.cantrips || null, knownAt: c.known || null,
+  };
+}
+/** How many spells a school-bound caster (Eldritch Knight...) may know from outside its schools at this class level. */
+export function offSchoolAllowed(cast, level) {
+  return cast?.schools ? (cast.anySchoolAt || []).filter((l) => l <= level).length : Infinity;
+}
+const inSchools = (cast, s) => !cast?.schools || cast.schools.includes(String(s?.school || "").toLowerCase());
+function classSpellList(srd, listKey) {
+  return (srd?.spells ? [...byIndex(srd.spells).values()] : []).filter((s) => (s.classes || []).includes(listKey));
+}
+function maxSpellLevelAt(classKey, level, srd, sub = null) {
+  const { slots, pact } = spellSlots([{ class: classKey, subclass: sub?.index || sub || null, level }], srd);
   let m = 0;
   slots.forEach((n, i) => n > 0 && (m = i + 1));
   if (pact) m = Math.max(m, pact.level);
@@ -266,36 +288,63 @@ function maxSpellLevelAt(classKey, level, srd) {
 function classRow(srd, classKey, level) {
   return get(srd, "classes", classKey)?.levels?.[Math.max(1, Math.min(20, level)) - 1] ?? null;
 }
-function spellCountAt(classKey, level, srd, mod = 0) {
-  const cast = CLASS_CASTING[classKey];
+function cantripCountAt(classKey, level, srd, sub = null) {
+  const cast = castFor(classKey, sub, srd);
   if (!cast || level < cast.from) return 0;
+  if (cast.cantripsAt) return tableAt(cast.cantripsAt, level);
+  return classRow(srd, classKey, level)?.cantrips ?? 0;
+}
+/** Spells a bard learns through Magical Secrets by this level: they count among the class's spells known. */
+function secretsUpTo(classKey, level, srd) {
+  const cls = get(srd, "classes", classKey);
+  let n = 0;
+  for (let l = 1; l <= level; l++) for (const f of cls?.levels?.[l - 1]?.features || []) if (f.pick?.countsAsKnown) n += f.pick.choose || 0;
+  return n;
+}
+function spellCountAt(classKey, level, srd, mod = 0, sub = null) {
+  const cast = castFor(classKey, sub, srd);
+  if (!cast || level < cast.from) return 0;
+  if (cast.knownAt) return tableAt(cast.knownAt, level);
   const row = classRow(srd, classKey, level);
-  if (cast.mode === "known" || cast.mode === "pact") return row?.spellsKnown ?? 0;
+  if (cast.mode === "known" || cast.mode === "pact") return Math.max(0, (row?.spellsKnown ?? 0) - secretsUpTo(classKey, level, srd));
   if (cast.mode === "spellbook") return 6 + 2 * (level - 1);
   if (cast.prepared === "half") return Math.max(1, mod + Math.floor(level / 2));
   return Math.max(1, mod + level);
+}
+/** The spells a class learns from: its own list, plus a warlock patron's expanded spells. */
+function learnableSpells(classKey, sub, srd) {
+  const cast = castFor(classKey, sub, srd);
+  if (!cast) return [];
+  const list = classSpellList(srd, cast.list);
+  const s = subclassOf(srd, classKey, sub);
+  if (cast.mode === "pact") for (const e of s?.spells || []) { const sp = get(srd, "spells", e.index); if (sp && !list.includes(sp)) list.push(sp); }
+  return list;
 }
 
 /**
  * Default spell picks (best-first, spread over levels as if chosen while levelling up).
  * -> { cantrips: [index], spells: [index] }
  */
-export function defaultSpellPicks(classKey, level, srd, { mod = 0, exclude = [] } = {}) {
-  const list = classSpellList(srd, classKey);
+export function defaultSpellPicks(classKey, level, srd, { mod = 0, exclude = [], subclass = null } = {}) {
+  const cast = castFor(classKey, subclass, srd);
+  const list = learnableSpells(classKey, subclass, srd);
   const taken = new Set(exclude);
-  const best = (lvl) => list.filter((s) => s.level === lvl && !taken.has(s.index)).sort((a, b) => prefRank(a.index) - prefRank(b.index) || a.name.localeCompare(b.name));
-  const row = classRow(srd, classKey, level);
-  const cantrips = best(0).slice(0, row?.cantrips ?? 0).map((s) => s.index);
+  let offLeft = 0;
+  const best = (lvl) => list.filter((s) => s.level === lvl && !taken.has(s.index) && (lvl === 0 || inSchools(cast, s) || offLeft > 0))
+    .sort((a, b) => inSchools(cast, b) - inSchools(cast, a) || prefRank(a.index) - prefRank(b.index) || a.name.localeCompare(b.name));
+  const cantrips = best(0).slice(0, cantripCountAt(classKey, level, srd, subclass)).map((s) => s.index);
   cantrips.forEach((c) => taken.add(c));
   const spells = [];
   let prev = 0;
   for (let l = 1; l <= level; l++) {
-    const want = spellCountAt(classKey, l, srd, mod) - prev;
+    const want = spellCountAt(classKey, l, srd, mod, subclass) - prev;
     prev += Math.max(0, want);
-    const top = maxSpellLevelAt(classKey, l, srd);
+    offLeft = offSchoolAllowed(cast, l) - spells.filter((i) => !inSchools(cast, get(srd, "spells", i))).length;
+    const top = maxSpellLevelAt(classKey, l, srd, subclass);
     for (let n = 0; n < want; n++) {
       let pick = null;
       for (let sl = top; sl >= 1 && !pick; sl--) pick = best(sl)[0];
+      if (pick && !inSchools(cast, pick)) offLeft--;
       if (!pick) break;
       spells.push(pick.index);
       taken.add(pick.index);
@@ -309,23 +358,26 @@ export function defaultSpellPicks(classKey, level, srd, { mod = 0, exclude = [] 
  * opts: { abilities, subclass } -> exact prepared count / always-prepared subclass spells.
  */
 export function spellOptions(classKey, level, srd, opts = {}) {
-  const cast = CLASS_CASTING[classKey] || null;
+  const cast = castFor(classKey, opts.subclass, srd);
   const lvl = Math.max(1, Math.min(20, Number(level) || 1));
-  const empty = { cantripsToPick: 0, spellsToPick: 0, cantrips: [], spells: [], mode: cast?.mode ?? null, maxSpellLevel: 0, alwaysPrepared: [] };
+  const empty = { cantripsToPick: 0, spellsToPick: 0, cantrips: [], spells: [], mode: cast?.mode ?? null, maxSpellLevel: 0, alwaysPrepared: [], schools: null, offSchool: Infinity };
   if (!cast || lvl < cast.from) return empty;
-  const row = classRow(srd, classKey, lvl);
   const mod = opts.abilities ? abilityMod(opts.abilities[cast.ability] ?? 10) : 0;
-  const maxSpellLevel = maxSpellLevelAt(classKey, lvl, srd);
-  const list = classSpellList(srd, classKey).sort((a, b) => a.level - b.level || a.name.localeCompare(b.name));
-  const sub = opts.subclass ? get(srd, "classes", classKey)?.subclasses?.find((s) => s.index === opts.subclass) : null;
+  const maxSpellLevel = maxSpellLevelAt(classKey, lvl, srd, opts.subclass);
+  const list = learnableSpells(classKey, opts.subclass, srd).sort((a, b) => a.level - b.level || a.name.localeCompare(b.name));
+  const sub = subclassOf(srd, classKey, opts.subclass);
   return {
-    cantripsToPick: row?.cantrips ?? 0,
-    spellsToPick: spellCountAt(classKey, lvl, srd, mod),
+    cantripsToPick: cantripCountAt(classKey, lvl, srd, opts.subclass),
+    spellsToPick: spellCountAt(classKey, lvl, srd, mod, opts.subclass),
     cantrips: list.filter((s) => s.level === 0),
     spells: list.filter((s) => s.level >= 1 && s.level <= maxSpellLevel),
     mode: cast.mode,
     maxSpellLevel,
     alwaysPrepared: alwaysPreparedFor(classKey, sub, lvl, opts.landType),
+    // Eldritch Knight / Arcane Trickster: their schools, and how many of their spells may come from any school
+    schools: cast.schools || null,
+    offSchool: offSchoolAllowed(cast, lvl),
+    ability: cast.ability,
   };
 }
 
@@ -336,7 +388,124 @@ function alwaysPreparedFor(classKey, sub, classLevel, landType) {
     .map((s) => s.index);
 }
 
-// ─── features ──────────────────────────────────────────────────────────────────────────────
+// ─── features and the choices they offer ───────────────────────────────────────────────────
+// A feature can be a choice: fixed `options` (fighting styles, maneuvers, invocations...), plain words (a ranger's
+// favoured enemies and terrains) or a `pick` the app builds from its own lists (skills, languages, tools, cantrips,
+// spells: Magical Secrets, Mystic Arcanum...). Options can need a class level, a pact boon, a cantrip or another
+// feature first (`requires`), and options a character already has aren't offered again. A feature or a chosen option
+// can carry `grants`: proficiencies, skills, expertise, languages, cantrips and spells that go on the sheet.
+
+const skillLabel = (k) => SKILL_NAMES[k] || String(k).replace(/([A-Z])/g, " $1").replace(/^./, (c) => c.toUpperCase());
+const slug = (s) => String(s).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+const byLevelName = (a, b) => a.level - b.level || a.name.localeCompare(b.name);
+const wordFamily = (index) => String(index).replace(/-\d.*$/, "");
+
+/** What a character already has that choices depend on (or exclude). */
+function haveOf(char = {}) {
+  const sc = char.spellcasting || {};
+  const h = {
+    features: new Set((char.features || []).map((f) => f.index).filter(Boolean)),
+    words: new Map(), // feature family ("favored-enemy") -> words already chosen
+    cantrips: new Set(sc.cantrips || []),
+    spells: new Set([...(sc.known || []), ...(sc.prepared || [])]),
+    skills: new Set(Object.keys(char.skillProfs || {}).filter((k) => char.skillProfs[k] === true || Number(char.skillProfs[k]) > 0)),
+    languages: new Set(char.otherProfs?.languages || []),
+    tools: new Set(char.otherProfs?.tools || []),
+  };
+  for (const f of char.features || []) {
+    const m = /^Chosen: (.*)$/m.exec(f.desc || "");
+    if (m && f.index) addWords(h, f.index, m[1].split(", "));
+  }
+  return h;
+}
+function addWords(h, index, words) {
+  const k = wordFamily(index);
+  if (!h.words.has(k)) h.words.set(k, new Set());
+  for (const w of words) h.words.get(k).add(w);
+}
+function haveGrants(h, g) {
+  if (!g) return;
+  for (const s of g.skills || []) h.skills.add(s);
+  for (const s of g.cantrips || []) h.cantrips.add(s);
+  for (const s of g.spells || []) h.spells.add(s);
+  for (const s of g.languages || []) h.languages.add(s);
+  for (const s of g.tools || []) h.tools.add(s);
+}
+function meets(req, ctx) {
+  if (!req) return true;
+  if (req.level && (ctx.classLevel || 0) < req.level) return false;
+  for (const k of ["pact", "feature"]) if (req[k] && !ctx.have.features.has(req[k])) return false;
+  if (req.cantrip && !ctx.have.cantrips.has(req.cantrip)) return false;
+  return true;
+}
+const isChoice = (f) => !!(f.options?.length || f.stringOptions || f.pick);
+const pickCount = (f, ctx = {}) => (f.pick ? f.pick.choose ?? 1 : f.stringOptions && !f.options?.length ? f.stringOptions.choose ?? 1 : f.choose ?? ctx.invocationsKnown ?? 1);
+
+/** The options a `pick` feature offers this character now: [{ index, name, desc, grants, spell? }]. */
+function pickChoices(f, ctx) {
+  const p = f.pick;
+  const srd = ctx.srd;
+  const h = ctx.have;
+  const label = p.label || f.name;
+  const opt = (value, name, desc, grants, extra = {}) => ({ index: `${f.index}--${value}`, name: `${label}: ${name}`, desc: desc || "", grants, ...extra });
+  switch (p.type) {
+    case "skill": {
+      const from = asArray(p.from).length ? asArray(p.from) : Object.keys(SKILLS);
+      // an expertise pick may be a skill you already have (it becomes doubled); a plain pick is a new skill
+      return from.filter((k) => k in SKILLS && (p.expertise || !h.skills.has(k))).map((k) => opt(k, skillLabel(k),
+        `${p.expertise ? "Proficiency, with double your proficiency bonus," : "Proficiency"} in ${skillLabel(k)} (${String(SKILLS[k]).toUpperCase()}).`,
+        { skills: [k], ...(p.expertise ? { expertise: [k] } : {}) }));
+    }
+    case "language":
+      return languagePool(srd).filter((l) => !h.languages.has(l)).map((l) => opt(slug(l), l, `You can speak, read and write ${l}.`, { languages: [l] }));
+    case "tool": {
+      const from = Array.isArray(p.from) ? p.from
+        : (srd?.equipment ? [...byIndex(srd.equipment).values()] : []).filter((e) => e.type === "tool" && (!p.from || e.toolCategory === p.from)).map((e) => e.name);
+      return uniq(from).filter((t) => !h.tools.has(t)).map((t) => opt(slug(t), t, `Proficiency with ${t}: add your proficiency bonus to checks you make with them.`, { tools: [t] }));
+    }
+    case "cantrip":
+      return classSpellList(srd, p.list).filter((s) => s.level === 0 && !h.cantrips.has(s.index)).sort(byLevelName)
+        .map((s) => opt(s.index, s.name, s.desc, { cantrips: [s.index] }, { spell: s.index }));
+    case "spell": {
+      let list = p.lists === "any" ? (srd?.spells ? [...byIndex(srd.spells).values()] : []) : uniq(asArray(p.lists).flatMap((k) => classSpellList(srd, k)));
+      const max = p.maxLevel === "castable" ? Math.max(1, ctx.maxSpellLevel || 1) : null;
+      // Magical Secrets may also take a cantrip; the other picks name their spell level
+      list = list.filter((s) => (p.level != null ? s.level === p.level : s.level >= (p.minLevel ?? 0) && s.level <= max));
+      if (p.schools) list = list.filter((s) => p.schools.includes(String(s.school).toLowerCase()));
+      list = p.from === "known" ? list.filter((s) => h.spells.has(s.index)) : list.filter((s) => !h.spells.has(s.index) && !h.cantrips.has(s.index));
+      return list.sort(byLevelName).map((s) => opt(s.index, s.name, s.desc,
+        p.from === "known" ? null : s.level === 0 ? { cantrips: [s.index] } : { spells: [s.index], ...(p.countsAsKnown ? { countsAsKnown: true } : {}) },
+        { spell: s.index }));
+    }
+    default:
+      return [];
+  }
+}
+
+/** The options a feature offers this character right now (requirements met, not already theirs); null = not a choice. */
+function choiceOptions(f, ctx) {
+  if (f.pick) return pickChoices(f, ctx);
+  if (f.options?.length) return f.options.filter((o) => meets(o.requires, ctx) && !ctx.have.features.has(o.index));
+  if (f.stringOptions) {
+    const taken = ctx.have.words.get(wordFamily(f.index)) || new Set();
+    return f.stringOptions.from.filter((w) => !taken.has(w)).map((w) => ({ index: w, name: w, desc: "" }));
+  }
+  return null;
+}
+
+/** A choice as the creator and level-up helper show it: { index, name, desc, level, choose, words, options }. */
+function choiceEntry(f, ctx, level) {
+  const options = choiceOptions(f, ctx);
+  if (!options?.length) return null;
+  const words = !!f.stringOptions && !f.options?.length && !f.pick;
+  return {
+    index: f.index, name: f.name, desc: f.desc || "", level, words,
+    choose: Math.min(pickCount(f, ctx), options.length),
+    options: options.map((o) => ({ index: o.index, name: o.name, desc: o.desc || "", ...(o.spell ? { spell: o.spell } : {}) })),
+  };
+}
+
+/** The player's picks among `options` (matched loosely, as older saves name them), topped up with the first ones. */
 function pickOptions(feature, choices, extraKeys = []) {
   if (!feature.options?.length) return [];
   const wanted = asArray(choices?.featureOptions?.[feature.index]);
@@ -354,32 +523,48 @@ function pickOptions(feature, choices, extraKeys = []) {
 }
 const FIGHTING_STYLE = /fighting-style$/;
 
-/** Feature entries a class (and subclass) gives at exactly `classLevel`. */
+/**
+ * Feature entries a class (and subclass) gives at exactly `classLevel`. ctx: { srd, have, grants, classLevel,
+ * maxSpellLevel, invocationsKnown }: choices are made against (and added to) ctx.have, and every grant (of a feature
+ * or of a chosen option) is collected in ctx.grants.
+ */
 function classFeaturesAt(cls, subclass, classLevel, choices, ctx = {}) {
   const out = [];
   const row = cls.levels?.[classLevel - 1];
   const source = cls.name;
+  const have = ctx.have || (ctx.have = haveOf({}));
+  const cctx = { ...ctx, have, classLevel };
+  const grant = (g) => { if (g) { ctx.grants?.push(g); haveGrants(have, g); } };
   const push = (f, src, kind) => {
     if (f.placeholder || /^Ability Score Improvement$/i.test(f.name)) return;
+    grant(f.grants);
     let desc = f.desc || "";
-    if (f.stringOptions) {
+    const opts = choiceOptions(f, cctx);
+    if (f.stringOptions && !f.options?.length && !f.pick) {
       const key = /enemy/i.test(f.index) ? "favoredEnemy" : "favoredTerrain";
-      const pick = asArray(choices?.[key] ?? choices?.featureOptions?.[f.index]).filter((x) => f.stringOptions.from.includes(x));
-      const chosen = (pick.length ? pick : f.stringOptions.from.slice(0, 1)).slice(0, f.stringOptions.choose);
+      const ok = new Set(opts.map((o) => o.index));
+      const pick = uniq([...asArray(choices?.featureOptions?.[f.index]), ...asArray(choices?.[key])]).filter((x) => ok.has(x));
+      const chosen = (pick.length ? pick : opts.map((o) => o.index)).slice(0, f.stringOptions.choose);
       desc += `\nChosen: ${chosen.join(", ")}`;
+      addWords(have, f.index, chosen);
+      out.push({ name: f.name, source: src, level: classLevel, desc, kind, index: f.index });
+      return;
     }
-    if (f.options?.length) {
+    if (opts) {
       const extra = FIGHTING_STYLE.test(f.index) ? [choices?.fightingStyle || "defense"]
         : f.index === "dragon-ancestor" ? [choices?.dragonAncestor || choices?.draconicAncestry]
         : f.index === "circle-of-the-land" ? [choices?.landType || "forest"] : [];
-      let n = f.choose;
-      if (n == null && ctx.invocationsKnown != null) n = ctx.invocationsKnown;
-      const picks = pickOptions({ ...f, choose: n ?? 1 }, choices, extra);
+      const picks = pickOptions({ ...f, options: opts, choose: Math.min(pickCount(f, ctx), opts.length) }, choices, extra);
       out.push({ name: f.name, source: src, level: classLevel, desc, kind, index: f.index });
-      for (const p of picks) out.push({ name: p.name, source: src, level: classLevel, desc: p.desc, kind, index: p.index });
+      for (const p of picks) {
+        out.push({ name: p.name, source: src, level: classLevel, desc: p.desc, kind, index: p.index });
+        have.features.add(p.index);
+        grant(p.grants);
+      }
       return;
     }
     out.push({ name: f.name, source: src, level: classLevel, desc, kind, index: f.index });
+    have.features.add(f.index);
   };
   for (const f of row?.features || []) push(f, source, "class");
   const sub = subclass ? cls.subclasses?.find((s) => s.index === subclass) : null;
@@ -387,29 +572,65 @@ function classFeaturesAt(cls, subclass, classLevel, choices, ctx = {}) {
   return out;
 }
 
+/** The cantrips a new character's class gives them: their picks, else the defaults (as buildSpellcasting chooses). */
+function classCantripsFor(classKey, sub, level, srd, choices = {}) {
+  const n = cantripCountAt(classKey, level, srd, sub);
+  if (!n) return [];
+  const valid = new Set(learnableSpells(classKey, sub, srd).filter((s) => s.level === 0).map((s) => s.index));
+  return fillFrom([...valid], [...asArray(choices.cantrips).filter((c) => valid.has(c)), ...defaultSpellPicks(classKey, level, srd, { subclass: sub }).cantrips], n, new Set());
+}
+
+/** Apply collected grants to a character: proficiencies, skills, expertise, languages, saves, cantrips and spells. */
+function applyGrants(c, grants, cast = null) {
+  for (const g of grants || []) {
+    if (!g) continue;
+    c.otherProfs = c.otherProfs || { armor: [], weapons: [], tools: [], languages: [] };
+    for (const k of ["armor", "weapons", "tools", "languages"]) if (g[k]?.length) c.otherProfs[k] = uniq([...(c.otherProfs[k] || []), ...g[k]]);
+    c.skillProfs = c.skillProfs || {};
+    for (const s of g.skills || []) if (!(Number(c.skillProfs[s]) >= 1) && c.skillProfs[s] !== true) c.skillProfs[s] = 1;
+    for (const s of g.expertise || []) c.skillProfs[s] = 2;
+    if (g.saves?.length) c.saveProfs = uniq([...(c.saveProfs || []), ...g.saves]);
+    const sc = c.spellcasting;
+    if (!sc || !(g.cantrips?.length || g.spells?.length)) continue; // only spellcasters get spells from features
+    sc.cantrips = uniq([...(sc.cantrips || []), ...(g.cantrips || [])]);
+    // remembered apart, so the sheet counts them on top of the class's own number (Magical Secrets are part of it)
+    sc.fromFeatures = sc.fromFeatures || { cantrips: [], spells: [] };
+    sc.fromFeatures.cantrips = uniq([...sc.fromFeatures.cantrips, ...(g.cantrips || [])]);
+    if (!g.countsAsKnown) sc.fromFeatures.spells = uniq([...sc.fromFeatures.spells, ...(g.spells || [])]);
+    for (const s of g.spells || []) {
+      sc.known = uniq([...(sc.known || []), s]);
+      if (cast?.mode === "spellbook") continue; // added to the spellbook; preparing it is up to the wizard
+      sc.prepared = uniq([...(sc.prepared || []), s]);
+      if (cast?.mode === "prepared" && !g.countsAsKnown) sc.alwaysPrepared = uniq([...(sc.alwaysPrepared || []), s]);
+    }
+  }
+}
+
 /**
  * Class feature choices a new character makes for levels 1..level: fighting style, favoured enemy and terrain,
- * dragon ancestor, metamagic, invocations, pact boon, hunter's prey... -> [{ index, name, level, desc, choose,
- * words, options: [{ index, name, desc }] }]. Pass the picks to buildCharacter as `featureOptions: { [index]: [..] }`.
- * `words` = the options are plain words with no rules text (a ranger's enemy types and terrains).
+ * dragon ancestor, metamagic, invocations, pact boon, hunter's prey, maneuvers, magical secrets... ->
+ * [{ index, name, level, desc, choose, words, options: [{ index, name, desc, spell? }] }].
+ * Pass the picks to buildCharacter as `featureOptions: { [index]: [..] }`. `words` = the options are plain words with no
+ * rules text (a ranger's enemy types and terrains). `choices` (optional, buildCharacter's) lets later levels leave out
+ * what earlier levels already picked.
  */
-export function creationFeatureChoices(classKey, subclassKey, level, srd) {
+export function creationFeatureChoices(classKey, subclassKey, level, srd, choices = {}) {
   const cls = get(srd, "classes", classKey);
   if (!cls) return [];
   const lvl = Math.max(1, Math.min(20, Number(level) || 1));
   const sub = subclassKey && lvl >= (cls.subclassLevel || 3) ? cls.subclasses?.find((s) => s.index === subclassKey) : null;
   const out = [];
+  const ctx = { srd, have: haveOf({ spellcasting: { cantrips: classCantripsFor(classKey, sub?.index, lvl, srd, choices) } }), grants: [] };
   for (let l = 1; l <= lvl; l++) {
     const row = cls.levels?.[l - 1];
+    const lctx = { ...ctx, classLevel: l, maxSpellLevel: maxSpellLevelAt(classKey, l, srd, sub?.index), invocationsKnown: row?.specific?.invocationsKnown ?? null };
     for (const f of [...(row?.features || []), ...((sub?.features || []).filter((x) => x.level === l))]) {
-      if (!f.options?.length && !f.stringOptions) continue;
-      const words = !f.options?.length;
-      out.push({
-        index: f.index, name: f.name, level: l, desc: f.desc || "", words,
-        choose: words ? f.stringOptions.choose : f.choose ?? row?.specific?.invocationsKnown ?? 1,
-        options: words ? f.stringOptions.from.map((s) => ({ index: s, name: s, desc: "" })) : f.options.map((o) => ({ index: o.index, name: o.name, desc: o.desc || "" })),
-      });
+      if (!isChoice(f)) continue;
+      const e = choiceEntry(f, lctx, l);
+      if (e) out.push(e);
     }
+    // what this level picks (the player's or the defaults) is taken when the next levels offer their options
+    classFeaturesAt(cls, sub?.index, l, choices, lctx);
   }
   return out;
 }
@@ -602,10 +823,15 @@ export function buildCharacter(choices = {}, srd = {}) {
   if (sub?.hpPerLevel) hpMax += sub.hpPerLevel * level;
   if (subclass?.index === "draconic") hpMax += level;
 
-  // features
-  const ctxFor = (l) => ({ invocationsKnown: cls.levels?.[l - 1]?.specific?.invocationsKnown ?? null });
+  // features (choices are made level by level, so a later level never offers what an earlier one took)
+  const fctx = { srd, grants: [], have: haveOf({ skillProfs: Object.fromEntries(Object.keys(skillProfs).map((k) => [k, 1])), otherProfs: { languages, tools },
+    spellcasting: { cantrips: classCantripsFor(classKey, subclass?.index, level, srd, choices) } }) };
   const features = [...raceFeatures(race, sub, choices, srd)];
-  for (let l = 1; l <= level; l++) features.push(...classFeaturesAt(cls, subclass?.index, l, choices, ctxFor(l)));
+  for (let l = 1; l <= level; l++) {
+    features.push(...classFeaturesAt(cls, subclass?.index, l, choices, {
+      ...fctx, classLevel: l, maxSpellLevel: maxSpellLevelAt(classKey, l, srd, subclass?.index), invocationsKnown: cls.levels?.[l - 1]?.specific?.invocationsKnown ?? null,
+    }));
+  }
   if (bg?.feature) features.push({ name: bg.feature.name, source: bg.name, level: 1, desc: bg.feature.desc, kind: "background" });
 
   // equipment
@@ -635,8 +861,10 @@ export function buildCharacter(choices = {}, srd = {}) {
     }
   }
 
-  // spellcasting
-  const spellcasting = buildSpellcasting(classKey, subclass, level, abilities, choices, race, sub, srd);
+  // spellcasting (cantrips and spells features give don't count against the class's own picks)
+  const granted = { cantrips: fctx.grants.flatMap((g) => g.cantrips || []), spells: fctx.grants.flatMap((g) => g.spells || []) };
+  const landType = landTypeOf(features, choices);
+  const spellcasting = buildSpellcasting(classKey, subclass, level, abilities, { ...choices, landType }, race, sub, srd, granted);
 
   // resources
   const resources = {};
@@ -695,7 +923,14 @@ export function buildCharacter(choices = {}, srd = {}) {
     light: { bright: 0, dim: 0 },
   };
   if (anc) char.draconicAncestry = anc;
+  applyGrants(char, fctx.grants, castFor(classKey, subclass?.index, srd));
   return char;
+}
+
+/** A Circle of the Land druid's land: the option they chose (circle-of-the-land-<land>), else choices.landType. */
+function landTypeOf(features, choices = {}) {
+  const f = (features || []).find((x) => /^circle-of-the-land-[a-z]+$/.test(x.index || ""));
+  return f ? f.index.replace("circle-of-the-land-", "") : choices.landType || asArray(choices.featureOptions?.["circle-of-the-land"])[0]?.replace?.("circle-of-the-land-", "") || undefined;
 }
 
 function innateSpellsFor(race, sub, level, choices) {
@@ -713,8 +948,8 @@ function innateSpellsFor(race, sub, level, choices) {
   return out;
 }
 
-function buildSpellcasting(classKey, subclass, level, abilities, choices, race, sub, srd) {
-  const cast = CLASS_CASTING[classKey];
+function buildSpellcasting(classKey, subclass, level, abilities, choices, race, sub, srd, granted = { cantrips: [], spells: [] }) {
+  const cast = castFor(classKey, subclass?.index, srd);
   const innate = innateSpellsFor(race, sub, level, choices);
   const canCast = cast && level >= cast.from;
   if (!canCast && !innate.length) return null;
@@ -729,11 +964,16 @@ function buildSpellcasting(classKey, subclass, level, abilities, choices, race, 
     const validC = new Set(opts.cantrips.map((s) => s.index));
     const validS = new Set(opts.spells.map((s) => s.index));
     const always = opts.alwaysPrepared;
-    const defaults = defaultSpellPicks(classKey, level, srd, { mod, exclude: always });
-    const innateC = new Set(innate.filter((i) => i.level === 0).map((i) => i.spell));
+    const defaults = defaultSpellPicks(classKey, level, srd, { mod, exclude: [...always, ...granted.spells, ...granted.cantrips], subclass: subclass?.index });
+    const innateC = new Set([...innate.filter((i) => i.level === 0).map((i) => i.spell), ...granted.cantrips]);
     const cantrips = fillFrom([...validC], [...asArray(choices.cantrips).filter((c) => validC.has(c)), ...defaults.cantrips], opts.cantripsToPick, innateC);
     const chosen = asArray(choices.spells).filter((s) => validS.has(s) && !always.includes(s));
-    const spells = fillFrom([...validS], [...chosen, ...(chosen.length ? [] : defaults.spells)], opts.spellsToPick, new Set(always));
+    // a school-bound caster (Eldritch Knight...) keeps to its schools except for the picks it may take from any
+    let off = opts.offSchool;
+    const inSchool = (i) => !opts.schools || opts.schools.includes(String(get(srd, "spells", i)?.school || "").toLowerCase());
+    const allowed = [...chosen, ...(chosen.length ? [] : defaults.spells)].filter((i) => inSchool(i) || off-- > 0);
+    const spells = fillFrom([...validS].filter((i) => inSchool(i)), allowed, opts.spellsToPick, new Set([...always, ...granted.spells]));
+    for (const i of allowed) if (!spells.includes(i) && spells.length < opts.spellsToPick && !always.includes(i) && !granted.spells.includes(i)) spells.push(i);
     sc.cantrips = cantrips;
     if (cast.mode === "spellbook") {
       sc.known = spells;
@@ -816,7 +1056,7 @@ export function levelUpOptions(char, srd) {
  * What happens at the next level. classKey (optional) = class to gain a level in (multiclass); default the
  * character's first class.
  */
-export function levelUpPlan(char, srd, classKey) {
+export function levelUpPlan(char, srd, classKey, opts = {}) {
   const classes = characterClasses(char);
   const target = classKey || classes[0]?.class;
   const cls = get(srd, "classes", target);
@@ -829,27 +1069,36 @@ export function levelUpPlan(char, srd, classKey) {
   const prev = classLevel > 1 ? cls.levels?.[classLevel - 2] : null;
   const subclass = existing?.subclass ?? null;
   const subclassChoice = !subclass && classLevel >= (cls.subclassLevel || 3);
-  const features = classFeaturesAt(cls, subclass, classLevel, {}, { invocationsKnown: row?.specific?.invocationsKnown ?? null });
-  // feature choices (fighting style, metamagic, pact boon, invocations, hunter's prey, ...)
+  // the path being chosen this level (if the helper says which), for its spellcasting
+  const pathNow = subclass || (subclassChoice && cls.subclasses?.some((s) => s.index === opts.subclass) ? opts.subclass : null);
+  const newClasses = existing ? classes.map((c) => (c.class === target ? { ...c, level: classLevel, subclass: pathNow } : c)) : [...classes, { class: target, subclass: null, level: 1 }];
+  const slotsAfter = spellSlots(newClasses, srd);
+  let maxAfter = 0;
+  slotsAfter.slots.forEach((n, i) => n > 0 && (maxAfter = i + 1));
+  if (slotsAfter.pact) maxAfter = Math.max(maxAfter, slotsAfter.pact.level);
+  // choices are offered against what the character already has (no option they took before, requirements met)
+  const ctxAt = (lvl) => ({ srd, have: haveOf(char), classLevel: lvl, maxSpellLevel: maxAfter, invocationsKnown: row?.specific?.invocationsKnown ?? null });
+  const features = classFeaturesAt(cls, subclass, classLevel, {}, ctxAt(classLevel));
+  // feature choices (fighting style, metamagic, pact boon, invocations, hunter's prey, maneuvers, magical secrets...)
   const rowFeats = [...(row?.features || []), ...((cls.subclasses?.find((s) => s.index === subclass)?.features || []).filter((f) => f.level === classLevel))];
-  const choiceOf = (f) => ({
-    index: f.index, name: f.name, desc: f.desc || "", words: !f.options?.length, level: f.level ?? classLevel,
-    choose: f.options?.length ? f.choose ?? row?.specific?.invocationsKnown - (prev?.specific?.invocationsKnown || 0) : f.stringOptions.choose,
-    options: f.options?.length ? f.options.map((o) => ({ index: o.index, name: o.name, desc: o.desc })) : f.stringOptions.from.map((s) => ({ index: s, name: s, desc: "" })),
-  });
-  const hasChoice = (f) => f.options?.length || f.stringOptions;
-  const featureChoices = rowFeats.filter(hasChoice).map(choiceOf);
-  const cast = CLASS_CASTING[target];
+  const choiceOf = (f) => choiceEntry(f, ctxAt(classLevel), f.level ?? classLevel);
+  const featureChoices = rowFeats.filter(isChoice).map(choiceOf).filter(Boolean);
+  const cast = castFor(target, pathNow, srd);
   const mod = cast ? abilityMod(char.abilities?.[cast.ability] ?? 10) : 0;
   let cantripsToPick = 0;
   let spellsToPick = 0;
+  const sc = char.spellcasting || {};
   if (cast && classLevel >= cast.from) {
-    cantripsToPick = (row?.cantrips ?? 0) - (prev?.cantrips ?? 0);
-    if (cast.mode === "known" || cast.mode === "pact") spellsToPick = (row?.spellsKnown ?? 0) - (prev?.spellsKnown ?? 0);
+    cantripsToPick = cantripCountAt(target, classLevel, srd, pathNow) - (classLevel - 1 >= cast.from ? cantripCountAt(target, classLevel - 1, srd, pathNow) : 0);
+    if (cast.mode === "known" || cast.mode === "pact") spellsToPick = spellCountAt(target, classLevel, srd, mod, pathNow) - (classLevel - 1 >= cast.from ? spellCountAt(target, classLevel - 1, srd, mod, pathNow) : 0);
     else if (cast.mode === "spellbook") spellsToPick = classLevel === 1 ? 6 : 2;
-    else spellsToPick = spellCountAt(target, classLevel, srd, mod) - (classLevel - 1 >= cast.from ? spellCountAt(target, classLevel - 1, srd, mod) : 0);
+    else {
+      // prepared casters fill every open place: all the spells they can prepare now, beyond the ones they have
+      const always = alwaysPreparedFor(target, subclassOf(srd, target, pathNow), classLevel, landTypeOf(char.features));
+      const current = (sc.prepared || []).filter((s) => !always.includes(s) && !(sc.alwaysPrepared || []).includes(s)).length;
+      spellsToPick = existing ? spellCountAt(target, classLevel, srd, mod, pathNow) - current : spellCountAt(target, classLevel, srd, mod, pathNow);
+    }
   }
-  const newClasses = existing ? classes.map((c) => (c.class === target ? { ...c, level: classLevel } : c)) : [...classes, { class: target, subclass: null, level: 1 }];
   const { slots, pact } = spellSlots(newClasses, srd);
   let maxSpellLevel = 0;
   slots.forEach((n, i) => n > 0 && (maxSpellLevel = i + 1));
@@ -873,13 +1122,17 @@ export function levelUpPlan(char, srd, classKey) {
     asi: asiLevelsFor(target).includes(classLevel),
     subclassChoice,
     // each path's own choices up to this level (a ranger 3 Hunter picks Hunter's Prey): offered once a path is chosen
-    subclassOptions: subclassChoice ? (cls.subclasses || []).map((s) => ({ index: s.index, name: s.name, desc: s.desc,
+    subclassOptions: subclassChoice ? (cls.subclasses || []).map((s) => ({ index: s.index, name: s.name, desc: s.desc, srd: s.srd !== false,
       features: s.features.filter((f) => f.level <= classLevel).map((f) => ({ name: f.name, level: f.level, desc: f.desc })),
-      featureChoices: s.features.filter((f) => f.level <= classLevel && hasChoice(f)).map(choiceOf) })) : [],
+      featureChoices: s.features.filter((f) => f.level <= classLevel && isChoice(f)).map(choiceOf).filter(Boolean) })) : [],
     spellsToPick: Math.max(0, spellsToPick),
     cantripsToPick: Math.max(0, cantripsToPick),
     maxSpellLevel,
-    classMaxSpellLevel: cast && classLevel >= cast.from ? maxSpellLevelAt(target, classLevel, srd) : 0,
+    classMaxSpellLevel: cast && classLevel >= cast.from ? maxSpellLevelAt(target, classLevel, srd, pathNow) : 0,
+    // Eldritch Knight / Arcane Trickster: their schools and how many spells they may know from any school
+    spellSchools: cast?.schools || null,
+    offSchoolAllowed: cast?.schools ? offSchoolAllowed(cast, classLevel) : null,
+    spellMode: cast && classLevel >= cast.from ? cast.mode : null,
     slots,
     pact,
     expertiseToPick: expertise,
@@ -888,11 +1141,84 @@ export function levelUpPlan(char, srd, classKey) {
   };
 }
 
+/**
+ * The spells a level-up can add: { cantrips, spells (spell objects not known yet, castable by this class),
+ * cantripNeed, spellNeed, schools, offSchoolLeft } — the same for the level-up helper and the server's check.
+ */
+export function levelUpPools(char, plan, srd, subclass = null) {
+  const path = plan.subclassChoice ? subclass : characterClasses(char).find((c) => c.class === plan.classKey)?.subclass ?? null;
+  const opts = spellOptions(plan.classKey, plan.classLevel, srd, { abilities: char.abilities, subclass: path, landType: landTypeOf(char.features) });
+  const sc = char.spellcasting || {};
+  // what this level's features give for free (an Arcane Trickster's mage hand) isn't offered as a pick
+  const cls = get(srd, "classes", plan.classKey);
+  const sub = subclassOf(srd, plan.classKey, path);
+  const gained = [...(cls?.levels?.[plan.classLevel - 1]?.features || []), ...((sub?.features || []).filter((f) => (plan.subclassChoice ? f.level <= plan.classLevel : f.level === plan.classLevel)))];
+  const free = gained.flatMap((f) => [...(f.grants?.cantrips || []), ...(f.grants?.spells || [])]);
+  const known = new Set([...(sc.cantrips || []), ...(sc.known || []), ...(sc.prepared || []), ...(opts.alwaysPrepared || []), ...free]);
+  const maxSpell = plan.classMaxSpellLevel || plan.maxSpellLevel;
+  const cantrips = (opts.cantrips || []).filter((s) => !known.has(s.index));
+  const spells = (opts.spells || []).filter((s) => !known.has(s.index) && s.level <= maxSpell);
+  const cast = castFor(plan.classKey, path, srd);
+  // spells from outside a school-bound caster's schools: how many more it may learn
+  const listed = new Set(learnableSpells(plan.classKey, path, srd).map((s) => s.index));
+  const offUsed = (sc.known || []).filter((i) => listed.has(i) && !inSchools(cast, get(srd, "spells", i))).length;
+  return {
+    cantrips, spells,
+    cantripNeed: Math.min(plan.cantripsToPick || 0, cantrips.length),
+    spellNeed: Math.min(plan.spellsToPick || 0, spells.length),
+    schools: cast?.schools || null,
+    offSchoolLeft: cast?.schools ? Math.max(0, offSchoolAllowed(cast, plan.classLevel) - offUsed) : Infinity,
+  };
+}
+
+/**
+ * Everything a level-up still needs before it can happen: every choice is the player's to make, none is filled in
+ * for them. -> ["your path", "Fighting Style", "2 more spells", ...] (empty = ready). `choices` as for applyLevelUp.
+ */
+export function levelUpProblems(char, choices = {}, srd = {}) {
+  const plan = levelUpPlan(char, srd, choices.class, { subclass: choices.subclass });
+  if (plan.maxed) return [];
+  const out = [];
+  const sub = plan.subclassChoice ? plan.subclassOptions.find((s) => s.index === choices.subclass) : null;
+  if (plan.subclassChoice && !sub) out.push("your path");
+  for (const fc of [...(plan.featureChoices || []), ...(sub?.featureChoices || [])]) {
+    const valid = new Set(fc.options.map((o) => o.index));
+    const picks = uniq(asArray(choices.featureOptions?.[fc.index])).filter((x) => valid.has(x));
+    if (picks.length < Math.min(fc.choose, fc.options.length)) out.push(fc.name);
+  }
+  if (plan.asi) {
+    const a = choices.asi && typeof choices.asi === "object" && !Array.isArray(choices.asi) ? choices.asi : {};
+    const vals = Object.entries(a).filter(([k]) => ABILITIES.includes(k)).map(([, v]) => Number(v));
+    const ok = vals.reduce((x, y) => x + y, 0) === 2 && vals.every((v) => v === 1 || v === 2);
+    if (!ok) out.push("your ability score improvement");
+  }
+  const has = (s) => Number(char.skillProfs?.[s]) > 0 || char.skillProfs?.[s] === true;
+  const skillPool = plan.multiclassSkills ? plan.multiclassSkills.from.filter((s) => !has(s))
+    : plan.skillsToPick && (plan.subclassChoice ? choices.subclass === "lore" : true) ? Object.keys(SKILLS).filter((s) => !has(s)) : [];
+  const skillNeed = Math.min(plan.multiclassSkills ? plan.multiclassSkills.choose : skillPool.length ? plan.skillsToPick : 0, skillPool.length);
+  const skillPicks = uniq(asArray(choices.skills)).filter((s) => skillPool.includes(s));
+  if (skillPicks.length < skillNeed) out.push(`${skillNeed - skillPicks.length} more skill${skillNeed - skillPicks.length === 1 ? "" : "s"}`);
+  const expertPool = Object.keys(char.skillProfs || {}).filter((s) => Number(char.skillProfs[s]) === 1 || char.skillProfs[s] === true);
+  const expertNeed = Math.min(plan.expertiseToPick || 0, expertPool.length);
+  const expertPicks = uniq(asArray(choices.expertise)).filter((s) => expertPool.includes(s));
+  if (expertPicks.length < expertNeed) out.push(`${expertNeed - expertPicks.length} more expertise`);
+  const pools = levelUpPools(char, plan, srd, choices.subclass);
+  const cPicks = uniq(asArray(choices.cantrips)).filter((s) => pools.cantrips.some((x) => x.index === s));
+  if (cPicks.length < pools.cantripNeed) out.push(`${pools.cantripNeed - cPicks.length} more cantrip${pools.cantripNeed - cPicks.length === 1 ? "" : "s"}`);
+  const sPicks = uniq(asArray(choices.spells)).filter((s) => pools.spells.some((x) => x.index === s));
+  if (sPicks.length < pools.spellNeed) out.push(`${pools.spellNeed - sPicks.length} more spell${pools.spellNeed - sPicks.length === 1 ? "" : "s"}`);
+  if (pools.schools) {
+    const off = sPicks.filter((i) => !pools.schools.includes(String(get(srd, "spells", i)?.school || "").toLowerCase())).length;
+    if (off > pools.offSchoolLeft) out.push(`spells from your schools (only ${pools.offSchoolLeft} may come from another school)`);
+  }
+  return out;
+}
+
 /** Apply a level-up. choices: { class?, hp?, hpMethod?, asi?, subclass?, cantrips?, spells?, expertise?, skills?,
  *  fightingStyle?, featureOptions?, favoredEnemy?, favoredTerrain?, tools? }. Returns a new character. */
 export function applyLevelUp(char, choices = {}, srd = {}) {
   const c = clone(char);
-  const plan = levelUpPlan(c, srd, choices.class);
+  const plan = levelUpPlan(c, srd, choices.class, { subclass: choices.subclass });
   if (plan.maxed) return c;
   const cls = get(srd, "classes", plan.classKey);
   const oldLevel = totalLevel(c);
@@ -943,15 +1269,16 @@ export function applyLevelUp(char, choices = {}, srd = {}) {
   c.hp.current = Math.min(c.hp.max, (Number(c.hp.current) || 0) + gain);
   c.hitDice = { die: c.hitDice?.die ?? get(srd, "classes", classes[0].class)?.hitDie ?? die, total: c.level, used: Math.min(c.hitDice?.used || 0, c.level) };
 
-  // features
+  // features (and what they grant: proficiencies, skills, languages, cantrips, spells)
   c.features = c.features || [];
-  const ctx = { invocationsKnown: (cls.levels?.[plan.classLevel - 1]?.specific?.invocationsKnown ?? 0) - (cls.levels?.[plan.classLevel - 2]?.specific?.invocationsKnown ?? 0) || null };
-  const newFeats = classFeaturesAt(cls, entry.subclass, plan.classLevel, choices, ctx);
+  const fctx = { srd, have: haveOf(char), grants: [], maxSpellLevel: plan.maxSpellLevel,
+    invocationsKnown: (cls.levels?.[plan.classLevel - 1]?.specific?.invocationsKnown ?? 0) - (cls.levels?.[plan.classLevel - 2]?.specific?.invocationsKnown ?? 0) || null };
+  const newFeats = classFeaturesAt(cls, entry.subclass, plan.classLevel, choices, { ...fctx, classLevel: plan.classLevel });
   if (newSubclass) {
-    for (let l = 1; l < plan.classLevel; l++) newFeats.push(...classFeaturesAt({ ...cls, levels: [] }, entry.subclass, l, choices));
+    for (let l = 1; l < plan.classLevel; l++) newFeats.push(...classFeaturesAt({ ...cls, levels: [] }, entry.subclass, l, choices, { ...fctx, classLevel: l }));
   }
   for (const f of newFeats) c.features.push({ ...f });
-  if (newSubclass && entry.subclass === "life") c.otherProfs.armor = uniq([...(c.otherProfs.armor || []), "Heavy Armor"]);
+  if (newSubclass && entry.subclass === "life") c.otherProfs = { ...c.otherProfs, armor: uniq([...(c.otherProfs?.armor || []), "Heavy Armor"]) };
 
   // skills: expertise, lore bonus proficiencies
   c.skillProfs = c.skillProfs || {};
@@ -966,7 +1293,8 @@ export function applyLevelUp(char, choices = {}, srd = {}) {
   }
 
   // spellcasting
-  const cast = CLASS_CASTING[plan.classKey];
+  const cast = castFor(plan.classKey, entry.subclass, srd);
+  const granted = { cantrips: fctx.grants.flatMap((g) => g.cantrips || []), spells: fctx.grants.flatMap((g) => g.spells || []) };
   if (cast && plan.classLevel >= cast.from) {
     c.spellcasting = c.spellcasting || { ability: cast.ability, cantrips: [], known: [], prepared: [], slotsUsed: [0, 0, 0, 0, 0, 0, 0, 0, 0], pactUsed: 0 };
     const sc = c.spellcasting;
@@ -974,32 +1302,34 @@ export function applyLevelUp(char, choices = {}, srd = {}) {
     sc.cantrips = sc.cantrips || [];
     sc.known = sc.known || [];
     sc.prepared = sc.prepared || [];
-    const list = classSpellList(srd, plan.classKey);
+    const list = learnableSpells(plan.classKey, entry.subclass, srd);
     const validC = list.filter((s) => s.level === 0).map((s) => s.index);
     // a class learns spells of levels it could cast on its own (multiclass rule)
-    const classMax = maxSpellLevelAt(plan.classKey, plan.classLevel, srd);
+    const classMax = maxSpellLevelAt(plan.classKey, plan.classLevel, srd, entry.subclass);
     const validS = list.filter((s) => s.level >= 1 && s.level <= classMax).map((s) => s.index);
     const mod = abilityMod(c.abilities?.[cast.ability] ?? 10);
     const sub2 = cls.subclasses?.find((s) => s.index === entry.subclass);
-    const always = alwaysPreparedFor(plan.classKey, sub2, plan.classLevel, choices.landType);
+    const always = alwaysPreparedFor(plan.classKey, sub2, plan.classLevel, landTypeOf(c.features, choices));
     // defaults for new picks: best spells of the highest available level first
     const rank = (idx) => {
       const sp = get(srd, "spells", idx);
       return -(sp?.level ?? 0) * 1000 + prefRank(idx);
     };
     const best = (valid, wanted, n, have) => fillFrom(valid, [...wanted, ...valid.slice().sort((a, b) => rank(a) - rank(b))], n, new Set(have));
-    const newC = best(validC, asArray(choices.cantrips), plan.cantripsToPick, sc.cantrips);
+    const newC = best(validC, asArray(choices.cantrips), plan.cantripsToPick, [...sc.cantrips, ...granted.cantrips]);
     sc.cantrips.push(...newC);
     if (cast.mode === "prepared") {
-      const max = spellCountAt(plan.classKey, plan.classLevel, srd, mod);
-      const current = sc.prepared.filter((s) => !always.includes(s));
+      const max = spellCountAt(plan.classKey, plan.classLevel, srd, mod, entry.subclass);
+      // spells a feature gave earlier (Moon's alter self...) stay always prepared, beside the subclass's own list
+      const keep = (sc.alwaysPrepared || []).filter((s) => !always.includes(s));
+      const current = sc.prepared.filter((s) => !always.includes(s) && !keep.includes(s));
       const want = asArray(choices.spells);
-      const add = best(validS, want, Math.max(0, max - current.length), [...current, ...always]);
-      sc.prepared = uniq([...always, ...current, ...add]);
+      const add = best(validS, want, Math.max(0, max - current.length), [...current, ...always, ...keep, ...granted.spells]);
+      sc.prepared = uniq([...always, ...keep, ...current, ...add]);
       sc.known = sc.prepared.slice();
-      if (always.length) sc.alwaysPrepared = always.slice();
+      if (always.length || keep.length) sc.alwaysPrepared = uniq([...always, ...keep]);
     } else {
-      const add = best(validS, asArray(choices.spells), plan.spellsToPick, [...sc.known, ...always]);
+      const add = best(validS, asArray(choices.spells), plan.spellsToPick, [...sc.known, ...always, ...granted.spells]);
       sc.known.push(...add);
       if (cast.mode === "spellbook") {
         const prepMax = Math.max(1, mod + plan.classLevel);
@@ -1010,6 +1340,7 @@ export function applyLevelUp(char, choices = {}, srd = {}) {
     }
     while (sc.slotsUsed.length < 9) sc.slotsUsed.push(0);
   }
+  applyGrants(c, fctx.grants, cast);
   // racial innate spells unlocked by total level (tiefling)
   if (c.race === "tiefling" && c.spellcasting) {
     const inn = (c.spellcasting.innate = c.spellcasting.innate || []);

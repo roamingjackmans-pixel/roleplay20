@@ -6,6 +6,7 @@ import { useStore } from '../lib/store.js';
 import D20 from '../components/D20.jsx';
 import { Modal } from '../components/Toasts.jsx';
 import { DICE_COLORS, DICE_STYLES, DICE_INKS, diceLook } from '../../../shared/diceStyles.js';
+import { fairDie } from '../../../shared/dice.js';
 import { saveChar } from './CharacterSheet.jsx';
 
 const pickOne = (o) => { const k = Object.keys(o); return k[Math.floor(Math.random() * k.length)]; };
@@ -41,7 +42,7 @@ function DicePickerModal({ ch, onClose }) {
     if (!(await saveChar(ch, { dice: next }))) setPending(null);
   }
   function rollIt() {
-    const n = 1 + Math.floor(Math.random() * 20);
+    const n = fairDie(20);
     useStore.setState({ dice: { key: `try-${Date.now()}`, name: ch.name, characterId: ch.id, label: 'Trying out your dice', look, result: { natural: n, total: n } } });
   }
 

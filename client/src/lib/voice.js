@@ -8,6 +8,9 @@
 // anything private to you aloud, so it never reaches the others).
 import { create } from 'zustand';
 import { onEntryDone, onSpeaking, setSkipLock, currentlySpeaking } from './tts.js';
+import { openMic, routeElement, onMicChange, onSpeakerChange } from './audioDevices.js';
+
+const MIC_OPTS = { echoCancellation: true, noiseSuppression: true, autoGainControl: true };
 
 export const useVoice = create(() => ({
   joined: false,
@@ -121,7 +124,8 @@ export async function joinVoice() {
   set({ joining: true, error: '' });
   try {
     try {
-      localStream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
+      localStream = await openMic(MIC_OPTS); // the mic picked in Settings (or the computer's default)
+      watchTrack(localStream);
       set({ listenOnly: false });
     } catch (e) {
       localStream = silentStream(); // no mic, or it was blocked: join to listen
@@ -217,7 +221,7 @@ function makePeer(uid, initiator, remoteSid = null) {
   pc.onicecandidate = (e) => { if (e.candidate) signal(uid, { candidate: e.candidate.toJSON ? e.candidate.toJSON() : e.candidate }); };
   pc.ontrack = (e) => {
     const stream = e.streams[0] || new MediaStream([e.track]);
-    if (!p.audio) { p.audio = new Audio(); p.audio.autoplay = true; }
+    if (!p.audio) { p.audio = new Audio(); p.audio.autoplay = true; routeElement(p.audio); } // the speaker picked in Settings
     p.audio.srcObject = stream;
     p.audio.volume = get().volumes[uid] ?? 1;
     p.audio.muted = ducked;
@@ -273,6 +277,42 @@ function closePeer(uid) {
   delete talking[uid];
   set({ peers: next, talking });
 }
+
+// ---- the microphone and speaker picked in Settings
+
+/** A mic unplugged mid-call ends its track: carry on with the next best one (the computer's default). */
+function watchTrack(stream) {
+  for (const t of stream?.getAudioTracks() || []) t.addEventListener('ended', () => { if (localStream === stream) switchMic(); });
+}
+
+let switching = null;
+/** Swap the mic under a running call without reconnecting anyone (each connection just gets the new track). */
+function switchMic() {
+  if (!get().joined) return Promise.resolve();
+  switching = (switching || Promise.resolve()).then(async () => {
+    if (!get().joined) return;
+    let next;
+    try { next = await openMic(MIC_OPTS); } catch (e) { console.warn('[voice] mic', e); return; }
+    if (!get().joined) { for (const t of next.getTracks()) t.stop(); return; }
+    const old = localStream;
+    localStream = next;
+    watchTrack(next);
+    set({ listenOnly: false });
+    const track = next.getAudioTracks()[0];
+    for (const p of peers.values()) {
+      const sender = p.pc.getSenders().find((s) => s.track?.kind === 'audio');
+      if (sender) await sender.replaceTrack(track).catch((e) => console.warn('[voice] replaceTrack', e));
+      else if (track) p.pc.addTrack(track, next);
+    }
+    for (const t of old?.getTracks() || []) t.stop();
+    applyMic();
+    startMeters();
+  });
+  return switching;
+}
+
+onMicChange(() => { switchMic(); });
+onSpeakerChange((id) => { for (const p of peers.values()) if (p.audio) routeElement(p.audio, id); });
 
 // ---- who is talking (a soft glow on their chip)
 

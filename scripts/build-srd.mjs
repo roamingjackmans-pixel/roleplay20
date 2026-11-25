@@ -109,7 +109,7 @@
  */
 import fs from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const RAW = path.join(ROOT, "data-src", "srd-raw");
@@ -270,7 +270,16 @@ function featureOptions(f) {
     out.choose = null; // number known comes from the class table (specific.invocationsKnown)
     out.options = fs_.invocations.map((o) => {
       const sub = featById.get(o.index);
-      return { index: o.index, name: o.name, desc: sub ? joinDesc(sub.desc) : "" };
+      const opt = { index: o.index, name: o.name, desc: sub ? joinDesc(sub.desc) : "" };
+      // prerequisites (a warlock level, a pact boon, the eldritch blast cantrip): options appear once they're met
+      const req = {};
+      for (const p of sub?.prerequisites || []) {
+        if (p.type === "level") req.level = p.level;
+        else if (p.type === "spell") req.cantrip = String(p.spell).split("/").pop();
+        else if (p.type === "feature") req.feature = String(p.feature).split("/").pop();
+      }
+      if (Object.keys(req).length) opt.requires = req;
+      return opt;
     });
   }
   for (const k of ["enemy_type_options", "terrain_type_options"]) {
@@ -1149,6 +1158,41 @@ const EXTRA_SPELLS = [{
   heal: null, dc: { ability: "wis", success: "half" }, classes: ["bard"], subclasses: [],
 }];
 for (const s of EXTRA_SPELLS) if (!spells.some((x) => x.index === s.index)) spells.push(s);
+
+// ─── beyond the SRD: Player's Handbook subclasses, spells and choices, in our own words ─────────
+// (scripts/srd-extras/README.md). Files that aren't there yet are skipped.
+{
+  const EXTRAS = path.join(ROOT, "scripts", "srd-extras");
+  const load = async (rel) => {
+    const file = path.join(EXTRAS, rel);
+    return fs.existsSync(file) ? (await import(pathToFileURL(file).href)).default : null;
+  };
+  for (const s of (await load("spells.mjs")) || []) {
+    if (!spells.some((x) => x.index === s.index)) spells.push({ ...s, srd: false });
+  }
+  const spellById = new Map(spells.map((s) => [s.index, s]));
+  for (const c of classes) {
+    for (const sub of (await load(`subclasses/${c.index}.mjs`)) || []) {
+      if (c.subclasses.some((x) => x.index === sub.index)) continue;
+      const s = { ...sub, srd: false, flavor: sub.flavor || c.subclassFlavor, level: sub.level || c.subclassLevel, spells: sub.spells || [] };
+      s.features = [...s.features].sort((a, b) => a.level - b.level);
+      c.subclasses.push(s);
+      // the spell lists say which subclasses add them (as the SRD does for its own)
+      for (const sp of s.spells) {
+        const entry = spellById.get(sp.index);
+        if (entry && !entry.subclasses.includes(s.index)) entry.subclasses.push(s.index);
+      }
+      for (const f of s.features) {
+        features.push({ index: f.index, name: f.name, class: c.index, subclass: s.index, level: f.level, desc: f.desc, srd: false,
+          ...(f.options ? { choose: f.choose ?? 1, options: f.options.map((o) => o.index) } : {}) });
+        // options offered again at later levels (maneuvers, disciplines) are listed once
+        for (const o of f.options || []) if (!features.some((x) => x.index === o.index)) features.push({ index: o.index, name: o.name, class: c.index, subclass: s.index, level: f.level, desc: o.desc, parent: f.index, srd: false });
+      }
+    }
+  }
+  const { patchClasses } = await import(pathToFileURL(path.join(EXTRAS, "patches.mjs")).href);
+  patchClasses(classes, { spellName: (i) => spellById.get(i)?.name ?? i });
+}
 
 // ─── write ─────────────────────────────────────────────────────────────────────────────────
 fs.mkdirSync(OUT, { recursive: true });

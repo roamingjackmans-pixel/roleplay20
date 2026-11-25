@@ -275,8 +275,24 @@ function RollRequests() {
   return <div className="roll-reqs">{mine.map((r) => <RollRequestCard key={r.id} r={r} locked={locked} />)}</div>;
 }
 
+// how the DM wants a roll made: shown on the card, never changeable by the player
+const ROLL_MODES = {
+  adv: { label: 'Advantage', cls: 'green', how: 'roll two d20 and keep the higher', manual: 'Roll two d20s and type the higher one' },
+  dis: { label: 'Disadvantage', cls: 'red', how: 'roll two d20 and keep the lower', manual: 'Roll two d20s and type the lower one' },
+  none: { label: 'Normal roll', cls: '', how: 'roll one d20', manual: 'Type the number your real d20 shows' },
+};
+
+export function RollModeBadge({ r }) {
+  const mode = ROLL_MODES[r.mode] ? r.mode : ROLL_MODES[r.advantage] ? r.advantage : 'none';
+  const m = ROLL_MODES[mode];
+  const why = r.modeWhy?.length ? r.modeWhy.join(', ') : '';
+  // conditions can change (or cancel) what the DM asked for: say why
+  const note = why ? (mode === 'none' && r.advantage !== 'none' ? ` (${r.advantage === 'adv' ? 'advantage' : 'disadvantage'} cancelled out by ${why})` : ` (${why})`) : '';
+  const title = `${m.label}: ${m.how}${note}. The DM decides this; it can't be changed here.`;
+  return <span className={`pill roll-mode ${m.cls}`} title={title} aria-label={title}>{mode === 'adv' ? '▲ ' : mode === 'dis' ? '▼ ' : ''}{m.label}{note && <span className="tiny"> {note.trim()}</span>}</span>;
+}
+
 function RollRequestCard({ r, locked = false }) {
-  const [adv, setAdv] = useState(r.advantage || 'none');
   const [n, setN] = useState('');
   const [busy, setBusy] = useState(false);
   // "custom" rolls are plain dice like 1d4+3 (healing, damage): the player types their total, not a d20
@@ -286,19 +302,16 @@ function RollRequestCard({ r, locked = false }) {
   async function go(mode) {
     setBusy(true);
     const manual = mode === 'manual';
-    await emit('roll:respond', { requestId: r.id, mode, natural: manual && !isDice ? Number(n) : undefined, total: manual && isDice ? Number(n) : undefined, advantage: adv });
+    await emit('roll:respond', { requestId: r.id, mode, natural: manual && !isDice ? Number(n) : undefined, total: manual && isDice ? Number(n) : undefined });
     setBusy(false);
   }
   return (
     <div className="roll-req fade-in">
-      <div className="rr-head"><span className="rr-die">🎲</span><div className="grow"><b>{label}</b>{r.dc ? <span className="pill">DC {r.dc}</span> : null}<div className="small story">{r.reason}</div>{r.contestWith?.length > 0 && <div className="contest-note tiny">⚔ Contest against {r.contestWith.join(' and ')}: the higher total wins, and the story tells you who.</div>}</div></div>
+      <div className="rr-head"><span className="rr-die">🎲</span><div className="grow"><b>{label}</b>{r.dc ? <span className="pill">DC {r.dc}</span> : null}{r.kind !== 'death' && !isDice && <RollModeBadge r={r} />}<div className="small story">{r.reason}</div>{r.contestWith?.length > 0 && <div className="contest-note tiny">⚔ Contest against {r.contestWith.join(' and ')}: the higher total wins, and the story tells you who.</div>}</div></div>
       <div className="row wrap" style={{ gap: 6 }}>
-        {r.kind !== 'death' && !isDice && (
-          <div className="tabs adv-tabs">{[['dis', 'Disadv.'], ['none', 'Normal'], ['adv', 'Adv.']].map(([k, l]) => <button key={k} className={adv === k ? 'on' : ''} onClick={() => setAdv(k)}>{l}</button>)}</div>
-        )}
         <button className="btn primary sm" disabled={busy || locked} onClick={() => go('auto')}>Roll for me</button>
         <span className="tiny muted">or</span>
-        <input className="input rr-input" inputMode="numeric" disabled={locked} placeholder={isDice ? 'total' : 'd20'} value={n} onChange={(e) => setN(e.target.value.replace(/[^0-9]/g, '').slice(0, isDice ? 3 : 2))} onKeyDown={(e) => e.key === 'Enter' && valid && !locked && go('manual')} title={isDice ? `Roll ${r.key} with your own dice and type the total` : 'Type the number your real d20 shows (the app adds your modifier)'} />
+        <input className="input rr-input" inputMode="numeric" disabled={locked} placeholder={isDice ? 'total' : 'd20'} value={n} onChange={(e) => setN(e.target.value.replace(/[^0-9]/g, '').slice(0, isDice ? 3 : 2))} onKeyDown={(e) => e.key === 'Enter' && valid && !locked && go('manual')} title={isDice ? `Roll ${r.key} with your own dice and type the total` : `${(ROLL_MODES[r.mode] || ROLL_MODES.none).manual} (the app adds your modifier)`} />
         <button className="btn sm" disabled={busy || !valid || locked} onClick={() => go('manual')}>I rolled it</button>
         {locked && <span className="tiny muted">Waiting for everyone to be at the table.</span>}
       </div>

@@ -210,3 +210,4 @@
 .conc-ask { display: inline-flex; align-items: center; gap: 4px; }
 .conc-banner { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 12px; margin-bottom: 6px; border: 1px solid rgba(217, 164, 65, .45); border-radius: var(--radius-sm); background: rgba(217, 164, 65, .08); }
 .conc-banner b { color: var(--gold-2); }
+.lu-filter { margin: 0 0 8px; }
