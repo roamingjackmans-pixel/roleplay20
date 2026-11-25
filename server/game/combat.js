@@ -9,6 +9,7 @@ import { cachedCampaignContext, safeDerive, partyBlock, npcBlock } from './conte
 import { generateTacticalMap, placeCreatures, describeMapForAI } from './mapgen.js';
 import { computeLight, computeVisibility } from './vision.js';
 import { findPath, distanceFeet, cellCost } from './pathing.js';
+import { doorAt, withDoorsOpen, reachToCell, doorSides, regionsNamed } from './doors.js';
 import { concentrationMinutes } from '../../shared/concentration.js';
 import { templateCells } from '../../shared/templates.js';
 import { rollDice, rollD20, manualD20 } from '../../shared/dice.js';
@@ -366,7 +367,8 @@ function resetEconomy(c, cb) {
   const d = ch ? safeDerive(ch) : null;
   const extra = ch ? extraAttacks(ch) : 0;
   // `done`: what this combatant has done since their turn began (the DM is told, so nothing from an earlier turn counts)
-  const eco = c.combat.economy[cb.id] = { action: false, bonus: false, reaction: false, moved: 0, speed: speedOf(cb), dash: false, attacksLeft: 0, maxAttacks: 1 + extra, sneakUsed: false, ac: d?.ac, done: [] };
+  // interact: the turn's one free object interaction (opening or closing a door, drawing a key...); a second one takes the action
+  const eco = c.combat.economy[cb.id] = { action: false, bonus: false, reaction: false, interact: false, moved: 0, speed: speedOf(cb), dash: false, attacksLeft: 0, maxAttacks: 1 + extra, sneakUsed: false, ac: d?.ac, done: [] };
   c.combat.ready = null; // a typed "run over and attack" waiting for its roll lasts only for that turn
   if (cb.dodging) cb.dodging = false;
   delete cb.exposed; // "wide open" after a fumble lasts until the start of their next turn
@@ -602,26 +604,197 @@ function occupiedBy(c, x, y, except) {
   return Object.values(c.tokens).some((t) => t.id !== except && !t.dead && x >= t.x && x < t.x + (t.size || 1) && y >= t.y && y < t.y + (t.size || 1));
 }
 
-function openDoorsOnPath(map, path) {
-  for (const p of path || []) {
+/** Open the closed (unlocked) doors on a path, up to and including step `upTo` (an NPC or the DM moving someone). */
+function openDoorsOnPath(map, path, upTo = Infinity) {
+  (path || []).forEach((p, k) => {
+    if (k > upTo) return;
     const d = map.doors?.find((dd) => dd.x === p.x && dd.y === p.y);
-    if (d && !d.open && !d.locked) d.open = true;
+    if (d && !d.open && !d.locked && !d.secret) d.open = true;
+  });
+}
+
+// ---------------------------------------------------------------- doors
+// A closed door stops a character (vision.js): they open it by walking into it or clicking it. In a fight, opening or
+// closing a door is the turn's free object interaction; a second one takes the action (Use an Object). A locked door
+// needs a key, a check or the DM's say-so: the server never opens one for a player by itself.
+
+const footprint = (tok, x, y) => {
+  const s = tok.size || 1;
+  const out = [];
+  for (let dx = 0; dx < s; dx++) for (let dy = 0; dy < s; dy++) out.push([x + dx, y + dy]);
+  return out;
+};
+
+/**
+ * Where a move to (x, y) really ends. A route that needs a closed door ends in front of the first one on it (`door`
+ * says which, for the caller to open or report as locked); within `maxFeet` it gets as close as it can. null when
+ * there's no way there at all.
+ */
+function planMove(c, map, tok, x, y, { blocked, maxFeet = Infinity }) {
+  const from = { x: tok.x, y: tok.y };
+  const opts = { size: tok.size || 1, isBlocked: (cx, cy) => blocked.has(`${cx},${cy}`) };
+  const direct = findPath(map, from, { x, y }, { ...opts, maxFeet });
+  if (direct) return { res: direct, to: { x, y }, door: null };
+  const via = findPath(withDoorsOpen(map, { locked: true }), from, { x, y }, opts);
+  if (!via) return null;
+  const k = via.path.findIndex((p) => footprint(tok, p.x, p.y).some(([fx, fy]) => { const d = doorAt(map, fx, fy); return d && !d.open; }));
+  if (k < 0) return null; // too far (no door in the way): the caller says so
+  const door = via.path[k] && footprint(tok, via.path[k].x, via.path[k].y).map(([fx, fy]) => doorAt(map, fx, fy)).find((d) => d && !d.open);
+  for (let j = k - 1; j >= 1; j--) {
+    const stop = via.path[j];
+    if (footprint(tok, stop.x, stop.y).some(([fx, fy]) => occupiedBy(c, fx, fy, tok.id))) continue;
+    const res = findPath(map, from, stop, { ...opts, maxFeet });
+    if (res) return { res, to: { x: stop.x, y: stop.y }, door };
   }
+  return { res: { path: [from], feet: 0 }, to: from, door };
+}
+
+/** The area a door leads into, seen from where `tok` stands (the room's name, or ""). */
+function beyondDoor(map, d, tok) {
+  const inside = (r) => tok.x >= r.x && tok.y >= r.y && tok.x < r.x + r.w && tok.y < r.y + r.h;
+  const here = (map.regions || []).find(inside)?.name;
+  if (d.to && d.to !== here) return d.to;
+  return doorSides(map, d).find((n) => n !== here) || '';
+}
+
+/** In a fight: use the turn's free object interaction, or (asked first) the action. */
+function spendInteraction(c, tok, useAction, what) {
+  const k = c.combat;
+  const cb = k ? k.combatants[tok.combatantId] : null;
+  const eco = cb ? k.economy[cb.id] : null;
+  if (!eco) return { ok: true };
+  if (!eco.interact) {
+    eco.interact = true;
+    noteDone(c, cb, `${what} (free object interaction)`);
+    return { ok: true };
+  }
+  if (!eco.action) {
+    if (!useAction) return { confirm: `You've used this turn's free object interaction, so this takes your action. ${what[0].toUpperCase()}${what.slice(1)} anyway?` };
+    eco.action = true;
+    eco.attacksLeft = 0;
+    noteDone(c, cb, `${what} (Use an Object action)`);
+    return { ok: true };
+  }
+  return { error: "You've used this turn's object interaction and your action. Try again next turn." };
+}
+
+/** A character at a closed door tries it: an unlocked one opens; a locked one stays shut and they're told what it takes. */
+function tryDoor(c, map, tok, d, { useAction = false } = {}) {
+  if (d.locked) {
+    d.lockKnown = true; // now everyone knows it's locked
+    E.system(c, `🔒 ${tok.name} tries the door${beyondDoor(map, d, tok) ? ` to ${beyondDoor(map, d, tok)}` : ''}: it's locked.`, 'all', { tone: 'muted' });
+    if (c.combat) c.combat.events.push(`${tok.name} tries the door at (${d.x},${d.y}): locked.`);
+    return { locked: true, door: { x: d.x, y: d.y }, message: "It's locked. Tell the DM how you get through: a key, picking the lock or forcing it." };
+  }
+  const spent = spendInteraction(c, tok, useAction, 'open the door');
+  if (!spent.ok) return { ...spent, door: { x: d.x, y: d.y } };
+  d.open = true;
+  const into = beyondDoor(map, d, tok);
+  E.system(c, `🚪 ${tok.name} opens the door${into ? ` to ${into}` : ''}.`, 'all', { tone: 'muted' });
+  if (c.combat) c.combat.events.push(`${tok.name} opens the door at (${d.x},${d.y})${into ? ` to ${into}` : ''}.`);
+  return { opened: true, door: { x: d.x, y: d.y } };
+}
+
+/** The cell next to door `d` that `tok` can walk to most cheaply (null if none within `maxFeet`). */
+function cellBesideDoor(c, map, tok, d, blocked, maxFeet = Infinity) {
+  let best = null;
+  const s = tok.size || 1;
+  for (let x = d.x - s; x <= d.x + 1; x++) for (let y = d.y - s; y <= d.y + 1; y++) {
+    if (reachToCell({ x, y, size: s }, d.x, d.y) !== 1) continue;
+    if (footprint(tok, x, y).some(([fx, fy]) => !Number.isFinite(cellCost(map, fx, fy)) || occupiedBy(c, fx, fy, tok.id) || doorAt(map, fx, fy))) continue;
+    const res = x === tok.x && y === tok.y ? { path: [{ x, y }], feet: 0 } : findPath(map, { x: tok.x, y: tok.y }, { x, y }, { size: tok.size || 1, isBlocked: (cx, cy) => blocked.has(`${cx},${cy}`), maxFeet });
+    if (!res) continue;
+    // square in front of the door rather than off to one side (from there you see in once it opens), unless that's
+    // further than one more step
+    const front = footprint(tok, x, y).some(([fx, fy]) => Math.abs(fx - d.x) + Math.abs(fy - d.y) === 1);
+    const score = res.feet + (front ? 0 : 5.5);
+    if (!best || score < best.score) best = { x, y, res, score };
+  }
+  return best;
+}
+
+/**
+ * A player clicks a door: their character walks up to it (in a fight, with their movement) and opens it, or closes it
+ * if it stands open. The host in DM view simply opens or shuts any door (the DM's say-so, locked or not).
+ */
+export function useDoor(c, userId, x, y, { useAction = false } = {}) {
+  const map = c.maps.tactical[c.combat?.mapId || c.scene.tacticalMapId];
+  if (!map) return { error: 'No map.' };
+  const m = member(c, userId);
+  const god = m?.role === 'owner' && !!c.settings.dmView;
+  const d = doorAt(map, x, y);
+  if (!d || (d.secret && !god)) return { error: 'There is no door there.' };
+  if (god) {
+    d.open = !d.open;
+    if (d.open) d.locked = false;
+    d.secret = false;
+    E.system(c, `🚪 A door ${d.open ? 'opens' : 'closes'} (the DM's call).`, [userId], { tone: 'muted' });
+    updateReveals(c);
+    E.pushViews(c);
+    return { ok: true, opened: d.open, closed: !d.open };
+  }
+  const tok = Object.values(c.tokens).find((t) => t.characterId && t.characterId === m?.characterId && !t.dead);
+  if (!tok) return { error: "Your character isn't on this map." };
+  const ch = getCharacter(tok.characterId);
+  if (!ch || ch.hp.current <= 0) return { error: "You can't do that right now." };
+  let eco = null;
+  let cb = null;
+  if (c.combat) {
+    const r = requirePlayerTurn(c, userId);
+    if (r.error) return { error: r.error === "It isn't your turn." ? 'You can open or close a door on your turn.' : r.error };
+    cb = r.cb;
+    eco = c.combat.economy[cb.id];
+    // nothing to spend: say so before walking anywhere
+    if (eco.interact && eco.action) return { error: "You've used this turn's object interaction and your action. Try again next turn." };
+  }
+  let feet = 0;
+  if (reachToCell(tok, d.x, d.y) !== 1) {
+    // walk up to it first (standing in the doorway counts as "at it" only to step back out)
+    const left = eco ? Math.max(0, eco.speed * (eco.dash ? 2 : 1) - eco.moved) : Infinity;
+    const spot = cellBesideDoor(c, map, tok, d, hostileCells(c, tok), left);
+    if (!spot) return { error: eco ? "You can't reach that door with the movement you have left." : "You can't reach that door from here." };
+    feet = spot.res.feet;
+    if (eco && feet) {
+      eco.moved += feet;
+      noteDone(c, cb, `moved ${feet} ft`);
+      c.combat.events.push(`${tok.name} moves ${feet} ft to (${spot.x},${spot.y}).`);
+    }
+    tok.x = spot.x;
+    tok.y = spot.y;
+  }
+  let out;
+  if (d.open) {
+    if (occupiedBy(c, d.x, d.y, null)) return { error: 'Someone is standing in the doorway.' };
+    const spent = spendInteraction(c, tok, useAction, 'close the door');
+    if (!spent.ok) out = { ...spent, door: { x: d.x, y: d.y } };
+    else {
+      d.open = false;
+      E.system(c, `🚪 ${tok.name} closes the door.`, 'all', { tone: 'muted' });
+      if (c.combat) c.combat.events.push(`${tok.name} closes the door at (${d.x},${d.y}).`);
+      out = { closed: true };
+    }
+  } else out = tryDoor(c, map, tok, d, { useAction });
+  updateReveals(c);
+  E.pushViews(c);
+  return { ok: !out.error, ...out, feet, ...(eco ? { left: Math.max(0, eco.speed * (eco.dash ? 2 : 1) - eco.moved) } : {}) };
 }
 
 export function moveOutOfCombat(c, tok, x, y) {
   const map = c.maps.tactical[c.scene.tacticalMapId];
   if (!map) return { error: 'No map.' };
   if (x < 0 || y < 0 || x >= map.w || y >= map.h) return { error: 'Off the map.' };
+  // dropped on a closed door: walk up to it and try it
+  const onDoor = doorAt(map, x, y);
+  if (onDoor && !onDoor.open && !onDoor.secret) return useDoor(c, characterOwner(c, tok.characterId), x, y);
   if (occupiedBy(c, x, y, tok.id)) return { error: 'Someone is already there.' };
-  const blocked = hostileCells(c, tok);
-  const res = findPath(map, { x: tok.x, y: tok.y }, { x, y }, { size: tok.size || 1, isBlocked: (cx, cy) => blocked.has(`${cx},${cy}`) });
-  if (!res) return { error: "You can't get there from here." };
-  openDoorsOnPath(map, res.path);
-  tok.x = x; tok.y = y;
+  const plan = planMove(c, map, tok, x, y, { blocked: hostileCells(c, tok) });
+  if (!plan) return { error: "You can't get there from here." };
+  tok.x = plan.to.x; tok.y = plan.to.y;
+  // walking into a closed door opens it (and stops there: what's beyond is only now in view)
+  const at = plan.door && reachToCell(tok, plan.door.x, plan.door.y) === 1 ? tryDoor(c, map, tok, plan.door) : {};
   updateReveals(c);
   E.pushViews(c);
-  return { ok: true, feet: res.feet };
+  return { ok: true, feet: plan.res.feet, ...at };
 }
 
 // ---------------------------------------------------------------- the DM moves tokens to match the story
@@ -654,6 +827,9 @@ function destination(c, map, text, mover) {
   if (tok && tok !== mover) return { x: tok.x, y: tok.y, near: true };
   const o = (map.objects || []).find((x) => norm(x.label).startsWith(r) || norm(x.label).includes(r) || norm(x.kind.replace(/_/g, ' ')) === r);
   if (o) return { x: o.x + Math.floor(((o.w || 1) - 1) / 2), y: o.y + Math.floor(((o.h || 1) - 1) / 2), near: true };
+  // a room or area by name ("the back room", "Alcove 3"): its middle
+  const reg = regionsNamed(map, String(text || '').replace(/^(next to|near|beside|by|to|at|into|in)\s+/i, ''))[0];
+  if (reg) return { x: reg.x + Math.floor((reg.w - 1) / 2), y: reg.y + Math.floor((reg.h - 1) / 2) };
   return null;
 }
 
@@ -683,7 +859,8 @@ function nearestOpen(c, map, x, y, tok, { avoidExact = false } = {}) {
 function placeToken(c, map, tok, dest) {
   const spot = nearestOpen(c, map, dest.x, dest.y, tok, { avoidExact: !!dest.near });
   if (!spot) return null;
-  const res = findPath(map, { x: tok.x, y: tok.y }, spot, { size: tok.size || 1 });
+  // the DM moving someone: they open the (unlocked) doors on their way
+  const res = findPath(withDoorsOpen(map), { x: tok.x, y: tok.y }, spot, { size: tok.size || 1 });
   if (res) openDoorsOnPath(map, res.path);
   tok.x = spot.x;
   tok.y = spot.y;
@@ -732,28 +909,34 @@ export function moveInCombat(c, userId, tok, x, y) {
   const cb = current(c);
   const map = c.maps.tactical[k.mapId] || c.maps.tactical[c.scene.tacticalMapId];
   if (!cb || cb.tokenId !== tok.id || k.state !== 'turn') return { error: 'You can only move on your turn.' };
+  // dropped on a closed door: walk up to it and try it (the turn's free object interaction)
+  const onDoor = doorAt(map, x, y);
+  if (onDoor && !onDoor.open && !onDoor.secret) return useDoor(c, userId, x, y);
   if (occupiedBy(c, x, y, tok.id)) return { error: 'That space is occupied.' };
   const eco = k.economy[cb.id];
   const budget = eco.speed * (eco.dash ? 2 : 1) - eco.moved;
   if (budget <= 0) return { error: 'You have no movement left.' };
-  const blocked = hostileCells(c, tok);
-  const res = findPath(map, { x: tok.x, y: tok.y }, { x, y }, { size: tok.size || 1, isBlocked: (cx, cy) => blocked.has(`${cx},${cy}`), maxFeet: budget });
-  if (!res) return { error: `Too far (you have ${budget} ft of movement left).` };
-  openDoorsOnPath(map, res.path);
-  eco.moved += res.feet;
-  noteDone(c, cb, `moved ${res.feet} ft`);
-  tok.x = x; tok.y = y;
-  k.events.push(`${cb.name} moves ${res.feet} ft to (${x},${y}).`);
+  const plan = planMove(c, map, tok, x, y, { blocked: hostileCells(c, tok), maxFeet: budget });
+  if (!plan) return { error: `Too far (you have ${budget} ft of movement left).` };
+  const { res } = plan;
+  if (res.feet) {
+    eco.moved += res.feet;
+    noteDone(c, cb, `moved ${res.feet} ft`);
+    k.events.push(`${cb.name} moves ${res.feet} ft to (${plan.to.x},${plan.to.y}).`);
+  }
+  tok.x = plan.to.x; tok.y = plan.to.y;
+  // a closed door on the way stops them in front of it; walking into it opens it if they can reach it
+  const at = plan.door && reachToCell(tok, plan.door.x, plan.door.y) === 1 ? tryDoor(c, map, tok, plan.door) : plan.door ? { message: 'A closed door is in the way.' } : {};
   updateReveals(c);
   E.pushViews(c);
-  return { ok: true, feet: res.feet, left: eco.speed * (eco.dash ? 2 : 1) - eco.moved };
+  return { ok: true, feet: res.feet, left: eco.speed * (eco.dash ? 2 : 1) - eco.moved, ...at };
 }
 
 export function movementInfo(c, cb) {
   const k = c.combat;
   const eco = k?.economy?.[cb?.id];
   if (!eco) return null;
-  return { left: Math.max(0, eco.speed * (eco.dash ? 2 : 1) - eco.moved), speed: eco.speed, action: eco.action, bonus: eco.bonus, reaction: eco.reaction, attacksLeft: eco.attacksLeft, maxAttacks: eco.maxAttacks, dash: eco.dash };
+  return { left: Math.max(0, eco.speed * (eco.dash ? 2 : 1) - eco.moved), speed: eco.speed, action: eco.action, bonus: eco.bonus, reaction: eco.reaction, interact: !!eco.interact, attacksLeft: eco.attacksLeft, maxAttacks: eco.maxAttacks, dash: eco.dash };
 }
 
 // ---------------------------------------------------------------- attack math
@@ -1702,25 +1885,29 @@ function stepToward(c, cb, dest, { adjacentTo = null, budget }) {
     }
   } else if (dest) goals = [dest];
   let best = null;
+  // creatures open the (unlocked) doors in their way as they go
+  const routeMap = withDoorsOpen(map);
   for (const g of goals) {
     // creatures may pass through allies' spaces (5e) but not hostile ones; the end cell must be free
-    const res = findPath(map, { x: tok.x, y: tok.y }, g, { size: tok.size || 1, isBlocked: (x, y) => blocked.has(`${x},${y}`) });
+    const res = findPath(routeMap, { x: tok.x, y: tok.y }, g, { size: tok.size || 1, isBlocked: (x, y) => blocked.has(`${x},${y}`) });
     if (res && (!best || res.feet < best.feet)) best = res;
   }
   if (!best) return 0;
   // walk the path as far as the budget allows, ending on a free cell
-  let spent = 0, last = best.path[0];
+  let spent = 0, last = best.path[0], lastIdx = 0;
   for (let i = 1; i < best.path.length; i++) {
     const step = best.path[i];
-    const prev = best.path[i - 1];
     const cost = best.feet && best.path.length > 1 ? stepCost(map, step) : 5;
     if (spent + cost > budget) break;
     spent += cost;
-    if (!occupied(step.x, step.y)) last = step;
-    void prev;
+    if (!occupied(step.x, step.y)) {
+      last = step;
+      lastIdx = i;
+    }
   }
   if (last && (last.x !== tok.x || last.y !== tok.y)) {
-    openDoorsOnPath(map, best.path);
+    // only the doors it actually walked through open
+    openDoorsOnPath(map, best.path, lastIdx);
     tok.x = last.x; tok.y = last.y;
   }
   return spent;

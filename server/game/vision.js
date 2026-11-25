@@ -92,7 +92,7 @@ function buildGrids(map) {
         break;
       case 43: // '+' door, default closed (refined below)
         sight[i] = 1;
-        cost[i] = 5;
+        cost[i] = 0;
         break;
       default:
         cost[i] = Number.isNaN(c) ? 0 : 5;
@@ -102,13 +102,10 @@ function buildGrids(map) {
     if (!(d.x >= 0 && d.y >= 0 && d.x < w && d.y < h)) continue;
     const i = d.y * w + d.x;
     if (tiles.charCodeAt(i) !== 43) continue; // the tile is the truth: only '+' cells are doors
-    if (d.open) {
-      sight[i] = 0;
-      cost[i] = 5;
-    } else {
-      sight[i] = 1;
-      cost[i] = d.locked || d.secret ? 0 : 5;
-    }
+    // a closed door stops movement as well as sight: it has to be opened first (walking into it or clicking it opens
+    // it; a locked one needs a key, a check or the DM). doors.js withDoorsOpen() routes through closed ones.
+    sight[i] = d.open && !d.secret ? 0 : 1;
+    cost[i] = d.open && !d.secret ? 5 : 0;
   }
   for (const o of map.objects || []) {
     const ow = o.w || 1;

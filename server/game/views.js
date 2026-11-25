@@ -3,9 +3,10 @@
 import { getUser } from '../auth.js';
 import { getCharacter, partyCharacters, characterOwner, member } from './campaign.js';
 import { computeLight, computeVisibility, encodeCells } from './vision.js';
+import { hiddenCells, areaHidden } from './doors.js';
 import { safeDerive } from './context.js';
 import * as combat from './combat.js';
-import { onlineUsers, requiredUsers, roundNeeds, joinLevel, partyWhereabouts, dmBrain, rollAdvantage } from './engine.js';
+import { onlineUsers, requiredUsers, roundNeeds, joinLevel, partyWhereabouts, dmBrain, rollAdvantage, revealForParty } from './engine.js';
 import { aiStatus, PRICES } from '../ai/client.js';
 import { roster as voiceRoster } from './voice.js';
 import { waitingNarration } from './readgate.js';
@@ -39,17 +40,27 @@ export function visibleLog(c, userId, limit = 220) {
   return out.reverse();
 }
 
-function playerMap(map) {
-  // secret doors look like walls; hidden objects are removed
+function playerMap(map, hide = null, god = false) {
+  // secret doors look like walls; hidden objects are removed. Whatever is still shut away behind a door nobody has
+  // opened (doors.js) is solid rock to the players: not its floor, its furniture, its lights, its name or even its size.
+  // A door shows as locked only once someone has tried it (or the DM locked it in the story).
   const tiles = map.tiles.split('');
+  if (hide) for (let i = 0; i < tiles.length; i++) if (hide[i]) tiles[i] = '#';
   const doors = [];
   for (const d of map.doors || []) {
-    if (d.secret) tiles[d.y * map.w + d.x] = '#';
-    else doors.push({ x: d.x, y: d.y, open: !!d.open, locked: !!d.locked });
+    if (d.secret || (hide && hide[d.y * map.w + d.x])) tiles[d.y * map.w + d.x] = '#';
+    else doors.push({ x: d.x, y: d.y, open: !!d.open, locked: !!d.locked && (god || !!d.lockKnown) });
   }
+  const shown = (x, y, w = 1, h = 1) => {
+    if (!hide) return true;
+    for (let yy = y; yy < y + h; yy++) for (let xx = x; xx < x + w; xx++) if (xx >= 0 && yy >= 0 && xx < map.w && yy < map.h && hide[yy * map.w + xx]) return false;
+    return true;
+  };
   return {
     id: map.id, kind: 'tactical', name: map.name, theme: map.theme, seed: map.seed, w: map.w, h: map.h, tiles: tiles.join(''),
-    objects: (map.objects || []).filter((o) => !o.hidden), doors, lights: map.lights || [], ambient: map.ambient, regions: map.regions || [],
+    objects: (map.objects || []).filter((o) => !o.hidden && shown(o.x, o.y, o.w || 1, o.h || 1)), doors,
+    lights: (map.lights || []).filter((l) => shown(l.x, l.y)), ambient: map.ambient,
+    regions: (map.regions || []).filter((r) => !areaHidden(map, hide, r)),
   };
 }
 
@@ -65,6 +76,9 @@ function tacticalView(c, userId, cache) {
   if (!map) return null;
   const m = member(c, userId);
   const godView = m?.role === 'owner' && c.settings.dmView;
+  if (!cache.revealed) { revealForParty(c); cache.revealed = true; }
+  // behind doors nobody has opened yet: hidden from the players (the owner's spoiler view sees everything)
+  const hide = godView ? null : hiddenCells(map);
   if (!cache.light) {
     const extra = Object.values(c.tokens).filter((t) => t.light && !t.dead).map((t) => ({ x: t.x, y: t.y, bright: t.light.bright, dim: t.light.dim }));
     cache.light = computeLight(map, extra);
@@ -113,7 +127,9 @@ function tacticalView(c, userId, cache) {
       outOfSight: party && !seen, combatantId: t.combatantId || null, characterId: t.characterId || null,
     });
   }
-  return { map: playerMap(map), vis: vis ? encodeCells(vis) : null, explored: explored || null, tokens, light: encodeCells(light) };
+  let shownLight = light;
+  if (hide) { shownLight = light.slice(); for (let i = 0; i < hide.length; i++) if (hide[i]) shownLight[i] = 0; }
+  return { map: playerMap(map, hide, godView), vis: vis ? encodeCells(vis) : null, explored: explored || null, tokens, light: encodeCells(shownLight) };
 }
 
 function areaView(c, userId) {

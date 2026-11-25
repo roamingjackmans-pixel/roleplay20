@@ -27,12 +27,13 @@ test("blocksSight / blocksMove basics", () => {
   assert.equal(blocksSight(m, 2, 2), false); // void is see-through
   assert.equal(blocksMove(m, 2, 2), true);
   assert.equal(blocksSight(m, 1, 2), true); // closed door
-  assert.equal(blocksMove(m, 1, 2), false); // closed unlocked door: passable
+  assert.equal(blocksMove(m, 1, 2), true); // closed door: open it first
   m.doors[0].locked = true;
   assert.equal(blocksMove(m, 1, 2), true);
   m.doors[0].open = true;
   m.doors[0].locked = false;
   assert.equal(blocksSight(m, 1, 2), false);
+  assert.equal(blocksMove(m, 1, 2), false); // open: walk through
   assert.equal(blocksSight(m, -1, 0), true);
   assert.equal(blocksMove(m, 9, 9), true);
 });

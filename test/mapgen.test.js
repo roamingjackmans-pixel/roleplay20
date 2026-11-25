@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { generateTacticalMap, placeCreatures, describeMapForAI, resolveTheme, THEMES } from "../server/game/mapgen.js";
 import { blocksMove, computeLight } from "../server/game/vision.js";
 import { reachableCells } from "../server/game/pathing.js";
+import { withDoorsOpen } from "../server/game/doors.js";
 
 const TILE_CHARS = new Set(["#", ".", ",", '"', "=", "_", ":", "~", "w", "%", "+", " "]);
 
@@ -35,10 +36,11 @@ function checkMap(m, tag) {
   for (const k of ["party", "enemy", "hidden", "npc"]) {
     assert.ok(Array.isArray(z[k]), `${tag}: zone ${k}`);
     assert.ok(z[k].length >= 8, `${tag}: zone ${k} has ${z[k].length}`);
-    for (const [x, y] of z[k]) assert.ok(!blocksMove(m, x, y), `${tag}: zone ${k} cell ${x},${y} blocked`);
+    for (const [x, y] of z[k]) assert.ok(!blocksMove(withDoorsOpen(m), x, y), `${tag}: zone ${k} cell ${x},${y} blocked`);
   }
   const [px, py] = z.party[0];
-  const reach = reachableCells(m, { x: px, y: py }, Infinity);
+  // (closed doors stop movement until someone opens them: reachable means reachable by opening the unlocked ones)
+  const reach = reachableCells(withDoorsOpen(m), { x: px, y: py }, Infinity);
   for (const k of ["party", "enemy", "hidden", "npc"]) {
     for (const [x, y] of z[k]) assert.ok(reach.has(`${x},${y}`), `${tag}: ${k} ${x},${y} unreachable from party`);
   }

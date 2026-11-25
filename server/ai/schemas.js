@@ -72,8 +72,11 @@ const sceneMap = obj({
   npcsPresent: arr(obj({ npcId: S, placement: en('npc', 'near', 'far', 'center', 'hidden') })),
   // the room's overall shape when it matters (a skull-shaped shrine, a round tower room); "auto" = the theme's usual layout
   shape: en('auto', 'round', 'oval', 'cross', 'ring', 'long_hall', 'skull', 'ribcage', 'triangle'),
-  // the things the scene is about, placed and labelled on the grid ("Dragon egg" x4 at the focal point)
-  keyObjects: arr(obj({ name: S, count: I, placement: en('focal', 'center', 'near_party', 'far', 'scattered', 'edges', 'hidden') })),
+  // the things the scene is about, drawn on the grid (room: "" or the room they're in)
+  keyObjects: arr(obj({ name: S, count: I, placement: en('focal', 'center', 'near_party', 'far', 'scattered', 'edges', 'hidden'), room: S })),
+  // [] for one open space. Else the first is the main room (wall/at/door: the way in); each other opens off its parent
+  // through a door in their shared wall. w/h in feet, 0 = usual size
+  rooms: arr(obj({ name: S, count: I, w: I, h: I, parent: S, wall: en('n', 's', 'e', 'w', 'any'), at: en('auto', 'middle', 'north', 'south', 'east', 'west'), door: en('none', 'open', 'closed', 'locked', 'secret') })),
 });
 
 const enemyGroup = obj({

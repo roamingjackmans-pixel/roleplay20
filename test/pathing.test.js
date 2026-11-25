@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { withDoorsOpen } from "../server/game/doors.js";
 import { cellCost, findPath, reachableCells, distanceFeet } from "../server/game/pathing.js";
 
 function mk(rows, extra = {}) {
@@ -16,9 +17,14 @@ test("cellCost", () => {
   assert.equal(cellCost(m, 3, 0), 10);
   assert.equal(cellCost(m, 4, 0), Infinity);
   assert.equal(cellCost(m, 5, 0), Infinity);
-  assert.equal(cellCost(m, 6, 0), 5); // closed, unlocked door
+  assert.equal(cellCost(m, 6, 0), Infinity); // a closed door stops you until it is opened...
+  assert.equal(cellCost(withDoorsOpen(m), 6, 0), 5); // ...which an unlocked one can be
   m.doors[0].locked = true;
-  assert.equal(cellCost(m, 6, 0), Infinity);
+  assert.equal(cellCost(withDoorsOpen(m), 6, 0), Infinity); // a locked one can't, just like that
+  assert.equal(cellCost(withDoorsOpen(m, { locked: true }), 6, 0), 5);
+  m.doors[0].open = true;
+  m.doors[0].locked = false;
+  assert.equal(cellCost(m, 6, 0), 5); // open
   assert.equal(cellCost(m, -1, 0), Infinity);
   const o = mk(["...."], { objects: [{ id: "o", kind: "web", x: 1, y: 0, w: 2, h: 1, blocksMove: false, blocksSight: false, difficult: true }] });
   assert.equal(cellCost(o, 2, 0), 10);
@@ -60,7 +66,8 @@ test("findPath: walls, no corner cutting, doors", () => {
     "#..#..#",
     "#######",
   ], { doors: [{ x: 3, y: 2, open: false, locked: false, secret: false }] });
-  const p = findPath(m, { x: 1, y: 1 }, { x: 5, y: 1 });
+  assert.equal(findPath(m, { x: 1, y: 1 }, { x: 5, y: 1 }), null, "the closed door is in the way");
+  const p = findPath(withDoorsOpen(m), { x: 1, y: 1 }, { x: 5, y: 1 });
   assert.ok(p);
   assert.ok(p.path.some((c) => c.x === 3 && c.y === 2), "goes through the door");
   // (2,1)->(3,2) would cut the wall corner at (3,1): not allowed, so the path must step to (2,2) first
@@ -73,7 +80,7 @@ test("findPath: walls, no corner cutting, doors", () => {
   }
   assert.equal(p.feet, 20); // (1,1)>(2,2)>(3,2)>(4,2)>(5,1)
   m.doors[0].locked = true;
-  assert.equal(findPath(m, { x: 1, y: 1 }, { x: 5, y: 1 }), null);
+  assert.equal(findPath(withDoorsOpen(m), { x: 1, y: 1 }, { x: 5, y: 1 }), null);
 });
 
 test("findPath: isBlocked, maxFeet, isOccupied", () => {

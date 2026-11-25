@@ -4,6 +4,8 @@
 // unless no seed is given).
 
 import { computeLight, getGrids } from "./vision.js";
+import { planLayout, singular } from "./layout.js";
+import { blankRevealed, revealFrom, regionsNamed, hiddenCells, areaHidden, doorSides, withDoorsOpen } from "./doors.js";
 
 // =================================================================================================================
 // Random numbers and noise
@@ -1697,8 +1699,10 @@ function genTavern(g) {
   // front door on the street side
   const fdx = rng.int(common.x + Math.floor(common.w * 0.3), common.x + Math.floor(common.w * 0.7));
   const dbl = common.w >= 18 && rng.chance(0.5);
-  g.addDoor(fdx, by1, { open: rng.chance(0.3) });
-  if (dbl) g.addDoor(fdx + 1, by1, { open: g.doorAt(fdx, by1).open });
+  // a tavern is a public place: its front door stands open and anyone walks straight in
+  rng.next(); // (the draw that used to decide it, kept so the rest of the tavern comes out as before)
+  g.addDoor(fdx, by1, { open: true });
+  if (dbl) g.addDoor(fdx + 1, by1, { open: true });
   g.anchors.party.push([fdx, by1 + 1], [fdx, by1 + 2 < h ? by1 + 2 : by1 + 1]);
   // keep a lane from the door to the bar clear
   for (let y = barY + 1; y < by1; y++) for (let x = fdx - 1; x <= fdx + (dbl ? 2 : 1); x++) if (g.inb(x, y)) g.clear[g.i(x, y)] = 1;
@@ -1916,7 +1920,9 @@ function genStreet(g) {
       const name = names[ni++ % names.length];
       if (R.w >= 2 && R.h >= 1 && rng.chance(0.75)) {
         const dx = rng.int(x + 1, x + lw - 2);
-        g.addDoor(dx, frontY, { locked: rng.chance(0.2) });
+        // shops are open to customers by day; homes, and everything after dark, are locked
+        const shut = rng.chance(0.2) || g.night || /Townhouse|Moneylender/.test(name);
+        g.addDoor(dx, frontY, { locked: shut });
         doorsOut.push([dx, top ? frontY + 1 : frontY - 1]);
         decorateShop(g, R, name);
         g.region(name, R.x, R.y, R.w, R.h);
@@ -3051,7 +3057,9 @@ function genVillage(g) {
     dy = clamp(dy, y + 1, y + bh - 2);
     if (side <= 1) dy = side === 0 ? y + bh - 1 : y;
     else dx = side === 2 ? x + bw - 1 : x;
-    g.addDoor(dx, dy, { locked: rng.chance(0.15) });
+    // somebody's home: locked (getting in takes a key, a check or the DM's say-so); a barn just has a closed door
+    const barnLocked = rng.chance(0.15);
+    g.addDoor(dx, dy, { locked: isBarn ? barnLocked : true });
     if (isBarn && (side <= 1) && g.get(dx + 1, dy) === "#" && dx + 1 < x + bw - 1) g.addDoor(dx + 1, dy, {});
     // path from the door to the road
     const ox = side === 2 ? dx + 1 : side === 3 ? dx - 1 : dx;
@@ -3449,6 +3457,323 @@ function genShaped(g, shape) {
 }
 
 // =================================================================================================================
+// Described layouts: the rooms the DM describes ("a hall with a door to an alcove in each wall", "a corridor with cells
+// down both sides", "a tavern with a back room"), planned by layout.js and built here: walls shared between
+// neighbours, every door set in the wall between the two rooms it joins, and furniture that suits each room's name.
+
+// themes whose rooms are cut into rock; the rest stand on open ground (a street, a yard, a field)
+const LAYOUT_INDOOR = new Set(["dungeon", "crypt", "cave", "mine", "temple", "castle"]);
+const LAYOUT_GROUND = { tavern: "_", street: "_", ruins: "_", road: ",", village: '"', field: '"', forest: '"', camp: ",", swamp: '"', ship: "=" };
+const LAYOUT_FLOOR = { dungeon: ".", crypt: ".", cave: ",", mine: ",", temple: ".", castle: ".", ruins: "_" };
+const LAYOUT_OPP = { n: "s", s: "n", e: "w", w: "e" };
+
+/** What a room is for, from its name: decides its furniture. */
+export function roomRole(name) {
+  const n = String(name || "").toLowerCase();
+  if (/\b(alcoves?|niches?|nooks?|closets?|cupboards?|privy|booths?)\b/.test(n)) return "alcove";
+  if (/\b(corridors?|passages?|passageways?|hallways?|tunnels?|galler(y|ies)|walkways?)\b/.test(n)) return "corridor";
+  if (/\b(common room|tap ?room|taverns?|inns?|bar|saloon|dining|mess hall|feast)/.test(n)) return "taproom";
+  if (/\b(kitchens?|galley|scullery)\b/.test(n)) return "kitchen";
+  if (/\b(bed ?rooms?|bedchambers?|sleeping|dormitor|bunks?|quarters|nursery|guest room)/.test(n)) return "bedroom";
+  if (/\b(cells?|prisons?|jail|gaol|brig|holding)\b/.test(n)) return "cell";
+  if (/\b(stor|pantry|larder|cellar|warehouse|suppl|back ?room)/.test(n)) return "storage";
+  if (/\b(shrines?|chapels?|altar|sanctum|sanctuary|temples?|oratory)\b/.test(n)) return "shrine";
+  if (/\b(library|study|archives?|office|scriptorium|records)\b/.test(n)) return "library";
+  if (/\b(armou?ry|arsenal)\b/.test(n)) return "armory";
+  if (/\b(guard|barracks|watch ?room)/.test(n)) return "guard";
+  if (/\b(throne|audience)/.test(n)) return "throne";
+  if (/\b(forge|smithy|workshop|foundry)\b/.test(n)) return "forge";
+  if (/\b(vault|treasury|strong ?room)\b/.test(n)) return "vault";
+  if (/\b(stables?|barn|byre)\b/.test(n)) return "stable";
+  if (/\b(crypt|tomb|burial|ossuary|catacomb)/.test(n)) return "burial";
+  if (/\b(well|cistern)\b/.test(n)) return "well";
+  if (/\b(parlou?r|sitting|living|lounge|foyer|entry|great room|main room|hall)\b/.test(n)) return "living";
+  return "room";
+}
+
+const DOORISH = /\b(doors?|doorways?|gates?|hatch(es)?|portcullis(es)?)\b/i;
+const NUM = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12 };
+
+/**
+ * The rooms to build: the DM's `rooms`, or - when the DM described doors only as key objects ("Door" x7) or in the
+ * features ("seven alcoves") - a main room with that many side rooms behind closed doors set in its walls, so a door
+ * is never left standing in the middle of the floor. Returns { rooms, keyObjects } (the door "objects" taken out).
+ */
+export function layoutRooms(spec, theme) {
+  const keyObjects = Array.isArray(spec.keyObjects) ? spec.keyObjects : [];
+  const doorObjs = keyObjects.filter((k) => DOORISH.test(String(k?.name || "")));
+  const rest = keyObjects.filter((k) => !doorObjs.includes(k));
+  if (Array.isArray(spec.rooms) && spec.rooms.some((r) => String(r?.name || "").trim())) return { rooms: spec.rooms, keyObjects: rest };
+  const side = [];
+  for (const k of doorObjs) {
+    const what = String(k.name).replace(DOORISH, " ").replace(/\b(locked|closed|open|wooden|iron|heavy|stone|old)\b/gi, " ").replace(/\s+/g, " ").trim();
+    side.push({ name: what ? singular(what) : "Side room", count: Math.max(1, Math.round(Number(k.count) || 1)), wall: "any", door: /\blocked\b/i.test(k.name) ? "locked" : "closed" });
+  }
+  if (!side.length) {
+    const text = (Array.isArray(spec.features) ? spec.features : []).join(" | ").toLowerCase();
+    const m = /\b(\d+|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\s+(alcoves|niches|side rooms|side chambers|doors)\b/.exec(text);
+    if (m) {
+      const n = NUM[m[1]] || Number(m[1]);
+      if (n >= 2) side.push({ name: m[2] === "doors" ? "Side room" : singular(m[2]), count: Math.min(12, n), wall: "any", door: "closed" });
+    }
+  }
+  if (!side.length) return { rooms: [], keyObjects };
+  const main = LAYOUT_INDOOR.has(theme) ? "Chamber" : "Main room";
+  return { rooms: [{ name: main, wall: "s", door: "none" }, ...side.map((s) => ({ ...s, parent: main }))], keyObjects: rest };
+}
+
+function genLayout(g, plan) {
+  const { rng } = g;
+  const ground = LAYOUT_GROUND[g.theme] || '"';
+  const floor = LAYOUT_FLOOR[g.theme] || "=";
+  const dark = g.theme !== "tavern" && plan.indoor;
+  g.floor = floor;
+  g.indoorFloor = !plan.indoor;
+  g.fill(plan.indoor ? "#" : ground);
+  if (!plan.indoor && (ground === '"' || ground === ",")) {
+    // a yard: patchy ground, a few bushes and trees well away from the walls
+    const n = noiseField(rng, g.w, g.h, 5, 2);
+    for (let i = 0; i < g.t.length; i++) if (n[i] > 0.82) g.t[i] = ",";
+  }
+  // walls first (neighbours share them), then the floors
+  for (const r of plan.rooms) g.rect(r.x - 1, r.y - 1, r.w + 2, r.h + 2, "#");
+  for (const r of plan.rooms) g.rect(r.x, r.y, r.w, r.h, floor);
+  // the way in, out to the edge of the map
+  const lane = plan.indoor ? floor : ground === '"' ? "," : ground;
+  for (const [x, y] of [...plan.out, ...(plan.landing || [])]) {
+    g.set(x, y, lane);
+    g.clear[g.i(x, y)] = 1;
+  }
+  const opening = (d, state, to) => {
+    const n = d.width || 1;
+    const s0 = -Math.floor((n - 1) / 2);
+    for (let k = 0; k < n; k++) {
+      const x = d.horizontal ? d.x + s0 + k : d.x;
+      const y = d.horizontal ? d.y : d.y + s0 + k;
+      if (state === "none") {
+        g.set(x, y, floor);
+        g.clear[g.i(x, y)] = 1;
+        for (const [dx, dy] of DIR4) if (g.inb(x + dx, y + dy)) g.clear[g.i(x + dx, y + dy)] = 1;
+      } else {
+        g.addDoor(x, y, { open: state === "open", locked: state === "locked", secret: state === "secret", to });
+      }
+    }
+  };
+  const root = plan.rooms[0];
+  opening({ ...plan.entrance }, plan.entrance.state, root.name);
+  for (const r of plan.rooms) if (r.door) opening(r.door, r.door.state, r.name);
+  // every room is a named area; the main room's middle is the scene's focal point
+  for (const r of plan.rooms) g.region(r.name, r.x, r.y, r.w, r.h);
+  g.focus = [root.x + Math.floor((root.w - 1) / 2), root.y + Math.floor((root.h - 1) / 2)];
+  // where people start: the party at the way in, those already here in the main room, foes at its far side
+  const out = plan.out;
+  for (const p of out.slice(-3).reverse()) g.anchors.party.push(p);
+  if (!plan.indoor) for (const p of out.slice(0, 2)) g.anchors.party.push(p);
+  const far = LAYOUT_OPP[plan.entrance.wall];
+  g.anchors.npc.push(g.focus, [g.focus[0] + 1, g.focus[1]]);
+  const farCells = g.cells(root.x, root.y, root.w, root.h, (x, y) => (far === "n" ? y === root.y : far === "s" ? y === root.y + root.h - 1 : far === "w" ? x === root.x : x === root.x + root.w - 1));
+  g.anchors.enemy.push(...farCells.slice(0, 4));
+  for (const r of plan.rooms.slice(1)) if (r.door && (r.door.state === "none" || r.door.state === "open")) g.anchors.hidden.push([r.x, r.y]);
+  // furniture and light, room by room: the side away from its door is its "far" wall
+  plan.rooms.forEach((r, k) => {
+    const farSide = k === 0 ? far : r.wall;
+    dressRoom(g, r, roomRole(r.name), farSide, { dark, main: k === 0 });
+  });
+  g.name = g.name || root.name;
+}
+
+function dressRoom(g, R, role, farSide, { dark, main }) {
+  const { rng } = g;
+  const theme = g.theme;
+  const spots = wallSpots(g, R);
+  const farSpots = spots.filter((s) => s[3] === farSide);
+  const sideSpots = spots.filter((s) => s[3] !== farSide);
+  const inner = () => g.cells(R.x, R.y, R.w, R.h, (x, y) => g.free(x, y) && !g.clear[g.i(x, y)]);
+  const mid = (list) => list[Math.floor(list.length / 2)];
+  const area = R.w * R.h;
+  const torch = () => {
+    if (!dark || area < 4) return;
+    const t = wallTorch(g, R, theme === "crypt" ? "candle" : "torch");
+    if (!t && area >= 6) g.light(R.x + Math.floor(R.w / 2), R.y + Math.floor(R.h / 2), "candle");
+  };
+  const crypt = theme === "crypt";
+  switch (role) {
+    case "alcove":
+      // an alcove stays clear for what the scene puts there; sometimes a candle burns in it
+      if (dark && rng.chance(0.35)) g.light(R.x, R.y, "candle");
+      if (crypt && rng.chance(0.5)) g.scatter("bones", 1, inner());
+      return;
+    case "corridor": {
+      if (!dark) return;
+      const long = Math.max(R.w, R.h);
+      for (let k = 2; k < long; k += 6) {
+        const s = spots.filter(([x, y]) => (R.w >= R.h ? x === R.x + k : y === R.y + k))[0];
+        if (s) {
+          const t = g.add("torch", s[0], s[1], 1, 1, { rot: s[2] });
+          if (t) g.light(t.x, t.y, "torch", t);
+        }
+      }
+      return;
+    }
+    case "taproom": {
+      if (farSpots.length && R.w * R.h >= 20) {
+        // the bar along the far wall, as near its middle as the doors in that wall allow
+        const horiz = farSide === "n" || farSide === "s";
+        const [fx, fy, rot] = farSpots[0];
+        const c0 = horiz ? R.x + (R.w - 1) / 2 : R.y + (R.h - 1) / 2;
+        for (let len = Math.max(2, Math.min(5, (horiz ? R.w : R.h) - 3)); len >= 2; len--) {
+          const starts = [];
+          for (let s = horiz ? R.x + 1 : R.y + 1; s + len <= (horiz ? R.x + R.w - 1 : R.y + R.h - 1); s++) starts.push(s);
+          starts.sort((a, b) => Math.abs(a + (len - 1) / 2 - c0) - Math.abs(b + (len - 1) / 2 - c0));
+          let bar = null;
+          for (const s of starts) {
+            const bx = horiz ? s : fx;
+            const by = horiz ? fy : s;
+            bar = g.add("bar", bx, by, horiz ? len : 1, horiz ? 1 : len, { label: "Bar", rot });
+            if (bar) {
+              for (let k = 0; k < len; k += 2) g.anchors.npc.push(horiz ? [bx + k, by + (farSide === "n" ? 1 : -1)] : [bx + (farSide === "w" ? 1 : -1), by + k]);
+              break;
+            }
+          }
+          if (bar) break;
+        }
+      }
+      const hearth = sideSpots.find((sp) => sp[3] !== LAYOUT_OPP[farSide]);
+      if (hearth) {
+        const f = g.add("fireplace", hearth[0], hearth[1], 1, 1, { rot: hearth[2], label: "Hearth" });
+        if (f) g.light(f.x, f.y, "fireplace", f);
+      }
+      // tables with stools round them, spread over the floor (each needs a free ring of floor around it)
+      const want = Math.max(1, Math.floor(area / 16));
+      let tables = 0;
+      for (const p of spreadPoints(rng, want * 3, R.x + 1, R.y + 1, R.x + R.w - 2, R.y + R.h - 2, 10)) {
+        if (tables >= want) break;
+        if (tableSet(g, Math.round(p[0]), Math.round(p[1]), 1, 1, true, { chair: "stool", chairChance: 0.7 })) tables++;
+      }
+      g.scatter("barrel", rng.int(1, 2), sideSpots.map(([x, y]) => [x, y]));
+      if (!g.lights.some((l) => l.x >= R.x && l.x < R.x + R.w && l.y >= R.y && l.y < R.y + R.h)) g.light(R.x + Math.floor(R.w / 2), R.y + Math.floor(R.h / 2), "lantern");
+      return;
+    }
+    case "bedroom": {
+      let beds = 0;
+      for (const [x, y, rot, side] of farSpots.length ? farSpots : spots) {
+        if (beds >= Math.max(1, Math.floor(area / 10))) break;
+        const vert = side === "n" || side === "s";
+        if (g.add("bed", vert ? x : side === "w" ? x : x - 1, vert ? (side === "n" ? y : y - 1) : y, vert ? 1 : 2, vert ? 2 : 1, { rot })) beds++;
+      }
+      g.scatter("chest", 1, sideSpots.map(([x, y]) => [x, y]));
+      if (area >= 9) g.add("rug", R.x + Math.floor(R.w / 2), R.y + Math.floor(R.h / 2), 1, 1, {});
+      break;
+    }
+    case "cell":
+      // a cell is dark: whatever light there is comes through the door
+      g.scatter("bedroll", 1, farSpots.map(([x, y]) => [x, y]));
+      if (rng.chance(0.5)) g.scatter(crypt ? "bones" : "sack", 1, inner());
+      return;
+    case "storage":
+      decorateRoom(g, R, "storage");
+      break;
+    case "shrine": {
+      const s = mid(farSpots);
+      if (s) {
+        const a = g.add("altar", s[0], s[1], 1, 1, { rot: s[2], label: "Altar" });
+        if (a) {
+          g.light(a.x, a.y, "candle", a);
+          g.anchors.npc.push([s[0] + (farSide === "e" ? -1 : farSide === "w" ? 1 : 0), s[1] + (farSide === "n" ? 1 : farSide === "s" ? -1 : 0)]);
+        }
+      }
+      break;
+    }
+    case "library":
+      decorateRoom(g, R, "library");
+      break;
+    case "armory":
+      decorateRoom(g, R, "armory");
+      break;
+    case "guard":
+      decorateRoom(g, R, "guard");
+      break;
+    case "throne": {
+      const s = mid(farSpots);
+      if (s) {
+        g.add("throne", s[0], s[1], 1, 1, { rot: s[2], label: "Throne" });
+        for (const d of [-2, 2]) {
+          const bx = farSide === "n" || farSide === "s" ? s[0] + d : s[0];
+          const by = farSide === "n" || farSide === "s" ? s[1] : s[1] + d;
+          const b = g.add("brazier", bx, by, 1, 1, {});
+          if (b) g.light(b.x, b.y, "brazier", b);
+        }
+      }
+      break;
+    }
+    case "forge": {
+      const s = mid(farSpots);
+      if (s) {
+        const f = g.add("forge", s[0], s[1], 1, 1, { rot: s[2], label: "Forge" });
+        if (f) g.light(f.x, f.y, "forge", f);
+      }
+      g.scatter("anvil", 1, inner());
+      g.scatter("barrel", 1, sideSpots.map(([x, y]) => [x, y]));
+      break;
+    }
+    case "vault":
+      g.scatter("chest", rng.int(1, 3), farSpots.map(([x, y]) => [x, y]));
+      break;
+    case "stable":
+      g.scatter("haybale", rng.int(2, 4), spots.map(([x, y]) => [x, y]));
+      break;
+    case "burial":
+      decorateRoom(g, R, area >= 20 ? "burial" : "ossuary");
+      break;
+    case "well":
+      decorateRoom(g, R, "well");
+      break;
+    case "kitchen":
+      decorateRoom(g, R, "kitchen");
+      break;
+    case "living": {
+      if (area >= 12 && !main) tableSet(g, R.x + Math.floor(R.w / 2) - 1, R.y + Math.floor(R.h / 2), R.w >= 6 ? 2 : 1, 1, true, { chairChance: 0.6 });
+      if (!plan_isIndoorTheme(theme)) {
+        const f = sideSpots[0];
+        if (f && area >= 12) {
+          const o = g.add("fireplace", f[0], f[1], 1, 1, { rot: f[2], label: "Fireplace" });
+          if (o) g.light(o.x, o.y, "hearth", o);
+        }
+      }
+      break;
+    }
+    default: {
+      // a plain room: a little of what the theme leaves lying about
+      const stuff = crypt ? "bones" : theme === "cave" || theme === "mine" ? "rubble" : plan_isIndoorTheme(theme) ? "crate" : "barrel";
+      if (area >= 9) g.scatter(stuff, rng.int(0, 2), spots.map(([x, y]) => [x, y]));
+      if (main && area >= 40 && plan_isIndoorTheme(theme) && R.w >= 6 && R.h >= 6) {
+        // a big hall: a pillar near each corner, well clear of the doors
+        for (const [x, y] of [[R.x + 1, R.y + 1], [R.x + R.w - 2, R.y + 1], [R.x + 1, R.y + R.h - 2], [R.x + R.w - 2, R.y + R.h - 2]]) if (!g.clear[g.i(x, y)]) g.add("pillar", x, y);
+      }
+    }
+  }
+  torch();
+}
+
+const plan_isIndoorTheme = (theme) => LAYOUT_INDOOR.has(theme);
+
+// Every door sits in a wall: wall (or another door) on two opposite sides and open ground on the other two (the map's
+// edge counts as open: a way off the map). A door left floating in a room becomes floor; one walled in on three or four
+// sides (a door into solid rock) becomes wall.
+function doorsInWalls(g) {
+  const wallish = (x, y) => g.inb(x, y) && (g.get(x, y) === "#" || g.get(x, y) === "+");
+  for (const d of g.doors.slice()) {
+    const { x, y } = d;
+    if (g.get(x, y) !== "+") continue;
+    const L = wallish(x - 1, y), R = wallish(x + 1, y), U = wallish(x, y - 1), D = wallish(x, y + 1);
+    if ((L && R && !U && !D) || (U && D && !L && !R)) continue;
+    const walls = L + R + U + D;
+    g.removeDoorAt(x, y);
+    g.set(x, y, walls >= 3 ? "#" : carveFloorFor(g, x, y));
+  }
+}
+
+// =================================================================================================================
 // Key objects: the things a scene is about (four dragon eggs to protect, the lever that opens the gate, the idol on
 // the altar). They're always placed, labelled and numbered, so players can find them and guard them on the grid.
 
@@ -3457,6 +3782,8 @@ const KEY_KIND = [
   [/\b(chest|coffer|strongbox|casket)/, "chest"], [/\b(lever|switch|winch)/, "lever"], [/\baltar/, "altar"], [/\b(cage|prisoner|captive)/, "cage"],
   [/\bsarcophag/, "sarcophagus"], [/\bcoffin/, "coffin"], [/\b(brazier|flame|beacon)/, "brazier"], [/\b(banner|flag|standard)/, "banner"],
   [/\bcauldron/, "cauldron"], [/\bthrone/, "throne"], [/\b(barrel|keg|powder)/, "barrel"], [/\b(crate|box)/, "crate"], [/\bfountain/, "fountain"],
+  [/\b(sack|bag|pouch|satchel|bundle)/, "sack"], [/\b(skull|bones|skeleton|corpse|body|bodies|remains)/, "bones"], [/\b(mushroom|fung|toadstool)/, "mushroom"],
+  [/\banvil/, "anvil"], [/\b(grave|tombstone|headstone)/, "gravestone"], [/\bweb/, "web"],
 ];
 const PLACEMENTS = ["focal", "center", "near_party", "far", "scattered", "edges", "hidden"];
 
@@ -3478,7 +3805,7 @@ export function normaliseKeyObjects(list) {
     const count = clamp(Math.round(Number(k.count) || 1), 1, 12);
     if (total + count > 24) break;
     total += count;
-    out.push({ name, count, placement: PLACEMENTS.includes(k.placement) ? k.placement : "focal", kind: keyObjectKind(name, k.kind) });
+    out.push({ name, count, placement: PLACEMENTS.includes(k.placement) ? k.placement : "focal", kind: keyObjectKind(name, k.kind), room: String(k.room || "").trim().slice(0, 40) });
   }
   return out;
 }
@@ -3496,7 +3823,33 @@ function placeKeyObjects(g, list) {
   const H = g.h;
   const centre = g.focus || [Math.round(W / 2), Math.round(H / 2)];
   const placed = [];
+  const free = (x, y) => g.free(x, y) && GROUND.has(g.get(x, y));
   for (const k of list) {
+    // in a named room ("the back room", "Alcove 3"); a name several rooms share ("alcove") puts one in each in turn
+    const rooms = k.room ? regionsNamed({ regions: g.regions }, k.room) : [];
+    if (rooms.length) {
+      let made = 0;
+      for (let i = 0; made < k.count && i < k.count * 3; i++) {
+        const R = rooms[i % rooms.length];
+        const cx = R.x + (R.w - 1) / 2;
+        const cy = R.y + (R.h - 1) / 2;
+        const cells = g.cells(R.x, R.y, R.w, R.h, (x, y) => free(x, y) && !placed.some((p) => p.x === x && p.y === y))
+          .sort((a, b) => Math.hypot(a[0] - cx, a[1] - cy) - Math.hypot(b[0] - cx, b[1] - cy));
+        for (const [x, y] of cells) {
+          const o = g.add(k.kind, x, y, 1, 1, { label: labelFor(k.name, made, k.count), key: true, hidden: k.placement === "hidden", blocksMove: false, blocksSight: false });
+          if (!o) continue;
+          if (k.kind === "egg" || k.kind === "crystal" || k.kind === "key_item") g.light(x, y, "crystal", o, { bright: 0, dim: 5 });
+          placed.push(o);
+          made++;
+          break;
+        }
+      }
+      if (made >= k.count) continue;
+      // whatever didn't fit in the room goes where the placement says, numbered on from the ones that did
+      k.total = k.count;
+      k.offset = made;
+      k.count -= made;
+    }
     const anchor = k.placement === "near_party" ? (g.anchors.party[0] || [W / 2, H - 2])
       : k.placement === "far" ? (g.anchors.enemy[0] || [W / 2, 2])
         : k.placement === "center" ? [Math.round(W / 2), Math.round(H / 2)]
@@ -3519,7 +3872,7 @@ function placeKeyObjects(g, list) {
     for (const [x, y] of [...cells, ...rest]) {
       if (made >= k.count) break;
       if (!okCell(x, y)) continue;
-      const o = g.add(k.kind, x, y, 1, 1, { label: labelFor(k.name, made, k.count), key: true, hidden: k.placement === "hidden", blocksMove: false, blocksSight: false });
+      const o = g.add(k.kind, x, y, 1, 1, { label: labelFor(k.name, (k.offset || 0) + made, k.total || k.count), key: true, hidden: k.placement === "hidden", blocksMove: false, blocksSight: false });
       if (!o) continue;
       if (k.kind === "egg" || k.kind === "crystal" || k.kind === "key_item") g.light(x, y, "crystal", o, { bright: 0, dim: 5 });
       placed.push(o);
@@ -4081,7 +4434,13 @@ function computeZones(g, light) {
     const o = g.og[i] >= 0 ? g.objs[g.og[i]] : null;
     return (o ? 1.5 : 0) + (g.t[i] === "%" || g.t[i] === "~" ? 1 : 0);
   };
-  const party = all.slice().sort((a, b) => dP[a] + pref(a) + jitter[a] - (dP[b] + pref(b) + jitter[b])).slice(0, N);
+  // the party starts on its own side of any closed door (behind one is somewhere they haven't been yet), unless
+  // there's too little room there for a party
+  const shut = new Uint8Array(w * h);
+  for (const d of g.doors) if (!d.open) shut[g.i(d.x, d.y)] = 1;
+  const dNear = bfsPass(g, pass.map((v, i) => (v && !shut[i] ? 1 : 0)), pStarts);
+  const near = all.filter((i) => dNear[i] >= 0);
+  const party = (near.length >= 6 ? near : all).slice().sort((a, b) => dP[a] + pref(a) + jitter[a] - (dP[b] + pref(b) + jitter[b])).slice(0, N);
   const inParty = new Set(party);
 
   let eStarts = snapToMain(g, g.anchors.enemy, inMain);
@@ -4236,16 +4595,19 @@ export function generateTacticalMap(spec = {}) {
   const realTheme = GENERATORS[theme] ? theme : "dungeon";
   const F = makeFeatures([...(Array.isArray(spec.features) ? spec.features : spec.features ? [spec.features] : []), ...hints, String(spec.theme || "")]);
   const [sw, sh] = SIZES[spec.size] || SIZES.medium;
+  // a layout the DM described (rooms, alcoves, corridors, the doors between them) is built as described, north up
+  const described = layoutRooms(spec, realTheme);
+  const plan = described.rooms.length ? planLayout(described.rooms, { indoor: LAYOUT_INDOOR.has(realTheme) }) : null;
   // a place with a shape that matters (a skull shrine, a round tower room) is built as that one shaped chamber
-  const shape = resolveShape(spec, realTheme);
+  const shape = plan ? null : resolveShape(spec, realTheme);
   const sq = shape && SQUARE_SHAPES.has(shape) && !spec.w && !spec.h ? Math.round((sw + sh) / 2) : 0;
-  const W = clamp(Math.round(spec.w || sq || sw), 12, 80);
-  const H = clamp(Math.round(spec.h || sq || sh), 10, 60);
+  const W = plan ? plan.w : clamp(Math.round(spec.w || sq || sw), 12, 80);
+  const H = plan ? plan.h : clamp(Math.round(spec.h || sq || sh), 10, 60);
   const rng = new Rng((seed ^ hashString(realTheme)) >>> 0);
   const tod = ["day", "dusk", "night"].includes(spec.timeOfDay) ? spec.timeOfDay : "day";
 
   // canonical orientation: transpose when the theme's preferred aspect doesn't match the map
-  const prefer = shape ? "any" : def.prefer || "any";
+  const prefer = shape || plan ? "any" : def.prefer || "any";
   let transpose = false;
   if (prefer === "wide" && H > W) transpose = true;
   else if (prefer === "tall" && W > H) transpose = true;
@@ -4256,16 +4618,19 @@ export function generateTacticalMap(spec = {}) {
   g.indoor = def.indoor;
   g.night = tod === "night" || tod === "dusk";
   g.tod = tod;
-  if (shape) {
+  if (plan) {
+    genLayout(g, plan);
+    g.indoor = plan.indoor;
+  } else if (shape) {
     genShaped(g, shape);
     g.indoor = true;
   } else {
     def.gen(g);
     g.indoor = def.indoor; // themes may toggle this while generating
   }
-  // a shaped chamber stays upright (a skull with its jaw at the bottom, the way in towards the party)
-  const flipX = shape ? false : rng.chance(0.5);
-  const flipY = shape ? false : rng.chance(0.5);
+  // a shaped chamber or a described layout stays as it is (north up, the way in towards the party)
+  const flipX = shape || plan ? false : rng.chance(0.5);
+  const flipY = shape || plan ? false : rng.chance(0.5);
   g.transform(transpose, flipX, flipY);
 
   // ambient
@@ -4277,11 +4642,14 @@ export function generateTacticalMap(spec = {}) {
   g.ambient = ambient;
 
   applyFeatures(g);
-  // the scene's key objects (the eggs to protect, the lever, the idol), labelled and numbered
-  placeKeyObjects(g, normaliseKeyObjects(spec.keyObjects));
+  // the scene's key objects (the eggs to protect, the lever, the idol), labelled and numbered; doors described as
+  // objects became real doors in the walls above
+  placeKeyObjects(g, normaliseKeyObjects(described.keyObjects));
   sanitizeDoors(g);
+  doorsInWalls(g);
   ensureConnected(g);
   sanitizeDoors(g);
+  doorsInWalls(g);
   // drop lights that ended up on blocked cells and objects on walls after carving
   g.objs = g.objs.filter((o) => {
     for (let y = o.y; y < o.y + o.h; y++) for (let x = o.x; x < o.x + o.w; x++) if (!g.inb(x, y) || g.get(x, y) === "#") return false;
@@ -4342,13 +4710,18 @@ export function generateTacticalMap(spec = {}) {
       ...(o.key ? { key: true } : {}),
     })),
     ...(shape ? { shape } : {}),
-    doors: g.doors.map((d) => ({ x: d.x, y: d.y, open: !!d.open, locked: !!d.locked, secret: !!d.secret })),
+    ...(plan ? { layout: true } : {}),
+    ...(plan?.dropped?.length ? { dropped: plan.dropped } : {}),
+    doors: g.doors.map((d) => ({ x: d.x, y: d.y, open: !!d.open, locked: !!d.locked, secret: !!d.secret, ...(d.to ? { to: d.to } : {}) })),
     lights: g.lights.map(stripLight),
     ambient,
     timeOfDay: tod,
     regions,
     startZones: zones,
   };
+  // what the players know the shape of: where they arrive, and everything not shut away behind a closed door
+  map.revealed = blankRevealed(map);
+  revealFrom(map, zones.party);
   return map;
 }
 
@@ -4362,9 +4735,9 @@ function stripLight(l) {
 // =================================================================================================================
 // placeCreatures
 
+// placement reaches through doors that could simply be opened (closed doors stop movement, not who can be where)
 function mapPass(map) {
-  const g = getGrids(map);
-  return g.cost;
+  return getGrids(withDoorsOpen(map)).cost;
 }
 
 /**
@@ -4709,7 +5082,18 @@ export function describeMapForAI(map, tokens = []) {
   }
   const doors = map.doors || [];
   if (doors.length) {
-    out.push("Doors: " + doors.map((d) => `${d.x},${d.y} ${d.secret ? "secret" : d.locked ? "locked" : d.open ? "open" : "closed"}`).join("; "));
+    // each door with what it joins, so "open the door to the cellar" can name it
+    const joins = (d) => {
+      const sides = doorSides(map, d);
+      if (d.to && !sides.includes(d.to)) sides.push(d.to);
+      return sides.length ? ` (${sides.join(" / ")})` : "";
+    };
+    // (room names for the shut doors, the ones worth naming; none at all if that makes the list long)
+    const line = (named) => "Doors: " + doors.slice(0, 40).map((d) => `${d.x},${d.y} ${d.secret ? "secret" : d.locked ? "locked" : d.open ? "open" : "closed"}${named(d) ? joins(d) : ""}`).join("; ") + (doors.length > 40 ? " ..." : "");
+    let text = line((d) => !d.open || d.to);
+    if (text.length > 600) text = line((d) => d.to && !d.open);
+    if (text.length > 600) text = line(() => false);
+    out.push(text);
   }
   // lights grouped by source
   const objById = new Map((map.objects || []).map((o) => [o.id, o]));
@@ -4727,7 +5111,12 @@ export function describeMapForAI(map, tokens = []) {
     lightGroups.get(name).push(`${o.x},${o.y}`);
   }
   if (lightGroups.size) out.push("Lights: " + [...lightGroups].map(([n, ps]) => `${n} ${ps.slice(0, 8).join(" ")}${ps.length > 8 ? " ..." : ""}`).join("; "));
-  if ((map.regions || []).length) out.push("Areas: " + map.regions.map((r) => `${r.name} (${r.x},${r.y} ${r.w}x${r.h})`).join("; "));
+  if ((map.regions || []).length) {
+    // areas behind doors nobody has opened yet: the players haven't seen them, not even how big they are
+    const hide = hiddenCells(map);
+    out.push("Areas: " + map.regions.map((r) => `${r.name} (${r.x},${r.y} ${r.w}x${r.h})${areaHidden(map, hide, r) ? " [unseen]" : ""}`).join("; "));
+  }
+  if ((map.dropped || []).length) out.push(`(Did not fit on this map: ${map.dropped.join(", ")}.)`);
   // the scene's key objects first: what the players are protecting, chasing or using
   const keys = (map.objects || []).filter((o) => o.key);
   if (keys.length) out.push("KEY OBJECTS (the scene's important things, { on the grid): " + keys.map((o) => `${o.label || o.kind} at ${o.x},${o.y}${o.hidden ? " (hidden)" : ""}`).join("; "));

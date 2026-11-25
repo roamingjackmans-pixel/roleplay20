@@ -53,8 +53,22 @@ export default function MapStage() {
   const template = t?.kind === 'spell' && t.spell.area ? { shape: t.spell.area.type, size: t.spell.area.size } : null;
 
   async function onMoveToken(tokenId, x, y) {
-    const r = await emit('token:move', { tokenId, x, y });
-    if (r?.ok && r.left != null) toast(`Moved ${r.feet} ft · ${r.left} ft left`, 'info', 1800);
+    doorResult(await emit('token:move', { tokenId, x, y }), x, y);
+  }
+  // a door: your character walks up to it and opens it (or shuts it); walking into one does the same
+  async function onDoorClick(x, y) {
+    doorResult(await emit('door:use', { x, y }), x, y);
+  }
+  function doorResult(r, x, y) {
+    if (!r || r.error) return;
+    if (r.confirm) {
+      // a second object interaction this turn takes the action: ask first
+      if (confirm(r.confirm)) emit('door:use', { x: r.door?.x ?? x, y: r.door?.y ?? y, useAction: true }).then((r2) => doorResult(r2, x, y));
+      return;
+    }
+    if (r.locked) toast(r.message || "It's locked.", 'info', 6000);
+    else if (r.message) toast(r.message, 'info', 3500);
+    else if (r.left != null && r.feet) toast(`Moved ${r.feet} ft · ${r.left} ft left`, 'info', 1800);
   }
   async function onTarget(tokenId) {
     if (!t) return;
@@ -158,6 +172,7 @@ export default function MapStage() {
             movement={movement}
             pings={pings.filter((pg) => !pg.mapId)}
             onMoveToken={onMoveToken}
+            onDoorClick={myTok || view.dm ? onDoorClick : null}
             onSelectToken={(id) => ui.set({ selectedTokenId: id })}
             onTarget={onTarget}
             onTemplate={onTemplate}

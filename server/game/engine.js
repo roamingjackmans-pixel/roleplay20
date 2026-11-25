@@ -12,6 +12,7 @@ import { cachedCampaignContext, turnPromptParts, safeDerive, partyBlock, npcBloc
 import { isPace, paceOf } from '../../shared/pace.js';
 import { REACTION_EMOJI, REACTABLE_KINDS } from '../../shared/reactions.js';
 import { generateTacticalMap, placeCreatures, addKeyObjectsToMap, removeObjectsFromMap } from './mapgen.js';
+import { findDoor, revealFrom, regionsNamed } from './doors.js';
 import { rollDice, rollD20, manualD20 } from '../../shared/dice.js';
 import { SKILL_NAMES, levelForXp, xpForLevel } from '../../shared/rules.js';
 import * as combat from './combat.js';
@@ -253,6 +254,7 @@ export function canAct(c) {
 const viewTimers = new Map();
 export function pushViews(c, now = false) {
   scheduleAwayRolls(c);
+  revealForParty(c); // a door opened, someone moved: what lies open to the party may have grown
   if (!io) return;
   saveCampaign(c);
   const send = () => {
@@ -620,7 +622,7 @@ export function clearBattleMap(c) {
 export function setSceneMap(c, spec, { keepTokens = false } = {}) {
   let map;
   try {
-    map = generateTacticalMap({ theme: spec.theme || 'field', name: spec.name || c.scene.location || 'Scene', size: spec.size || 'medium', ambient: spec.ambient, timeOfDay: spec.timeOfDay, features: spec.features || [], shape: spec.shape || '', keyObjects: spec.keyObjects || [] });
+    map = generateTacticalMap({ theme: spec.theme || 'field', name: spec.name || c.scene.location || 'Scene', size: spec.size || 'medium', ambient: spec.ambient, timeOfDay: spec.timeOfDay, features: spec.features || [], shape: spec.shape || '', keyObjects: spec.keyObjects || [], rooms: spec.rooms || [] });
   } catch (e) {
     console.error('[engine] map generation failed', e);
     return null;
@@ -651,7 +653,21 @@ export function setSceneMap(c, spec, { keepTokens = false } = {}) {
     occupied.add(`${pos[0]},${pos[1]}`);
     addToken(c, { kind: n.ally ? 'ally' : 'npc', npcId: n.id, name: n.name, x: pos[0], y: pos[1], color: n.color, hidden: p.placement === 'hidden' });
   }
+  // the party knows the shape of wherever they stand (and everything open from there); not what's behind closed doors
+  revealForParty(c);
   return map;
+}
+
+/** Grow what the players know of the battle map from where their characters stand (see doors.js). */
+export function revealForParty(c) {
+  const map = c.maps?.tactical?.[c.scene?.tacticalMapId];
+  if (!map) return false;
+  const seeds = [];
+  for (const t of Object.values(c.tokens || {})) {
+    if (t.kind !== 'pc' || t.dead) continue;
+    for (let dx = 0; dx < (t.size || 1); dx++) for (let dy = 0; dy < (t.size || 1); dy++) seeds.push([t.x + dx, t.y + dy]);
+  }
+  return revealFrom(map, seeds);
 }
 
 export function addToken(c, t) {
@@ -1002,13 +1018,14 @@ function applyEffect(c, e) {
       break;
     }
     case 'door_open': case 'door_close': case 'door_lock': case 'door_unlock': {
-      const map = c.maps.tactical[c.scene.tacticalMapId];
-      const [x, y] = String(e.text || '').split(',').map(Number);
-      const d = map?.doors?.find((dd) => dd.x === x && dd.y === y);
+      // text = "x,y" or the room the door leads into ("Alcove 3", "the back room")
+      const map = c.maps.tactical[c.combat?.mapId || c.scene.tacticalMapId];
+      const d = findDoor(map, e.text) || findDoor(map, e.target);
       if (!d) break;
+      if ((type === 'door_close' || type === 'door_lock') && Object.values(c.tokens).some((t) => !t.dead && t.x === d.x && t.y === d.y)) break; // someone stands in the doorway
       if (type === 'door_open') { d.open = true; d.locked = false; }
       if (type === 'door_close') d.open = false;
-      if (type === 'door_lock') { d.open = false; d.locked = true; }
+      if (type === 'door_lock') { d.open = false; d.locked = true; d.lockKnown = true; }
       if (type === 'door_unlock') d.locked = false;
       d.secret = false;
       break;
@@ -2054,7 +2071,10 @@ function spotOnMap(c, map, target) {
   if (tok) return { x: tok.x, y: tok.y };
   const low = ref.toLowerCase();
   const o = (map.objects || []).find((x) => (x.label || '').toLowerCase().includes(low) || x.kind.replace(/_/g, ' ') === low);
-  return o ? { x: o.x, y: o.y } : null;
+  if (o) return { x: o.x, y: o.y };
+  // a room or area by name ("the back room", "Alcove 3"): its middle
+  const r = regionsNamed(map, ref)[0];
+  return r ? { x: r.x + Math.floor((r.w - 1) / 2), y: r.y + Math.floor((r.h - 1) / 2) } : null;
 }
 
 const ABILITY_WORDS = { str: 'str', strength: 'str', dex: 'dex', dexterity: 'dex', con: 'con', constitution: 'con', int: 'int', intelligence: 'int', wis: 'wis', wisdom: 'wis', cha: 'cha', charisma: 'cha' };

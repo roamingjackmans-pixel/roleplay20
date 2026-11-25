@@ -84,6 +84,11 @@ export class TacticalRenderer {
       this._updateCursor();
     }
     if (p.movement !== prev.movement) this.moveCache = null;
+    // a door opened or something appeared under the pointer: what it points at is new (no stale "Closed door" tip)
+    if ((p.map !== prev.map || p.vis !== prev.vis) && this.hover.sx != null && !this.gesture && this.base) {
+      this._ensureFog();
+      this._updateHover(this.hover.sx, this.hover.sy);
+    }
     this.invalidate();
   }
 
@@ -442,30 +447,19 @@ export class TacticalRenderer {
         ctx.fillText(o.kind, x, y);
       }
     }
-    // the scene's key objects (the eggs to protect, the lever, the idol): a glowing ring and a label, once seen
+    // the scene's key objects (the eggs to protect, the lever, the idol) are drawn as themselves with a faint glow round
+    // them, once seen; no text on the map: their labels ("Egg 1") show when you point at one (or tap it)
     for (const o of map.objects || []) {
       if (!o.key || (o.hidden && !dm)) continue;
       if (fog && !fog.levels[o.y * map.w + o.x]) continue;
       const kx = this.cam.x + (o.x + (o.w || 1) / 2) * s, ky = this.cam.y + (o.y + (o.h || 1) / 2) * s;
       ctx.save();
-      ctx.strokeStyle = `rgba(255, 214, 120, ${0.6 + 0.25 * Math.sin(now / 450 + o.x * 1.7)})`;
-      ctx.lineWidth = Math.max(1.5, s * 0.06);
+      ctx.strokeStyle = `rgba(255, 214, 120, ${0.35 + 0.2 * Math.sin(now / 450 + o.x * 1.7)})`;
+      ctx.lineWidth = Math.max(1, s * 0.04);
       ctx.beginPath();
-      ctx.arc(kx, ky, s * 0.5, 0, TAU);
+      ctx.arc(kx, ky, s * 0.52, 0, TAU);
       ctx.stroke();
       ctx.restore();
-      if (s >= 16) {
-        // a short tag on the map ("Egg 1" for "Dragon egg 1"); the full name shows on hover
-        const full = o.label || o.kind;
-        const tag = full.replace(/^.*?\b([A-Za-z][\w'-]*)\s+(\d+)$/, (m, w, n) => `${w[0].toUpperCase()}${w.slice(1)} ${n}`);
-        const text = tag.length > 16 ? `${tag.slice(0, 15)}…` : tag;
-        const size = 10;
-        ctx.save();
-        ctx.font = `700 ${size}px ${UI_FONT}`;
-        const tw = ctx.measureText(text).width + 16;
-        ctx.restore();
-        pill(ctx, text, kx - tw / 2, ky + s * 0.5 + size, '#ffd678', size);
-      }
     }
     this._drawRuler(ctx);
     this._drawDrag(ctx, now);
@@ -994,8 +988,44 @@ export class TacticalRenderer {
 
   _drawObjectTooltip(ctx) {
     const h = this.hover;
-    if (!h.object || h.token || this.gesture) return;
-    pill(ctx, h.object.label, h.sx + 14, h.sy + 16, '#d8c9a0', 12);
+    // a tap on a touch screen pins the label for a few seconds (there is no hover to show it)
+    const tip = this.tapTip && this.tapTip.until > performance.now() ? this.tapTip : null;
+    if (tip && !this.gesture) {
+      this._tip(ctx, tip.text, tip.sx, tip.sy, tip.accent);
+      return;
+    }
+    if (h.token || this.gesture) return;
+    if (h.object) this._tip(ctx, h.object.label, h.sx, h.sy, h.object.key ? '#ffd678' : '#d8c9a0');
+    else if (h.door) this._tip(ctx, doorTip(h.door, !!this.p.onDoorClick), h.sx, h.sy, '#c9a54a');
+  }
+
+  /** A label beside the pointer, kept inside the map (on a phone a long name would run off the edge). */
+  _tip(ctx, text, sx, sy, accent) {
+    ctx.save();
+    ctx.font = `700 12px ${UI_FONT}`;
+    const w = ctx.measureText(text).width + 16;
+    ctx.restore();
+    const vw = this.vw || Infinity;
+    let x = sx + 14;
+    if (x + w > vw - 4) x = Math.max(4, sx - 14 - w);
+    pill(ctx, text, x, sy + 16, accent, 12);
+  }
+
+  /** A door the viewer can see at cell (x, y), or null. */
+  doorAt(x, y) {
+    const m = this.p.map;
+    if (!m) return null;
+    const d = (m.doors || []).find((dd) => dd.x === x && dd.y === y);
+    if (!d || (d.secret && this.p.vis != null)) return null;
+    if (this.fog && !this.fog.levels[y * m.w + x]) return null;
+    return d;
+  }
+
+  _pinTip(text, sx, sy, accent) {
+    this.tapTip = { text, sx, sy, accent, until: performance.now() + 2800 };
+    clearTimeout(this._tipTimer);
+    this._tipTimer = setTimeout(() => this.invalidate(), 2900);
+    this.invalidate();
   }
 
   // ------------------------------------------------------------------ hit testing
@@ -1077,6 +1107,7 @@ export class TacticalRenderer {
 
   destroy() {
     this.destroyed = true;
+    clearTimeout(this._tipTimer);
     caf(this.raf);
     clearTimeout(this.buildTimer);
     const c = this.canvas;
@@ -1103,9 +1134,10 @@ export class TacticalRenderer {
     const cx = Math.floor(mx), cy = Math.floor(my);
     const tk = this.tokenAt(mx, my);
     const obj = tk ? null : this.objectAt(mx, my);
-    const changed = cx !== h.cx || cy !== h.cy || (tk?.id ?? null) !== h.token || obj !== h.object;
-    Object.assign(h, { sx, sy, mx, my, cx, cy, token: tk ? tk.id : null, object: obj });
-    if (changed || this.p.mode === 'template' || h.object) {
+    const door = tk || obj ? null : this.doorAt(cx, cy);
+    const changed = cx !== h.cx || cy !== h.cy || (tk?.id ?? null) !== h.token || obj !== h.object || door !== h.door;
+    Object.assign(h, { sx, sy, mx, my, cx, cy, token: tk ? tk.id : null, object: obj, door });
+    if (changed || this.p.mode === 'template' || h.object || h.door) {
       this._updateCursor();
       this.invalidate();
     }
@@ -1122,7 +1154,8 @@ export class TacticalRenderer {
     else if (this.hover.token) {
       const tk = this.p.tokens.find((t) => t.id === this.hover.token);
       cur = tk && tk.isMine && this.p.onMoveToken ? 'grab' : 'pointer';
-    }
+    } else if (this.hover.door && this.p.onDoorClick && (mode || 'select') === 'select') cur = 'pointer';
+    else if (this.hover.object) cur = 'help';
     if (this.canvas.style.cursor !== cur) this.canvas.style.cursor = cur;
   }
 
@@ -1310,7 +1343,19 @@ export class TacticalRenderer {
     if (g.tok) p.onSelectToken?.(g.tok.id);
     else {
       p.onSelectToken?.(null);
-      if (inb) p.onCellClick?.(cx, cy);
+      if (!inb) return;
+      // a door: walk up to it and open it (or shut it)
+      const door = this.doorAt(cx, cy);
+      if (door && p.onDoorClick) {
+        p.onDoorClick(cx, cy, door);
+        return;
+      }
+      // a labelled thing: show its name (on a touch screen this is the only way to see it)
+      const [mx, my] = this.toMap(g.sx, g.sy);
+      const obj = this.objectAt(mx, my);
+      if (obj) this._pinTip(obj.label, g.sx, g.sy, obj.key ? '#ffd678' : '#d8c9a0');
+      else if (door) this._pinTip(doorTip(door, false), g.sx, g.sy, '#c9a54a');
+      p.onCellClick?.(cx, cy);
     }
   }
 
@@ -1326,7 +1371,7 @@ export class TacticalRenderer {
     if (this.gesture) return;
     const h = this.hover;
     if (h.cx != null || h.token) {
-      Object.assign(h, { sx: null, sy: null, cx: null, cy: null, token: null, object: null });
+      Object.assign(h, { sx: null, sy: null, cx: null, cy: null, token: null, object: null, door: null });
       this.invalidate();
     }
   }
@@ -1353,6 +1398,14 @@ export class TacticalRenderer {
     else if (e.key === '-' || e.key === '_') this.zoomBy(1 / 1.2);
     else if (e.key === '0') this.fit(true);
   }
+}
+
+/** What pointing at a door says: its state, and what a click does. */
+export function doorTip(d, clickable) {
+  if (d.secret) return 'Secret door';
+  if (d.open) return clickable ? 'Open door · click to close' : 'Open door';
+  if (d.locked) return 'Locked door';
+  return clickable ? 'Closed door · click to open' : 'Closed door';
 }
 
 function pill(ctx, text, x, y, accent = '#d8c9a0', size = 13) {
