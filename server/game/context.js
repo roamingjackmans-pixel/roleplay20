@@ -236,9 +236,12 @@ export function sceneBlock(c) {
       continue;
     }
     out.push(`Area map ${m.id} "${m.name}" (${m.style}) - owned by: ${owners.join(', ') || 'nobody yet'}${m.price ? ` | price: ${m.price}` : ''} [CURRENT AREA]`);
+    // on the road: the place they set out from and the one they're heading for, and how far along they are
+    const t = s.travel && s.travel.mapId === m.id ? s.travel : null;
+    const mark = (l) => (t && l.id === t.from ? ` <- PARTY SET OUT FROM HERE, now ${Math.round(t.progress * 100)}% of the way to ${t.to}` : t && l.id === t.to ? ' <- PARTY IS HEADING HERE' : l.id === s.areaLocationId ? ' <- PARTY IS HERE' : '');
     for (const l of m.locations || []) {
       const knownBy = Object.entries(c.knowledge || {}).filter(([, k]) => k[m.id]?.owned || k[m.id]?.discovered?.includes(l.id)).length;
-      out.push(`   - ${l.id}: ${l.name} (${l.kind})${l.secret ? ' SECRET' : ''}${knownBy ? '' : ' [undiscovered]'}${l.id === s.areaLocationId ? ' <- PARTY IS HERE' : ''} - ${clip(l.description, 100)}`);
+      out.push(`   - ${l.id}: ${l.name} (${l.kind})${l.secret ? ' SECRET' : ''}${knownBy ? '' : ' [undiscovered]'}${mark(l)} - ${clip(l.description, 100)}`);
     }
   }
   const tm = s.tacticalMapId && c.maps.tactical[s.tacticalMapId];

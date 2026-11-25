@@ -24,6 +24,9 @@ function inviteCode() {
   return s;
 }
 
+// Bumped when the map maker improves enough that every campaign's current maps should be redrawn once (maprefresh.js).
+export const MAPS_VERSION = 1;
+
 export function newCampaign(owner, { name, settings }) {
   const id = randomId('c_', 6);
   let code = inviteCode();
@@ -40,6 +43,7 @@ export function newCampaign(owner, { name, settings }) {
     knowledge: {},                     // userId -> { areaMapId -> { owned, discovered: [], current } }
     explored: {},                      // tacticalMapId -> userId -> "0101..."
     scene: { location: '', timeOfDay: '', weather: '', mood: '', areaMapId: '', areaLocationId: '', tacticalMapId: '', day: 1 },
+    mapsVersion: MAPS_VERSION,         // a new campaign's maps are made by the current map maker
     tokens: {},                        // tokens on the current tactical map
     combat: null,
     phase: 'idle',
@@ -118,6 +122,11 @@ export function campaignsForUser(userId) {
     if (c && c.members.some((m) => m.userId === userId)) out.push(c);
   }
   return out.sort((a, b) => (b.lastPlayedAt || b.createdAt) - (a.lastPlayedAt || a.createdAt));
+}
+
+/** Every campaign's id. */
+export function allCampaignIds() {
+  return Object.keys(index().campaigns);
 }
 
 export function campaignByInvite(code) {

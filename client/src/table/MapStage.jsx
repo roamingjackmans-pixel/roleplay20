@@ -121,7 +121,7 @@ export default function MapStage() {
               <optgroup label={`Maps (${areas.length})`}>
                 {[...areas].sort((a, b) => a.map.name.localeCompare(b.map.name)).map((a) => (
                   <option key={a.map.id} value={`area:${a.map.id}`}>
-                    {a.knowledge.current ? '🟢 ' : ''}🗺 {a.map.name}{a.map.id === view.scene.areaMapId ? ' · you are here' : ''}{!a.knowledge.owned ? ' (sketch)' : ''}
+                    {a.knowledge.current || a.knowledge.travel ? '🟢 ' : ''}🗺 {a.map.name}{a.map.id === view.scene.areaMapId ? ' · you are here' : ''}{!a.knowledge.owned ? ' (sketch)' : ''}
                   </option>
                 ))}
               </optgroup>
@@ -152,7 +152,7 @@ export default function MapStage() {
           // town and region maps: no tokens or scale, so no move or measure tools
           <div className="map-tools-overlay">
             <button className={`btn icon ${ui.mode === 'ping' ? 'active' : ''}`} title={ui.mode === 'ping' ? 'Stop pinging' : 'Ping the map: everyone sees where you point'} onClick={() => ui.set({ mode: ui.mode === 'ping' ? 'select' : 'ping' })}>📍</button>
-            {area.knowledge.current && <button className="btn icon" title="Find where you are" onClick={() => areaRef.current?.centerOnCurrent?.()}>◎</button>}
+            {(area.knowledge.current || area.knowledge.travel) && <button className="btn icon" title="Find where you are" onClick={() => areaRef.current?.centerOnCurrent?.()}>◎</button>}
             <button className="btn icon" title="Fit the whole map" onClick={() => areaRef.current?.fit?.()}>⤢</button>
             <button className="btn icon" title="Open this map full screen" onClick={() => ui.set({ viewMapId: area.map.id })}>⛶</button>
             {hideBtn}

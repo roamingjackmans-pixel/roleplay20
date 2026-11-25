@@ -143,14 +143,17 @@ function areaView(c, userId) {
     if (!k.owned && !discovered.size && map.id !== c.scene.areaMapId && !god) continue;
     // Everyone gets the same map: every place that isn't secret is sent (the drawing is built from them), but a
     // place you don't know yet comes without its name or description. Secret places arrive only once found.
-    const here = where[map.id] || null;
-    const knows = (l) => god || discovered.has(l.id) || l.id === here || (k.owned && !l.secret);
+    // on the road between two places of this map: the pin sits part of the way along, not on either place
+    const t = c.scene.travel && c.scene.travel.mapId === map.id ? c.scene.travel : null;
+    const travel = t ? { from: t.from, to: t.to, progress: t.progress } : null;
+    const here = travel ? null : where[map.id] || null;
+    const knows = (l) => god || discovered.has(l.id) || l.id === here || (travel && (l.id === travel.from || l.id === travel.to)) || (k.owned && !l.secret);
     const locations = map.locations
       .filter((l) => !l.secret || knows(l))
       .map((l) => (knows(l) ? l : { id: l.id, x: l.x, y: l.y, kind: l.kind, unknown: true }));
     const sent = new Set(locations.map((l) => l.id));
     const connections = (map.connections || []).filter(([a, b]) => sent.has(a) && sent.has(b));
-    out.push({ map: { ...map, locations, connections }, knowledge: { owned: !!k.owned || god, discovered: [...discovered], current: here } });
+    out.push({ map: { ...map, locations, connections }, knowledge: { owned: !!k.owned || god, discovered: [...discovered], current: here, ...(travel ? { travel } : {}) } });
   }
   return out;
 }

@@ -66,6 +66,7 @@ export default function DMScreen() {
             {!view.campaign.sessionActive && view.campaign.sessionNumber > 0 && (
               <button className="btn sm" title="Have the DM write up the last session again (its log, recap, story so far and memories). Replaces that session's current log." onClick={() => { if (confirm(`Ask the DM to write up session ${view.campaign.sessionNumber} again? It replaces that session's current log.`)) emit('session:rewriteLog'); }}>📖 Rewrite last session's log</button>
             )}
+            <button className="btn sm" title="Ask the DM to lay out the battle map again for where the party is now (rooms, doors in their walls) and to put your pin where you really are on the area map, part of the way along a road if you're travelling. One DM call. A fight in progress keeps its battle map." onClick={() => { if (confirm('Have the DM redraw the battle map and your place on the area map for where the party is now?')) emit('maps:refresh'); }}>🗺 Redraw the maps</button>
             {view.combat && <button className="btn sm" onClick={() => emit('combat:skip')}>⏭ Skip current turn</button>}
             {view.combat && <button className="btn sm danger" onClick={() => { if (confirm('End the fight now?')) emit('combat:end', { outcome: 'victory' }); }}>🏁 End combat</button>}
           </div>

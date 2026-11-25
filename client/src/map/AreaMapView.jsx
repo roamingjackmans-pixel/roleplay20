@@ -1,5 +1,5 @@
 import { forwardRef, useCallback, useEffect, useId, useImperativeHandle, useMemo, useRef, useState } from 'react';
-import { buildArea, AW, AH } from './areaRenderer.js';
+import { buildArea, travelTip, AW, AH } from './areaRenderer.js';
 import { fbm, mulberry32 } from './rng.js';
 import './map.css';
 
@@ -159,6 +159,23 @@ function Defs({ uid, dungeon }) {
       ))}
       {dungeon && null}
     </defs>
+  );
+}
+
+/** On the road between two places: the same "you are here" flag, part of the way along the road. */
+function TravelPin({ pin, onEnter, onLeave }) {
+  return (
+    <g className="rp-map-area-travel" transform={`translate(${pin.x} ${pin.y})`} onPointerEnter={onEnter} onPointerLeave={onLeave} role="img" aria-label={travelTip(pin).loc.name}>
+      <circle r="14" fill="none" stroke="#a3281e" strokeWidth="2.5">
+        <animate attributeName="r" values="12;28;12" dur="2.4s" repeatCount="indefinite" />
+        <animate attributeName="stroke-opacity" values="0.9;0;0.9" dur="2.4s" repeatCount="indefinite" />
+      </circle>
+      <circle r="5" fill="#a3281e" stroke="#5a1208" strokeWidth="1.5" />
+      <path d="M0 -4V-40" stroke={INK} strokeWidth="2" />
+      <path d="M0 -40h24l-6 7 6 7H0z" fill="#a3281e" stroke="#5a1208" strokeWidth="1.2" />
+      <path d="M3 -37h14" stroke="#e8b84a" strokeWidth="1" />
+      <circle cx="0" cy="-41" r="2.4" fill="#e8b84a" stroke={INK} strokeWidth="0.8" />
+    </g>
   );
 }
 
@@ -769,7 +786,7 @@ export const AreaMapView = forwardRef(function AreaMapView({ map, knowledge = nu
   useImperativeHandle(ref, () => ({
     fit: () => setVb({ x: 0, y: 0, w: AW, h: AH }),
     centerOnCurrent: () => {
-      const cur = scene?.markers.find((m) => m.current);
+      const cur = scene?.markers.find((m) => m.current) || scene?.travelPin;
       if (!cur) return false;
       const w = Math.min(vbRef.current.w, AW / 2.2);
       const h = (w * AH) / AW;
@@ -837,6 +854,7 @@ export const AreaMapView = forwardRef(function AreaMapView({ map, knowledge = nu
           </g>
         )}
         {markers}
+        {scene.travelPin && <TravelPin pin={scene.travelPin} onEnter={(e) => showTip(travelTip(scene.travelPin), e)} onLeave={() => setTip(null)} />}
         {livePings.map((pg) => (
           <g key={`${pg.at}-${pg.by}`} pointerEvents="none" transform={`translate(${pg.x * AW} ${pg.y * AH})`}>
             <circle r="10" fill={pg.color || '#e0b354'} fillOpacity="0.85" stroke="#1d140a" strokeWidth="1.5" />

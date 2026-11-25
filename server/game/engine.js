@@ -563,11 +563,43 @@ export function moveParty(c, mapId, locId) {
   const m = c.maps.area[mapId];
   if (!m) return;
   const otherMap = c.scene.areaMapId !== mapId;
+  // somewhere other than where the journey set out from: they're no longer on that road
+  const t = c.scene.travel;
+  if (t && (t.mapId !== mapId || (locId && locId !== t.from))) delete c.scene.travel;
   c.scene.areaMapId = mapId;
   if (locId && m.locations.some((l) => l.id === locId)) {
     c.scene.areaLocationId = locId;
     discoverLocation(c, mapId, locId, 'party');
   } else if (otherMap) c.scene.areaLocationId = ''; // a place on the old map means nothing on this one
+}
+
+/**
+ * On the road between two places of an area map: the DM gives where they set out from (scene.areaLocationId), where
+ * they're heading (headingTo, a place on the same map) and how far along they are (progress, 0-1; a percentage is
+ * read as one). Their pin then sits that far along the way. Nothing said about it = still on the way, as before;
+ * arriving (progress 1, or a new place with no destination) ends the journey.
+ */
+export function updateTravel(c, s = {}) {
+  const to = String(s.headingTo || '').trim();
+  if (String(s.areaLocationId || '') === 'none' || /^(none|-)$/i.test(to)) { delete c.scene.travel; return; }
+  if (!to) return; // nothing said: a journey under way carries on (moveParty already ended it if they moved)
+  const m = c.maps.area?.[c.scene.areaMapId];
+  const dest = m?.locations?.find((l) => l.id === to) || m?.locations?.find((l) => samePlace(l.name, to));
+  const from = c.scene.areaLocationId;
+  if (!m || !dest || !from || from === dest.id) { if (dest && from === dest.id) delete c.scene.travel; return; }
+  let p = Number(s.progress);
+  if (!Number.isFinite(p) || p < 0) p = 0;
+  if (p > 1) p = p <= 100 ? p / 100 : 1;
+  const t = c.scene.travel;
+  // 0 for a journey already under way means "no news", not "back at the start"
+  if (p === 0 && t && t.from === from && t.to === dest.id) p = t.progress;
+  if (p >= 0.999) {
+    delete c.scene.travel;
+    moveParty(c, m.id, dest.id);
+    return;
+  }
+  c.scene.travel = { mapId: m.id, from, to: dest.id, progress: Math.round(p * 100) / 100 };
+  discoverLocation(c, m.id, dest.id, 'party');
 }
 
 // "Thimblewick" on the region map and the Thimblewick town map are the same place
@@ -605,7 +637,7 @@ export function partyWhereabouts(c) {
  * The battle map shows one spot. Once the party has moved somewhere else (and the DM laid out no new map and no
  * fight is on), it is put away along with everyone's chips, so nobody is left standing on a balcony they walked off.
  */
-function putAwayOldBattleMap(c, before, { asked = false } = {}) {
+export function putAwayOldBattleMap(c, before, { asked = false } = {}) {
   if (c.combat || !c.scene.tacticalMapId || c.scene.tacticalMapId !== before.tac) return;
   const tm = c.maps.tactical[c.scene.tacticalMapId];
   const moved = !!before.loc && (before.map !== c.scene.areaMapId || before.loc !== c.scene.areaLocationId);
@@ -1119,6 +1151,7 @@ export function applyTurnResult(c, data, input = {}) {
   if (s.areaMapId && c.maps.area[s.areaMapId]) moveParty(c, s.areaMapId, s.areaLocationId);
   else if (s.areaLocationId && c.scene.areaMapId) moveParty(c, c.scene.areaMapId, s.areaLocationId);
   if (s.areaLocationId === 'none') c.scene.areaLocationId = ''; // somewhere no map shows: the open road, a dream
+  updateTravel(c, s);
 
   const startCombat = (data.combatStart || [])[0];
   if (data.sceneMap?.[0] && !startCombat) setSceneMap(c, data.sceneMap[0]);

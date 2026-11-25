@@ -102,7 +102,8 @@ const combatStart = obj({
 const quest = obj({ id: S, title: S, status: en('active', 'completed', 'failed', 'rumor'), summary: S, giver: S, update: S, xp: I });
 const handout = obj({ id: S, title: S, kind: en('letter', 'note', 'poster', 'book', 'map', 'item', 'other'), content: S, to: arr(S) });
 
-const scene = obj({ location: S, timeOfDay: S, weather: S, mood: S, areaMapId: S, areaLocationId: S, clearBattleMap: B });
+// on the road: areaLocationId = where they set out from, headingTo = where they're going, progress = 0-1 of the way
+const scene = obj({ location: S, timeOfDay: S, weather: S, mood: S, areaMapId: S, areaLocationId: S, headingTo: S, progress: N, clearBattleMap: B });
 
 export const TURN_SCHEMA = obj({
   narration,
@@ -188,6 +189,13 @@ export const CHARACTER_ASSIST_SCHEMA = obj({
 });
 
 export const RECAP_SCHEMA = obj({ narration });
+
+// Redrawing the maps for where the party is right now (after a map-maker upgrade, or when the host asks): the battle
+// map of the spot they're in ([] = none needed) and their place on the area map.
+export const MAP_REFRESH_SCHEMA = obj({
+  sceneMap: arr(sceneMap),
+  position: obj({ areaMapId: S, areaLocationId: S, headingTo: S, progress: N }),
+});
 
 // The campaign's fixed spine, for a campaign that started without one (or whose last story has ended).
 export const BACKBONE_SCHEMA = obj({ backbone: S });

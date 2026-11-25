@@ -41,6 +41,10 @@ export default function MapViewer() {
         <div className="tiny muted" style={{ marginTop: 8 }}>
           {knowledge.owned ? 'You have this map.' : `A sketch: you don't have a map of ${map.name}, only the places you've found. Ask around, buy one, or keep exploring.`} Drag to pan, scroll or pinch to zoom.
         </div>
+        {knowledge.travel && (() => {
+          const name = (id) => map.locations.find((l) => l.id === id)?.name || 'somewhere';
+          return <div className="map-viewer-pick"><b>🚩 On the road</b> <span className="pill">you are here</span><div className="story">About {Math.round(knowledge.travel.progress * 100)}% of the way from {name(knowledge.travel.from)} to {name(knowledge.travel.to)}.</div></div>;
+        })()}
         {map.description && <p className="story" style={{ margin: '10px 0 4px' }}>{map.description}</p>}
         {picked && (
           <div className="map-viewer-pick fade-in">

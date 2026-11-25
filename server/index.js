@@ -14,6 +14,7 @@ import * as E from './game/engine.js';
 import * as K from './game/combat.js';
 import * as V from './game/voice.js';
 import * as DC from './game/dmchat.js';
+import * as MR from './game/maprefresh.js';
 import { buildView, visibleLog } from './game/views.js';
 import { srd, srdFile } from './srd.js';
 import { aiStatus, MODELS } from './ai/client.js';
@@ -475,6 +476,8 @@ io.on('connection', (socket) => {
   }));
   socket.on('session:end', wrap(() => need(true) || E.endSession(c)));
   socket.on('session:rewriteLog', wrap(() => need(true) || E.rewriteLastSessionLog(c)));
+  // the host has the DM redraw the battle map and the party's place on the map for where they are now
+  socket.on('maps:refresh', wrap(() => need(true) || MR.hostRefreshMaps(c, userId)));
   socket.on('dm:retry', wrap(() => act() || E.retryTurn(c)));
   socket.on('dm:narrate', wrap((p) => need(true) || E.manualNarration(c, p)));
   socket.on('narration:read', wrap(() => need(true) || E.readWaitingNarration(c)));
@@ -501,4 +504,6 @@ server.listen(config.port, async () => {
   if (!fs.existsSync(path.join(config.clientDist, '.vite', 'manifest.json'))) console.log('  ⚠️  The app is not built yet - run `npm run build`');
   srd();
   try { await startTunnel(); } catch (e) { console.warn('  🌐 Public tunnel not started:', e.message); }
+  // once after the map maker improves: every played campaign's current maps are redrawn by the DM (maprefresh.js)
+  MR.upgradeAllMaps().then((done) => { if (done.length) console.log(`[maps] redrew the maps of ${done.length} campaign(s)`); }).catch((e) => console.error('[maps] upgrade failed', e));
 });

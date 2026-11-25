@@ -174,6 +174,7 @@ export function visibleLocations(map, knowledge) {
   if (!knowledge) return locs.map((l) => ({ ...l, _dm: true }));
   const disc = new Set(knowledge.discovered || []);
   if (knowledge.current) disc.add(knowledge.current);
+  if (knowledge.travel) disc.add(knowledge.travel.from).add(knowledge.travel.to);
   return locs.filter((l) => (knowledge.owned ? !l.secret || disc.has(l.id) : disc.has(l.id)));
 }
 
@@ -306,10 +307,12 @@ export function buildArea(map, knowledge) {
   const ext = style === 'city' ? 380 : style === 'town' ? 300 : style === 'village' ? 240 : 0;
 
   // ---------------- roads
-  const addRoad = (pts, width, kind) => {
+  const addRoad = (pts, width, kind, ends = null) => {
     const rs = resample(pts, 6);
-    scene.roads.push({ d: smoothD(rs), w: width, kind, pts: rs });
+    const road = { d: smoothD(rs), w: width, kind, pts: rs, ...(ends ? { ends } : {}) };
+    scene.roads.push(road);
     roadGrid.add(rs, width / 2);
+    return road;
   };
   const curve = (a, b, bend = 0.18) => {
     const mx = (a[0] + b[0]) / 2, my = (a[1] + b[1]) / 2;
@@ -339,7 +342,7 @@ export function buildArea(map, knowledge) {
   // explicit connections
   for (const [a, b] of conns) {
     const A = byId.get(a), B = byId.get(b);
-    if (A && B) addRoad(curve(A.p, B.p, 0.12), style === 'region' ? mainW : streetW + 1, 'main');
+    if (A && B) addRoad(curve(A.p, B.p, 0.12), style === 'region' ? mainW : streetW + 1, 'main', [a, b]);
   }
   // the renderer adds natural streets for settlements
   if (style !== 'region') {
@@ -787,7 +790,51 @@ function roomPath(r, RR) {
 }
 
 // ------------------------------------------------------------------ markers, labels, fog, decorations
+/** The point a fraction t (0-1) of the way along a polyline, by length. */
+export function alongPath(pts, t) {
+  if (!pts || !pts.length) return null;
+  if (pts.length === 1) return pts[0].slice();
+  const seg = [];
+  let total = 0;
+  for (let i = 1; i < pts.length; i++) {
+    const L = Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]);
+    seg.push(L);
+    total += L;
+  }
+  let want = Math.min(1, Math.max(0, Number(t) || 0)) * total;
+  for (let i = 0; i < seg.length; i++) {
+    if (want <= seg[i] || i === seg.length - 1) {
+      const f = seg[i] ? Math.min(1, want / seg[i]) : 0;
+      return [pts[i][0] + (pts[i + 1][0] - pts[i][0]) * f, pts[i][1] + (pts[i + 1][1] - pts[i][1]) * f];
+    }
+    want -= seg[i];
+  }
+  return pts[pts.length - 1].slice();
+}
+
+/**
+ * On the road between two places: the pin sits `progress` of the way along the road the map draws between them (or
+ * straight across when no road joins them). null when it isn't travelling or either place isn't on this map.
+ */
+export function travelPoint(scene, locs, travel) {
+  if (!travel) return null;
+  const A = locs.find((l) => l.id === travel.from);
+  const B = locs.find((l) => l.id === travel.to);
+  if (!A || !B) return null;
+  const road = scene.roads.find((r) => r.ends && ((r.ends[0] === A.id && r.ends[1] === B.id) || (r.ends[0] === B.id && r.ends[1] === A.id)));
+  const pts = road ? (road.ends[0] === A.id ? road.pts : road.pts.slice().reverse()) : [A.p, B.p];
+  const [x, y] = alongPath(pts, travel.progress);
+  return { x, y, from: A, to: B, progress: travel.progress, onRoad: !!road };
+}
+
+/** What pointing at the travel pin says: "On the way to B" · "on the road · you are here" · "About 33% of the way from A." */
+export function travelTip(pin) {
+  const pct = Math.round((pin.progress || 0) * 100);
+  return { loc: { name: `On the way to ${pin.to.name || 'somewhere'}`, kind: pin.onRoad ? 'on the road' : 'across country', description: `About ${pct}% of the way from ${pin.from.name || 'somewhere'}.` }, current: true };
+}
+
 function finishScene(scene, allLocs, shown, knowledge, R, seed, style, secretLocs = []) {
+  scene.travelPin = knowledge ? travelPoint(scene, [...allLocs, ...secretLocs], knowledge.travel) : null;
   const big = (l) => (style === 'region' ? (l.kind === 'city' ? 22 : l.kind === 'town' ? 19 : l.kind === 'village' ? 16 : 14) : style === 'dungeon' ? 14 : 15);
   const boxes = [];
   const markers = [];
