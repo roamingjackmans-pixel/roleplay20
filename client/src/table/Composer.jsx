@@ -162,6 +162,7 @@ function ActionBox() {
         <div className="submitted">
           <div className="tiny muted">You declared{mine.private ? ' (privately)' : ''}:</div>
           <div className="story">{mine.text}</div>
+          {mine.private && <div className="tiny muted">Everyone else sees 👀 by your name, the same as Just watch, so nobody can tell you're up to something.</div>}
         </div>
         <div className="row">
           <ReadyRow view={view} />
@@ -208,7 +209,7 @@ function ActionBox() {
       {dict.listening && <div className="dictating small">🎤 Listening… {dict.interim ? <i>{dict.interim}</i> : <span className="muted">speak now</span>}</div>}
       <div className="row wrap action-opts">
         <MicButton dict={dict} small />
-        <label className="check small" title="Only you and the DM see this action. Use it for things your character can do unnoticed; everyone else sees what's outwardly visible."><input type="checkbox" checked={priv} onChange={(e) => setPriv(e.target.checked)} /> Private</label>
+        <label className="check small" title="Only you and the DM see this action. Use it for things your character can do unnoticed; everyone else sees what's outwardly visible. Until the DM answers, the others see 👀 by your name, the same as Just watch."><input type="checkbox" checked={priv} onChange={(e) => setPriv(e.target.checked)} /> Private</label>
         <label className="check small" title={`Ready up without doing anything: ${name} just watches and listens this round. The DM won't ask you anything.`}><input type="checkbox" checked={false} disabled={busy} onChange={(e) => e.target.checked && watch()} /> 👀 Just watch</label>
         <ReadyRow view={view} />
         <div className="spacer" />
@@ -225,7 +226,10 @@ function ReadyRow({ view }) {
     <div className="ready-row" title="Who has declared an action">
       {req.map((m) => {
         const p = view.party.find((x) => x.userId === m.userId);
-        return <span key={m.userId} className={`ready-av ${m.submitted ? 'done' : ''} ${m.watching ? 'watching' : ''}`}><Avatar name={p?.name || m.displayName} color={p?.color || m.color} img={p?.portrait} title={`${m.displayName}: ${m.watching ? 'just watching' : m.submitted ? 'ready' : 'thinking…'}`} />{m.watching && <i className="ready-eye" aria-label="just watching">👀</i>}</span>;
+        // 👀 is "Just watch" or a Private action: the table can't tell which
+        const mePrivate = m.userId === view.me.userId && view.round.myAction?.private;
+        const how = m.watching ? 'watching, or doing something private' : mePrivate ? 'ready (others see 👀)' : m.submitted ? 'ready' : 'thinking…';
+        return <span key={m.userId} className={`ready-av ${m.submitted ? 'done' : ''} ${m.watching ? 'watching' : ''}`}><Avatar name={p?.name || m.displayName} color={p?.color || m.color} img={p?.portrait} title={`${m.displayName}: ${how}`} />{m.watching && <i className="ready-eye" aria-label="watching, or doing something private">👀</i>}</span>;
       })}
       <span className="tiny muted">{view.round.submittedCount}/{Math.max(view.round.requiredCount, view.round.submittedCount)} ready</span>
     </div>

@@ -28,7 +28,8 @@ export default function GameTable({ id }) {
   useEffect(() => { joinCampaign(id); return () => { leaveCampaign(); stopSpeaking({ force: true }); }; }, [id]); // eslint-disable-line
   // bring the map back when it's your turn in a fight (you need it to move and target)
   const myTurn = !!view?.combat?.myTurn;
-  useEffect(() => { if (myTurn && useUI.getState().mapCollapsed) useUI.getState().setMapCollapsed(false); }, [myTurn]);
+  const offered = !!view?.combat?.reaction; // an opportunity attack to take: it shows under the map
+  useEffect(() => { if ((myTurn || offered) && useUI.getState().mapCollapsed) useUI.getState().setMapCollapsed(false); }, [myTurn, offered]);
   const wide = useWideTable();
   if (!view || !srd) return <Splash text={joining ? 'Pulling up a chair at the table…' : 'Connecting…'} />;
   const min = ui.mapCollapsed;

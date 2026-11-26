@@ -20,6 +20,12 @@ const clip = (s, n) => {
   return s.length > n ? s.slice(0, n - 1) + '…' : s;
 };
 
+/** Long text cut in the middle: the start and the end both stay (how a narration ended is what the next turn builds on). */
+export const clipMiddle = (s, n, tail = Math.floor(n * 0.45)) => {
+  s = String(s || '').trim();
+  return s.length > n ? `${s.slice(0, n - tail - 3).trimEnd()} … ${s.slice(-tail).trimStart()}` : s;
+};
+
 export function safeDerive(ch) {
   try { return deriveCharacter(ch, srd()); } catch (e) { return null; }
 }
@@ -284,7 +290,8 @@ function turnWriter(c) {
     `## Turn ${t.n}${t.kind ? ` (${t.kind})` : ''}${t.combatRound ? ` - combat round ${t.combatRound}${t.turnOf ? `, ${t.turnOf}'s turn` : ''}` : ''}`,
     ...(t.actions || []).map((a) => `* ${a.name}${a.private ? ' (PRIVATE)' : ''}: ${clip(a.text, 400)}`),
     ...(t.rolls || []).map((r) => `* roll: ${r}`),
-    ...(t.narration || []).map((n) => clip(narrationText(n, nameForUser, nameForSpeaker), 900)),
+    // a long narration keeps its ending: cut off, the DM can't see how it ended and tells that part again
+    ...(t.narration || []).map((n) => clipMiddle(narrationText(n, nameForUser, nameForSpeaker), 1600)),
     t.summary ? `Summary: ${t.summary}` : '',
   ].filter(Boolean).join('\n');
 }
@@ -304,6 +311,9 @@ export function historyBlock(c) {
 // the last page boundary stays word for word the same for several turns, so the AI service keeps it cached and bills it
 // at a twentieth of the normal price; only the newest few entries (fewer than a page) are new each turn.
 export const PAGE = 6;
+
+/** Said at the top of every turn after the first: the players have read the last narration, so it isn't told again. */
+export const CARRY_ON = '(Carry on from where your last narration ended, the newest turn above. The players have just read it: don\'t repeat it or describe again what it already told them. Start with what is new.)';
 const FULL_TURNS = 8;     // turns before the boundary shown in full (every turn after it is shown in full too)
 const SUMMARY_TURNS = 25; // one-line summaries of the turns before those
 const NOTES = 12;         // DM notes before the boundary (every note after it is shown too)
@@ -354,7 +364,7 @@ export function turnPromptParts(c, input, online) {
     `# SCENE\n${sceneBlock(c)}`,
     recalled ? `# RECALLED FROM THE CAMPAIGN ARCHIVE (older details that match this turn: trust them over guesses)\n${recalled}` : '',
     latest.length ? `# THE LATEST TURNS (most recent last${full.length ? '; they carry straight on from RECENT TURNS above' : ''})\n${latest.map(write).join('\n\n')}` : '',
-    `# THIS TURN\n${input.text}`,
+    `# THIS TURN\n${turns.length && input.kind !== 'recap' ? `${CARRY_ON}\n\n` : ''}${input.text}`,
   ];
   return [
     { text: story.filter(Boolean).join('\n\n'), cache: true },

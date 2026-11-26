@@ -22,7 +22,8 @@ export function InitiativeBar() {
           </div>
         ))}
       </div>
-      {c.state === 'enemy' && <span className="pill red pulse">enemies acting</span>}
+      {c.reacting ? <span className="pill pulse" title="A creature is leaving their reach: they choose whether to strike at it as it goes">⚡ {c.reacting}: opportunity attack?</span>
+        : c.state === 'enemy' && <span className="pill red pulse">enemies acting</span>}
       {view.canRetry && <button className="btn xs primary" onClick={() => emit('dm:retry')}>↻ Enemies: try again</button>}
     </div>
   );
@@ -38,12 +39,27 @@ export function TurnPanel() {
   // the Throw toggle lasts for your turn only, so you never throw your sword by accident next round
   useEffect(() => { if (!c.myTurn && useUI.getState().throwing) useUI.getState().set({ throwing: false }); }, [c.myTurn]);
   if (!c.myTurn || !ch || !d) {
-    return ui.damagePrompt ? <DamagePrompt /> : null;
+    // not your turn: a creature leaving your reach can still be struck as it goes (and its damage rolled)
+    const owed = c.pending?.length > 0 && !ui.damagePrompt;
+    if (!c.reaction && !owed) return ui.damagePrompt ? <DamagePrompt /> : null;
+    return (
+      <>
+        <div className="turn-panel fade-in">
+          {c.reaction && <OpportunityOffer key={c.reaction.id} o={c.reaction} />}
+          {owed && <PendingDamage pending={c.pending} />}
+        </div>
+        {ui.damagePrompt && <DamagePrompt />}
+      </>
+    );
   }
   const res = (k) => d.resources?.find((r) => r.key === k);
   const left = (k) => { const r = res(k); return r && r.max != null ? r.max - (r.used || 0) : 0; };
   const actionUsed = eco?.action && !(eco?.attacksLeft > 0);
   const act = (type, extra = {}) => emit('combat:action', { type, ...extra });
+  // a rogue's Cunning Action: Dash, Disengage and Hide take the bonus action (while it's free), keeping the action for an attack
+  const cunning = (ch.classes || [{ class: ch.class, level: ch.level }]).some((k) => k.class === 'rogue' && k.level >= 2) && !eco?.bonus;
+  const quick = (type, extra = {}) => act(type, cunning ? { ...extra, bonus: true } : extra);
+  const quickTip = cunning ? ' Cunning Action: this uses your bonus action, not your action.' : '';
   return (
     <>
       <div className="turn-panel fade-in">
@@ -57,11 +73,7 @@ export function TurnPanel() {
           <button className="btn primary sm" onClick={() => emit('combat:endTurn')}>End turn ⏭</button>
         </div>
         {c.ready && !c.pending?.length && <ReadyAttack r={c.ready} />}
-        {c.pending?.length > 0 && !ui.damagePrompt && (
-          <div className="tp-row">
-            {c.pending.map((p) => <button key={p.id} className="btn sm primary" onClick={() => ui.set({ damagePrompt: { pendingId: p.id, damage: p.dice, damageType: p.type, crit: p.crit, options: p.options || [] } })}>🎲 Roll damage for {p.label}</button>)}
-          </div>
-        )}
+        {c.pending?.length > 0 && !ui.damagePrompt && <PendingDamage pending={c.pending} />}
         <div className="tp-row">
           {d.attacks.map((a) => {
             const tp = ui.throwing ? throwProfile(a, d) : null;
@@ -80,10 +92,11 @@ export function TurnPanel() {
           <button className="btn sm" onClick={() => ui.set({ panelOpen: true, panelTab: 'spells' })} disabled={!ch.spellcasting}>✨ Spells</button>
         </div>
         <div className="tp-row">
-          <button className="btn xs" disabled={actionUsed} onClick={() => act('dash')}>💨 Dash</button>
+          <button className="btn xs" disabled={actionUsed && !cunning} title={quickTip.trim() || undefined} onClick={() => quick('dash')}>💨 Dash{cunning ? ' (bonus)' : ''}</button>
           <button className="btn xs" disabled={actionUsed} onClick={() => act('dodge')}>🛡 Dodge</button>
-          <button className="btn xs" disabled={actionUsed} onClick={() => act('disengage')}>↩ Disengage</button>
-          <button className="btn xs" disabled={actionUsed} onClick={() => act('hide', { mode: 'auto' })}>👤 Hide</button>
+          <button className={`btn xs ${eco?.disengaged ? 'active' : ''}`} disabled={(actionUsed && !cunning) || eco?.disengaged} onClick={() => quick('disengage')}
+            title={eco?.disengaged ? 'You can move away from enemies this turn without giving them opportunity attacks.' : `This turn, moving out of an enemy's reach gives it no opportunity attack.${quickTip || ' Uses your action.'}`}>↩ {eco?.disengaged ? 'Disengaged' : `Disengage${cunning ? ' (bonus)' : ''}`}</button>
+          <button className="btn xs" disabled={actionUsed && !cunning} title={quickTip.trim() || undefined} onClick={() => quick('hide', { mode: 'auto' })}>👤 Hide{cunning ? ' (bonus)' : ''}</button>
           <button className="btn xs" disabled={actionUsed} onClick={() => act('help')}>🤝 Help</button>
           {res('secondWind') && <button className="btn xs" disabled={eco?.bonus || left('secondWind') <= 0} onClick={() => act('second_wind')}>❤ Second Wind</button>}
           {res('actionSurge') && <button className="btn xs" disabled={left('actionSurge') <= 0} onClick={() => act('action_surge')}>⚡ Action Surge</button>}
@@ -97,6 +110,63 @@ export function TurnPanel() {
       </div>
       {ui.damagePrompt && <DamagePrompt />}
     </>
+  );
+}
+
+/** Damage still to roll for a hit (on your turn, or an opportunity attack on someone else's). */
+function PendingDamage({ pending }) {
+  const ui = useUI();
+  return (
+    <div className="tp-row">
+      {pending.map((p) => <button key={p.id} className="btn sm primary" onClick={() => ui.set({ damagePrompt: { pendingId: p.id, damage: p.dice, damageType: p.type, crit: p.crit, options: p.options || [] } })}>🎲 Roll damage for {p.label}</button>)}
+    </div>
+  );
+}
+
+/**
+ * A creature is moving out of your reach on its turn: strike at it as it goes (an opportunity attack, which uses your
+ * reaction) or let it go. It waits for your answer; after the countdown it gets away.
+ */
+function OpportunityOffer({ o }) {
+  const ui = useUI();
+  const toast = useStore((s) => s.toast);
+  const [attackId, setAttackId] = useState(o.attacks[0]?.id);
+  const [adv, setAdv] = useState('none');
+  const [n, setN] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => { const t = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(t); }, []);
+  const secs = Math.max(0, Math.ceil((o.until - now) / 1000));
+  const atk = o.attacks.find((a) => a.id === attackId) || o.attacks[0];
+  const valid = Number(n) >= 1 && Number(n) <= 20;
+  async function go(mode) {
+    setBusy(true);
+    const res = await emit('combat:opportunity', { id: o.id, take: true, attackId: atk.id, advantage: adv, mode, natural: mode === 'manual' ? Number(n) : undefined });
+    setBusy(false);
+    if (res?.hit && res.pendingId) ui.set({ damagePrompt: { pendingId: res.pendingId, damage: res.damage, damageType: res.damageType, crit: res.crit, options: res.options || [] } });
+    else if (res?.ok && !res.hit) toast(`Miss. ${o.moverName} gets away.`, 'info', 3000);
+  }
+  return (
+    <div className="roll-req ready-attack opportunity fade-in" role="group" aria-label={`Opportunity attack on ${o.moverName}`}>
+      <div className="rr-head"><span className="rr-die">⚡</span>
+        <div className="grow"><b>Opportunity attack: {o.moverName} is leaving your reach</b> <span className="pill">{fmtMod(atk.bonus)}</span>
+          <div className="small muted">Strike as it goes (this uses your reaction until your next turn), or let it go. {secs > 0 ? `${secs} s` : ''}</div>
+        </div>
+        <button className="btn xs ghost" disabled={busy} onClick={() => emit('combat:opportunity', { id: o.id, take: false })}>Let it go</button>
+      </div>
+      {o.attacks.length > 1 && (
+        <div className="tabs adv-tabs" style={{ marginBottom: 6 }} aria-label="Weapon">
+          {o.attacks.map((a) => <button key={a.id} className={atk.id === a.id ? 'on' : ''} onClick={() => setAttackId(a.id)}>⚔ {a.name} <span className="faint">{a.damage}</span></button>)}
+        </div>
+      )}
+      <div className="row wrap" style={{ gap: 6 }}>
+        <div className="tabs adv-tabs">{[['dis', 'Disadv.'], ['none', 'Normal'], ['adv', 'Adv.']].map(([k, l]) => <button key={k} className={adv === k ? 'on' : ''} onClick={() => setAdv(k)}>{l}</button>)}</div>
+        <button className="btn primary sm" disabled={busy} onClick={() => go('auto')}>🎲 Roll for me</button>
+        <span className="tiny muted">or</span>
+        <input className="input rr-input" inputMode="numeric" placeholder="d20" value={n} onChange={(e) => setN(e.target.value.replace(/[^0-9]/g, '').slice(0, 2))} onKeyDown={(e) => e.key === 'Enter' && valid && go('manual')} title="Type the number your real d20 shows (the app adds your bonus)" />
+        <button className="btn sm" disabled={busy || !valid} onClick={() => go('manual')}>I rolled it</button>
+      </div>
+    </div>
   );
 }
 

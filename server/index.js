@@ -436,9 +436,10 @@ io.on('connection', (socket) => {
   socket.on('session:without', wrap((p) => need(true) || E.carryOnWithout(c, p?.without, userId)));
   socket.on('roll:respond', wrap((p) => act() || E.respondRoll(c, userId, p.requestId, p)));
   socket.on('roll:free', wrap((p) => act() || E.freeRoll(c, userId, p)));
-  socket.on('token:move', wrap((p) => act() || E.moveTokenFree(c, userId, p.tokenId, p.x | 0, p.y | 0)));
+  // provoke: in a fight, move even though leaving a foe's reach gives it an opportunity attack (they were asked)
+  socket.on('token:move', wrap((p) => act() || E.moveTokenFree(c, userId, p.tokenId, p.x | 0, p.y | 0, { provoke: !!p.provoke })));
   // click a door: walk up to it and open it (or shut it); in a fight a second one asks to spend the action
-  socket.on('door:use', wrap((p) => act() || K.useDoor(c, userId, p.x | 0, p.y | 0, { useAction: !!p.useAction })));
+  socket.on('door:use', wrap((p) => act() || K.useDoor(c, userId, p.x | 0, p.y | 0, { useAction: !!p.useAction, provoke: !!p.provoke })));
   // battle-map pings are grid cells; town and region map pings are 0-1 positions on that map
   socket.on('ping', wrap((p) => need() || (p.mapId ? E.ping(c, userId, Math.min(1, Math.max(0, Number(p.x) || 0)), Math.min(1, Math.max(0, Number(p.y) || 0)), String(p.mapId).slice(0, 80)) : E.ping(c, userId, p.x | 0, p.y | 0), { ok: true })));
   socket.on('chat', wrap((p) => need() || E.chat(c, userId, p.text, p.to ? String(p.to) : null)));
@@ -459,6 +460,8 @@ io.on('connection', (socket) => {
 
   socket.on('combat:attack', wrap((p) => act() || K.attack(c, userId, p)));
   socket.on('combat:damage', wrap((p) => act() || K.damage(c, userId, p)));
+  // a creature is leaving your reach on its turn: take the opportunity attack ({ id, take, attackId, ...roll }) or let it go
+  socket.on('combat:opportunity', wrap((p) => act() || K.opportunityAttack(c, userId, p || {})));
   socket.on('cast', wrap((p) => act() || K.castSpell(c, userId, p)));
   socket.on('combat:action', wrap((p) => act() || K.takeAction(c, userId, p)));
   socket.on('combat:ask', wrap((p) => act() || K.combatAsk(c, userId, p.text)));

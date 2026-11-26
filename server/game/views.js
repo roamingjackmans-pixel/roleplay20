@@ -187,6 +187,8 @@ function combatView(c, userId) {
     pending: Object.values(k.pending || {}).filter((p) => p.userId === userId).map((p) => ({ id: p.id, label: p.label, dice: p.dice, type: p.type, crit: p.crit, versatile: p.versatile, melee: p.melee, options: p.options || [] })),
     // a typed "run over and attack" the player now rolls to hit for
     ready: myTurn && k.ready && k.ready.userId === userId ? { id: k.ready.id, attackId: k.ready.attackId, attackName: k.ready.attackName, bonus: k.ready.bonus, thrown: !!k.ready.thrown, targetTokenId: k.ready.targetTokenId, targetName: k.ready.targetName } : null,
+    // an opportunity attack this player is offered right now (`reaction`), or whose answer the fight waits on (`reacting`)
+    ...combat.reactionView(c, userId),
   };
 }
 
@@ -236,7 +238,11 @@ export function buildView(c, userId, cache = {}) {
     },
     members: c.members.map((x) => {
       const u = getUser(x.userId);
-      return { userId: x.userId, role: x.role, displayName: u?.displayName || '?', color: u?.color, online: online.has(x.userId), characterId: x.characterId, away: x.away && !online.has(x.userId) ? { mode: x.away.mode, reason: x.away.reason || '' } : null, submitted: !!c.round.actions[x.userId], watching: !!c.round.actions[x.userId]?.watch, required: need.includes(x.userId), rebuilding: !!(x.rebuilding && !x.characterId) };
+      const act = c.round.actions[x.userId];
+      // a Private action shows to everyone else exactly like "Just watch" (👀), so nobody can tell the two apart; the
+      // player themself, and the host in God view, see what it really is
+      const eyes = !!act?.watch || (!!act?.private && x.userId !== userId && !(isOwner && c.settings.dmView));
+      return { userId: x.userId, role: x.role, displayName: u?.displayName || '?', color: u?.color, online: online.has(x.userId), characterId: x.characterId, away: x.away && !online.has(x.userId) ? { mode: x.away.mode, reason: x.away.reason || '' } : null, submitted: !!act, watching: eyes, required: need.includes(x.userId), rebuilding: !!(x.rebuilding && !x.characterId) };
     }),
     party: partyView(c),
     formerParty: formerPartyView(c),

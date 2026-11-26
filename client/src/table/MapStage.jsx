@@ -52,18 +52,26 @@ export default function MapStage() {
   const t = ui.targeting;
   const template = t?.kind === 'spell' && t.spell.area ? { shape: t.spell.area.type, size: t.spell.area.size } : null;
 
-  async function onMoveToken(tokenId, x, y) {
-    doorResult(await emit('token:move', { tokenId, x, y }), x, y);
+  // in a fight, a move out of a foe's reach gives it an opportunity attack: the server asks first (`provokes`), and
+  // the same move is sent again with `provoke` if they go anyway
+  async function onMoveToken(tokenId, x, y, extra = {}) {
+    const r = await emit('token:move', { tokenId, x, y, ...extra });
+    if (r?.provokes) { if (confirm(r.confirm)) onMoveToken(tokenId, x, y, { ...extra, provoke: true }); return; }
+    doorResult(r, x, y, extra);
   }
   // a door: your character walks up to it and opens it (or shuts it); walking into one does the same
-  async function onDoorClick(x, y) {
-    doorResult(await emit('door:use', { x, y }), x, y);
+  async function onDoorClick(x, y, extra = {}) {
+    doorResult(await emit('door:use', { x, y, ...extra }), x, y, extra);
   }
-  function doorResult(r, x, y) {
+  function doorResult(r, x, y, extra = {}) {
     if (!r || r.error) return;
+    if (r.provokes) {
+      if (confirm(r.confirm)) emit('door:use', { x: r.door?.x ?? x, y: r.door?.y ?? y, ...extra, provoke: true }).then((r2) => doorResult(r2, x, y, { ...extra, provoke: true }));
+      return;
+    }
     if (r.confirm) {
       // a second object interaction this turn takes the action: ask first
-      if (confirm(r.confirm)) emit('door:use', { x: r.door?.x ?? x, y: r.door?.y ?? y, useAction: true }).then((r2) => doorResult(r2, x, y));
+      if (confirm(r.confirm)) emit('door:use', { x: r.door?.x ?? x, y: r.door?.y ?? y, ...extra, useAction: true }).then((r2) => doorResult(r2, x, y, { ...extra, useAction: true }));
       return;
     }
     if (r.locked) toast(r.message || "It's locked.", 'info', 6000);

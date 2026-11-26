@@ -155,6 +155,7 @@ span.react-chip { cursor: default; }
 .entry.combat.muted { color: var(--faint); font-size: 12px; }
 .entry.combat.fumble { text-align: left; color: #e6cdfb; font-style: italic; background: rgba(120, 70, 160, .14); border-left: 3px solid #9b6fd0; border-radius: 6px; padding: 6px 10px; }
 .turn-panel .ready-attack { box-shadow: 0 0 18px rgba(217, 164, 65, .25); }
+.turn-panel .opportunity { border-color: #e0a040; box-shadow: 0 0 22px rgba(240, 160, 60, .4); }
 .entry.cast { text-align: center; font-size: 13px; color: #cdb5f5; font-style: italic; }
 .entry.thinking { display: flex; gap: 12px; align-items: center; padding: 12px 14px; border: 1px dashed var(--line-2); border-radius: 10px; color: var(--text-2); }
 .quill { font-size: 22px; animation: write 1.2s ease-in-out infinite; }

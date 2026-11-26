@@ -19,6 +19,7 @@ import * as combat from './combat.js';
 import { rememberTurn, rememberNote, rememberFact, rememberHandout, rememberSession, forgetEverything } from './memory.js';
 import { buildView, logVisibleTo } from './views.js';
 import { holdNarration, hostReads, takeWaitingNarration, waitingNarration } from './readgate.js';
+import { dropRepeats, recentNarration } from './repeats.js';
 
 let io = null;
 export function attachIO(x) { io = x; }
@@ -1127,11 +1128,20 @@ export function narrationSegments(narration) {
   return out;
 }
 
-export function postNarration(c, narration, { kind = 'narration' } = {}) {
+/**
+ * Posts the DM's narration to the log. `skipRepeats`: leave out sentences that say again, nearly word for word, what the
+ * same players just read (the DM retelling how its last narration ended).
+ */
+export function postNarration(c, narration, { kind = 'narration', skipRepeats = false } = {}) {
   const posted = [];
-  for (const seg of narrationSegments(narration)) {
-    const parts = seg.parts;
-    const to = audience(c, seg.to);
+  let segments = narrationSegments(narration).map((seg) => ({ to: audience(c, seg.to), parts: seg.parts }));
+  if (skipRepeats) {
+    const r = dropRepeats(segments, recentNarration(c));
+    if (r.dropped) console.log(`[narration] left out ${r.dropped} sentence${r.dropped > 1 ? 's' : ''} the table had just read`);
+    segments = r.segments;
+  }
+  for (const seg of segments) {
+    const { parts, to } = seg;
     const out = parts.map((p) => {
       const who = resolveSpeaker(c, p.speaker);
       if (who.npc) { who.npc.lastSeenSession = c.sessionNumber || 0; who.npc.lastSeenRound = c.round?.n || 0; }
@@ -1156,7 +1166,8 @@ export function applyTurnResult(c, data, input = {}) {
   const startCombat = (data.combatStart || [])[0];
   if (data.sceneMap?.[0] && !startCombat) setSceneMap(c, data.sceneMap[0]);
 
-  const posted = postNarration(c, data.narration);
+  // a new session's "Previously on..." retells on purpose
+  const posted = postNarration(c, data.narration, { skipRepeats: input.kind !== 'recap' });
   applyEffects(c, data.effects);
   for (const q of data.quests || []) upsertQuest(c, q);
   for (const h of data.handouts || []) {
@@ -1195,7 +1206,10 @@ export function applyTurnResult(c, data, input = {}) {
     combat.startCombat(c, { ...startCombat, map: data.sceneMap?.[0] || null });
     return;
   }
-  const reqs = (data.rollRequests || []).map((r) => makeRollRequest(c, r, 'turn')).filter(Boolean);
+  // a roll for a Private action stays between its player and the DM: the others see only "a secret roll", not
+  // "Sleight of Hand", which would give the action away
+  const privately = new Set((input.actions || []).filter((a) => a.private).map((a) => a.characterId));
+  const reqs = (data.rollRequests || []).map((r) => makeRollRequest(c, privately.has(findCharacter(c, r.characterId)?.id) ? { ...r, secret: true } : r, 'turn')).filter(Boolean);
   if (reqs.length) {
     c.phase = 'rolls';
     c.round.rollRequests = reqs;
@@ -1626,7 +1640,7 @@ function resolveRolls(c) {
       : `CONTEST "${k.id}": ${vs} -> ${k.winner.characterName.toUpperCase()} WINS. ${k.winner.characterName}'s action happens; ${k.sides.filter((r) => r !== k.winner).map((r) => r.characterName).join(' and ')}'s doesn't.`);
   }
   c.round.rollRequests = [];
-  runTurn(c, { kind: 'rolls', rollsText: lines, text: `Roll results for the checks you asked for:\n${lines.join('\n')}\n\nNarrate the outcomes for the whole table (privately only for secret rolls or things only that character could perceive), then move the scene on. Players don't see the DCs or SUCCESS/FAILURE above: show what happens, never announce a pass, a fail or a winner.` });
+  runTurn(c, { kind: 'rolls', rollsText: lines, text: `Roll results for the checks you asked for:\n${lines.join('\n')}\n\nNarrate the outcomes for the whole table (privately only for secret rolls or things only that character could perceive), then move the scene on. Start with the outcome: everyone has already read the attempt, so don't describe it again. Players don't see the DCs or SUCCESS/FAILURE above: show what happens, never announce a pass, a fail or a winner.` });
 }
 
 /** A roll a player makes from their sheet. If it matches a pending request, it answers the request. */
@@ -1645,13 +1659,14 @@ export function freeRoll(c, userId, p) {
 
 // ---------------------------------------------------------------- tokens on the scene map
 
-export function moveTokenFree(c, userId, tokenId, x, y) {
+export function moveTokenFree(c, userId, tokenId, x, y, { provoke = false } = {}) {
   const t = c.tokens[tokenId];
   if (!t) return { error: 'No such token.' };
   const m = member(c, userId);
   const isOwner = m?.role === 'owner';
   if (!(t.characterId && t.characterId === m?.characterId) && !(isOwner && c.settings.dmView)) return { error: 'You can only move your own token.' };
-  if (c.combat) return combat.moveInCombat(c, userId, t, x, y);
+  // provoke: they were told the move gives a foe an opportunity attack, and go anyway
+  if (c.combat) return combat.moveInCombat(c, userId, t, x, y, { provoke });
   return combat.moveOutOfCombat(c, t, x, y);
 }
 
